@@ -1,0 +1,35 @@
+# SubZero Keyosk
+
+> Airgapped, Bare-Metal Bitcoin Cold-Storage Key Generator & Output Descriptor Exporter (Alpine Linux + TUI).
+
+## LLM System Context & Intent
+SubZero Keyosk is a minimal, single-purpose, airgapped cryptographic appliance designed to eliminate all software and human footguns in Bitcoin cold-storage seed generation. It boots a hardened, amnesic, read-only Alpine Linux OS directly into a terminal user interface (`/dev/tty1`) on bare-metal x86_64 hardware, derives Native SegWit Bitcoin keys from pure physical entropy (coin flips or dice rolls), and exports public watch-only descriptors via QR codes.
+
+## Core Architectural Invariants
+* **Operating System:** Hardened Alpine Linux (x86_64 PC & armv7 Raspberry Pi), OpenRC, Linux LTS Kernel 6.6.
+* **Boot Model:** Single-partition FAT32 EFI/BIOS System Partition (`esp.img`) or Pi FAT32 boot partition with compressed `rootfs.squashfs` payload (`toram` run-from-RAM model; storage media unmounted and removable immediately post-boot).
+* **Display Engine:** Direct Linux Framebuffer (`/dev/fb0`, 32bpp double-buffered linear memory canvas, scale=2 bold typography). No X11/Wayland/Chromium.
+* **Hardware Isolation:** All networking protocol stacks (`kernel/net`) and all PCI/USB network/wireless drivers physically deleted from disk during build. Broadcom Wi-Fi/Bluetooth firmware overlays deleted on Pi.
+* **DMA Protection:** `intel_iommu=on amd_iommu=on iommu=force efi=disable_early_pci_dma`.
+* **Memory Hygiene:** Ephemeral execution in `tmpfs`. All cryptographic buffers (input string, hash buffers, BIP32 private keys) explicitly zeroized with `.fill(0)` and framebuffer memory wiped upon exit (`q`/`ESC`).
+* **Cryptographic Stack:** Self-contained CommonJS single bundle (`dist/tui_testnet4.cjs`) using audited `@noble/curves`, `@noble/hashes`, and `@scure/bip39`. Universal SHA-256 Engine Hash: `3ff8cdb90f66a25880903a73b431cf0e1debff02e1731d2338c9199de903da41`.
+
+## Zero-Footgun Cryptographic Constraints
+1. **Derivation Scheme:** BIP84 Native SegWit (`m/84'/1'/0'` Testnet4 / `m/84'/0'/0'` Mainnet) $\to$ `tb1q...` / `bc1q...` addresses exclusively.
+2. **Entropy Sizing:** Exactly 128 bits (12 words) matching the 128-bit symmetric security level of secp256k1.
+3. **Entropy Modes:** Exactly 128 coin flips ($128$ bits) or 50 D6 dice rolls ($50 \times \log_2(6) \approx 129.2$ bits).
+4. **Zero Passphrases (No 13th Word):** Omitted to prevent unchecksummed typos from creating phantom unrecoverable wallets.
+5. **Quality Filtering:** Real-time Markov transition audit ($0.35 \le P \le 0.65$) and repeated substring detection ($\ge 6$ chars) to hard-block non-random human patterns.
+6. **Data Egress:** Optical QR export of public `vpub` / `zpub` and BIP380 multipath descriptor `wpkh([fp/84'/1'/0']tpub.../<0;1>/*)#checksum`. Zero private keys rendered to QR.
+7. **Address Visual Proof:** Displays first 5 receive addresses (`index 0-4`) and dedicated Address #0 QR for instant optical coordinator and faucet verification.
+8. **Child Key Delegation:** Derives BIP85 12-word child mnemonics (`m/83696968'/39'/0'/12'/index'`) for lightning/mobile spending without risking the master seed.
+
+## Key Files & Machine-Readable Manifest
+* [llms-full.txt](llms-full.txt): Complete, unified monolithic context payload containing all 12 architectural, mathematical, hardware, media verification, and multi-model audit specifications.
+* [src/fb_testnet4.ts](src/fb_testnet4.ts): Direct `/dev/fb0` double-buffered framebuffer UI engine and 9-page carousel.
+* [src/crypto.ts](src/crypto.ts): BIP39/32/84/85 derivation engine, Markov transition tests, and SegWit address encoding.
+* [scripts/verify_media.py](scripts/verify_media.py): Cross-platform byte-bounded physical media and SD card verification tool.
+* [scripts/build_alpine_kiosk.sh](scripts/build_alpine_kiosk.sh): Deterministic x86_64 Alpine Linux rootfs bootstrap and disk image builder.
+* [scripts/build_rpi_kiosk.sh](scripts/build_rpi_kiosk.sh): Deterministic Raspberry Pi (armv7) rootfs and bare-metal image builder.
+* [tests/crypto_audit.test.ts](tests/crypto_audit.test.ts): Automated test vectors verifying BIP39/32/84/85, descriptor generation, and quality filter invariants.
+* [tests/testnet4.test.ts](tests/testnet4.test.ts): Automated test vectors for Testnet4 BIP-84 derivations and BIP-380 output descriptors.

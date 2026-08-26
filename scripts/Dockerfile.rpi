@@ -1,0 +1,32 @@
+# ===========================================================================
+#  SubZero Raspberry Pi ARM64 (aarch64) Image Builder — Containerized
+#  Provides QEMU user-mode emulation & tools for building bootable RPi images
+# ===========================================================================
+FROM debian:bookworm-20240211-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    ca-certificates \
+    parted \
+    fdisk \
+    gdisk \
+    dosfstools \
+    mtools \
+    squashfs-tools \
+    e2fsprogs \
+    rsync \
+    udev \
+    coreutils \
+    util-linux \
+    kpartx \
+    qemu-user-static \
+    binfmt-support \
+    xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV SOURCE_DATE_EPOCH=1700000000
+ENV TZ=UTC
+
+WORKDIR /build
+
+CMD ["/build/scripts/build_rpi_kiosk.sh"]

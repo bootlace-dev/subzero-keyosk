@@ -1,0 +1,36 @@
+# ===========================================================================
+#  SubZero Alpine Kiosk Image Builder — Containerized
+#  Mirrors buildroot-compiler/Dockerfile pattern.
+#  All chroot/mount/losetup runs inside this disposable container.
+#  A trap bug here kills the container, not the host.
+# ===========================================================================
+FROM debian:bookworm-20240211-slim
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget \
+    curl \
+    tar \
+    ca-certificates \
+    parted \
+    fdisk \
+    gdisk \
+    dosfstools \
+    mtools \
+    squashfs-tools \
+    e2fsprogs \
+    rsync \
+    grub-efi-amd64-bin \
+    udev \
+    strace \
+    coreutils \
+    util-linux \
+    kpartx \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV SOURCE_DATE_EPOCH=1700000000
+ENV TZ=UTC
+
+WORKDIR /build
+
+# The actual build script is volume-mounted at runtime
+CMD ["/build/scripts/build_alpine_kiosk.sh"]

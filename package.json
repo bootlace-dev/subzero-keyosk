@@ -1,0 +1,28 @@
+{
+  "name": "subzero-keyosk",
+  "version": "0.1.0-testnet4",
+  "description": "A tiny, auditable live USB/SD image turning any PC or Raspberry Pi into an amnesic, airgapped Bitcoin seed and key generator from physical coin flips & dice.",
+  "main": "dist/tui_testnet4.cjs",
+  "scripts": {
+    "build": "npx esbuild src/tui.ts --bundle --platform=node --target=node20 --outfile=dist/tui.cjs",
+    "build:testnet4": "npx esbuild src/fb_testnet4.ts --bundle --platform=node --target=node20 --outfile=dist/tui_testnet4.cjs",
+    "build:all": "npm run build && npm run build:testnet4",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@noble/curves": "^1.9.7",
+    "@noble/hashes": "^1.8.0",
+    "@scure/bip39": "^1.6.0",
+    "qrcode": "1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "jsdom": "^29.1.1",
+    "vite": "8.2.0",
+    "vite-plugin-node-polyfills": "0.28.0",
+    "vite-plugin-singlefile": "2.3.3",
+    "vitest": "^4.1.11"
+  },
+  "type": "module"
+}
