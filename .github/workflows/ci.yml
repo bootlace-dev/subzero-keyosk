@@ -71,6 +71,8 @@ jobs:
 
       - name: Compress Release Packages & Generate Checksums
         run: |
+          mkdir -p dist
+          cp src/templates/decrypt.html dist/decrypt.html
           cd dist
           zip -9 -j subzero-vault-pc.img.zip subzero-vault-pc.img
           zip -9 -j subzero-vault-rpi.img.zip subzero-vault-rpi.img
