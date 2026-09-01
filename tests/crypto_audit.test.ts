@@ -5,7 +5,13 @@ import { sha256 } from '@noble/hashes/sha2.js';
 import { 
     BIP32Node, 
     getSegWitAddress, 
-    deriveBip85Mnemonic, 
+    deriveBip85Mnemonic,
+    deriveBip85Nostr,
+    deriveBip85Hex,
+    solve12thWordCandidates,
+    suggestBip39Correction,
+    encryptVaultJson,
+    decryptVaultJson,
     runMarkovAudit, 
     hasRepetitiveSubstrings,
     getDescriptorChecksum 
@@ -212,6 +218,77 @@ describe('Vector 1: Cryptographic Engine & BIP Test Vectors', () => {
             const coreDesc = "rawtr(c6047f9441ed7d6d3045406e95c07cd85c778e4b8cef3ca7abac09b95c709ee5)";
             const coreCksum = getDescriptorChecksum(coreDesc);
             expect(coreCksum.length).toBe(8);
+        });
+    });
+
+    // --- Subzero Vault Mini-Tools & Multi-Protocol Suite ---
+    describe('Subzero Vault Suite Extensions', () => {
+        const testMnemonic = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+        
+        it('should derive valid Nostr nsec/npub keys from BIP-85 path', async () => {
+            const seed = await bip39.mnemonicToSeed(testMnemonic, '');
+            const nostr = deriveBip85Nostr(seed, 0);
+            
+            expect(nostr.nsec.startsWith('nsec1')).toBe(true);
+            expect(nostr.npub.startsWith('npub1')).toBe(true);
+            expect(nostr.privHex.length).toBe(64);
+            expect(nostr.pubHex.length).toBe(64);
+        });
+
+        it('should derive valid BIP-85 hex entropy strings', async () => {
+            const seed = await bip39.mnemonicToSeed(testMnemonic, '');
+            const hex32 = deriveBip85Hex(seed, 32, 0);
+            expect(hex32.length).toBe(64);
+            expect(/^[0-9a-f]{64}$/.test(hex32)).toBe(true);
+        });
+
+        it('should solve 11-word BIP-39 mnemonic candidates and fix single-word typos', () => {
+            const eleven = ['abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon', 'abandon'];
+            const candidates = solve12thWordCandidates(eleven);
+            expect(candidates.length).toBeGreaterThan(0);
+            expect(candidates.includes('about')).toBe(true);
+
+            const typoFix = suggestBip39Correction('abondon');
+            expect(typoFix[0].word).toBe('abandon');
+            expect(typoFix[0].distance).toBe(1);
+        });
+
+        it('should execute full WebCrypto AES-256-GCM symmetric encryption/decryption loop', async () => {
+            const payload = JSON.stringify({
+                heirA_btc: 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
+                bitwarden_master: 'P@ssw0rd123!',
+                google_backup_codes: ['12345678', '87654321']
+            });
+            const passphraseSeed = 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong';
+
+            const encryptedVault = await encryptVaultJson(payload, passphraseSeed);
+            const vaultObj = JSON.parse(encryptedVault);
+            
+            expect(vaultObj.format).toBe('subzero-vault-v1');
+            expect(vaultObj.cipher).toBe('AES-256-GCM');
+            expect(vaultObj.iterations).toBe(600000);
+            expect(vaultObj.ciphertext).toBeDefined();
+
+            // Decrypt with correct seed
+            const decrypted = await decryptVaultJson(encryptedVault, passphraseSeed);
+            expect(decrypted).toBe(payload);
+
+            // Decrypt with wrong seed throws Error
+            const wrongSeed = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+            await expect(decryptVaultJson(encryptedVault, wrongSeed)).rejects.toThrow();
+        });
+
+        it('should calculate test5 (All 0xFF / Zoo) BIP-85 Index 0 Passphrase', async () => {
+            const masterMnemonic = 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong';
+            const seed = await bip39.mnemonicToSeed(masterMnemonic, '');
+            const rootNode = BIP32Node.fromSeed(seed);
+            const passphrase = deriveBip85Mnemonic(rootNode, 0, 12);
+            console.log(">>> TEST5_ZOO_BIP85_INDEX_0_PASSPHRASE:", passphrase);
+            for (let i = 1; i <= 5; i++) {
+                console.log(`>>> TEST5_HEIR_${i}:`, deriveBip85Mnemonic(rootNode, i, 12));
+            }
+            expect(passphrase).toBeDefined();
+            expect(passphrase.split(' ').length).toBe(12);
         });
     });
 });

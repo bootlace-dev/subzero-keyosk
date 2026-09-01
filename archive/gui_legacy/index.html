@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'none'; form-action 'none'; base-uri 'none'; frame-ancestors 'none';">
+    <title>SubZero Keygen | Amnesic Bitcoin Wallet</title>
+    <!-- 
+    DEFENSIVE RATIONALE INDEX:
+    1. Single-file build guarantees portability to ephemeral/airgapped RAM environments.
+    2. Zero external dependencies ensures no supply chain interception or silent telemetry exfiltration.
+    3. CSP completely disables network requests (default-src 'none') and connects, preventing leaks.
+    4. Pure JS cryptographic implementation (noble-secp256k1) avoids WebAssembly, allowing a strict CSP without 'wasm-unsafe-eval'.
+    5. Real-time visual hash animations of intermediate states are strictly omitted to prevent optical exfiltration side-channels (SUBZERO-SEC-2026-001).
+    6. Zero-Knowledge Authorship Proof (ZK-AP): SHA-256 hash of secret pre-image: 14a48b8d6f518c45edfd4edb21ce57657a6b4e762369a8a18d5151a526bcc577
+    -->
+    <style>
+        :root {
+            --bg-color: #0f0f0f;
+            --card-bg: #1a1a1a;
+            --border-color: #2a2a2a;
+            --text-primary: #f6f8fb;
+            --text-secondary: #8f9baa;
+            --accent-orange: #ff9f1c;
+            --accent-green: #4caf50;
+            --accent-red: #f44336;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            letter-spacing: -0.02em;
+        }
+
+        /* Hide visual scrollbar but allow mousewheel/touchpad scrolling */
+        ::-webkit-scrollbar {
+            display: none;
+        }
+
+        .gate-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: var(--bg-color);
+            z-index: 1000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .gate-content {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 32px;
+            max-width: 580px;
+            width: 100%;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            text-align: center;
+        }
+
+        .gate-title {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--accent-red);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 20px;
+        }
+
+        .warning-card {
+            background-color: rgba(244, 67, 54, 0.05);
+            border: 1px solid rgba(244, 67, 54, 0.2);
+            border-radius: 8px;
+            padding: 20px;
+            text-align: left;
+            margin-bottom: 24px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+
+        .warning-card h3 {
+            color: var(--accent-red);
+            margin-top: 0;
+            margin-bottom: 8px;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+
+        .checkbox-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 24px;
+            text-align: left;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 650;
+            user-select: none;
+        }
+
+        .checkbox-container input {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }
+
+        .glow-btn {
+            background-color: var(--text-primary);
+            color: var(--bg-color);
+            border: none;
+            padding: 12px 28px;
+            font-size: 13px;
+            font-weight: 750;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            border-radius: 6px;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s;
+        }
+
+        .glow-btn:hover:not(:disabled) {
+            background-color: #e5e5e5;
+        }
+
+        .btn-outline:disabled, .btn-outline.inactive {
+            background: #333;
+            color: #666;
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+
+        .glow-btn:disabled {
+            background-color: #333;
+            color: #666;
+            cursor: not-allowed;
+        }
+
+        .container {
+            max-width: 680px;
+            width: 100%;
+            padding: 24px;
+            box-sizing: border-box;
+            margin: 0 auto;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo-icon {
+            font-size: 32px;
+            margin-bottom: 8px;
+        }
+
+        h1 {
+            font-size: 26px;
+            font-weight: 800;
+            margin: 0 0 4px 0;
+            text-transform: uppercase;
+            letter-spacing: -0.03em;
+        }
+
+        .subtitle {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin: 0;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .board-section {
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+        }
+
+        .bits-counter {
+            font-size: 20px;
+            font-weight: 800;
+            font-family: var(--font-mono);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .progress-bar-bg {
+            background-color: #222;
+            height: 6px;
+            border-radius: 3px;
+            overflow: hidden;
+            margin-bottom: 20px;
+        }
+
+        .progress-bar-fill {
+            background-color: var(--accent-orange);
+            height: 100%;
+            width: 0%;
+            transition: width 0.1s ease;
+        }
+
+        .bits-grid {
+            display: grid;
+            grid-template-columns: repeat(16, 1fr);
+            gap: 4px;
+            margin-bottom: 24px;
+        }
+
+        .bit-box {
+            aspect-ratio: 1;
+            background-color: #111;
+            border: 1px solid #222;
+            border-radius: 3px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 8px;
+            font-family: var(--font-mono);
+            color: #444;
+        }
+
+        .bit-box.filled {
+            background-color: #222;
+            border-color: #444;
+            color: var(--text-primary);
+        }
+
+        .btn-group {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .btn-outline {
+            background-color: transparent;
+            color: var(--text-primary);
+            border: 1px solid var(--border-color);
+            padding: 12px;
+            border-radius: 6px;
+            font-weight: 650;
+            font-size: 13px;
+            cursor: pointer;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            transition: background-color 0.2s, border-color 0.2s;
+        }
+
+        .btn-outline:hover:not(:disabled) {
+            background-color: rgba(255,255,255,0.05);
+            border-color: #444;
+        }
+
+        .input-log-label {
+            font-size: 11px;
+            font-weight: 750;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            letter-spacing: 0.05em;
+        }
+
+        .input-log {
+            background-color: #0d0d0d;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            line-height: 1.4;
+            word-break: break-all;
+            height: 48px;
+            overflow-y: auto;
+            color: var(--text-secondary);
+            margin-bottom: 20px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background-color: #111;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 14px;
+        }
+
+        .metric-name {
+            font-size: 10px;
+            font-weight: 750;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+
+        .metric-val {
+            font-size: 14px;
+            font-family: var(--font-mono);
+            font-weight: 750;
+        }
+
+        .output-card {
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            background-color: var(--card-bg);
+        }
+
+        .output-card.danger-card {
+            border: 1px solid rgba(244, 67, 54, 0.3);
+            background-color: rgba(244, 67, 54, 0.02);
+        }
+
+        .output-card.watch-card {
+            border: 1px solid rgba(76, 175, 80, 0.3);
+            background-color: rgba(76, 175, 80, 0.02);
+        }
+
+        .output-title {
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: 16px;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .data-display {
+            margin-bottom: 16px;
+        }
+
+        .data-display label {
+            display: block;
+            font-size: 10px;
+            font-weight: 750;
+            text-transform: uppercase;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            letter-spacing: 0.05em;
+        }
+
+        .data-display .box-val {
+            background-color: #0d0d0d;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px 12px;
+            font-family: var(--font-mono);
+            font-size: 13px;
+            word-break: break-all;
+            color: var(--text-primary);
+        }
+
+        .words-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+
+        .word-item {
+            background-color: #0d0d0d;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px 12px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            display: flex;
+            gap: 8px;
+        }
+
+        .word-item span {
+            color: var(--text-secondary);
+        }
+
+        .qr-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-top: 16px;
+            padding-top: 16px;
+            border-t: 1px dashed var(--border-color);
+        }
+
+        .qr-section canvas {
+            background-color: white;
+            padding: 8px;
+            border-radius: 6px;
+        }
+
+        .footer-note {
+            text-align: center;
+            font-size: 10px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 32px;
+        }
+
+        @media (max-height: 850px) {
+            .container {
+                padding: 12px;
+            }
+            header {
+                margin-bottom: 12px;
+            }
+            .logo-icon {
+                font-size: 24px;
+                margin-bottom: 4px;
+            }
+            h1 {
+                font-size: 20px;
+            }
+            .board-section {
+                padding: 14px;
+                margin-bottom: 12px;
+            }
+            .bits-grid {
+                margin-bottom: 12px;
+                gap: 2px;
+            }
+            .progress-bar-bg {
+                margin-bottom: 12px;
+            }
+            .btn-group {
+                margin-bottom: 12px;
+                gap: 8px;
+            }
+            .btn-outline {
+                padding: 8px;
+            }
+            .input-log {
+                margin-bottom: 12px;
+                padding: 8px;
+                height: 36px;
+            }
+            .metrics-grid {
+                margin-bottom: 12px;
+                gap: 8px;
+            }
+            .metric-card {
+                padding: 8px 12px;
+            }
+            .glow-btn {
+                padding: 10px 20px;
+            }
+            .gate-content {
+                padding: 20px;
+            }
+            .gate-title {
+                font-size: 20px;
+                margin-bottom: 12px;
+            }
+            .warning-card {
+                padding: 12px;
+                margin-bottom: 16px;
+                font-size: 13px;
+            }
+            .warning-card h3 {
+                margin-bottom: 4px;
+                font-size: 13px;
+            }
+            .checkbox-container {
+                margin-bottom: 16px;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Warning Gate Overlay -->
+    <div id="gate-overlay" class="gate-overlay">
+        <div class="gate-content">
+            <div class="gate-title">SubZero Cold Storage Gate</div>
+            
+            <div class="warning-card">
+                <h3>1. STRICT AIRGAP ENFORCEMENT</h3>
+                <p>This software is built for physical isolation. Only load this page on a computer that has its physical networking cards desoldered or disabled. Do not run on an active internet session.</p>
+                
+                <h3>2. AVOID PSEUDO-RANDOM HUMAN TRAPS</h3>
+                <p>Humans cannot generate high entropy by typing random characters. To guarantee key security, you must roll physical dice (1-6) or flip physical coins (0/1). The system forces a hard-block at the cryptographic boundary if entropy does not meet 128-bit safety criteria.</p>
+            </div>
+
+            <div class="checkbox-container">
+                <input type="checkbox" id="gate-check">
+                <label for="gate-check">I attest I am offline and using physical entropy sources.</label>
+            </div>
+
+            <button id="gate-btn" class="glow-btn" disabled>Proceed to Keygen</button>
+            <div style="margin-top: 16px; text-align: center;">
+                <a href="ian-coleman.html" class="btn-outline" style="display: inline-block; padding: 10px 20px; text-decoration: none; font-size: 14px; border: 1px solid var(--border-color); color: var(--text-secondary); border-radius: 6px; transition: all 0.2s; cursor: pointer;">
+                    Launch Ian Coleman BIP39 Tool
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Application -->
+    <div id="main-app" class="container hidden">
+        <header>
+            <div class="logo-icon">❄️</div>
+            <h1>SubZero Keygen</h1>
+            <div class="subtitle">Amnesic 128-bit Bitcoin Wallet Generator (v0.2.0)</div>
+        </header>
+
+        <main>
+            <!-- Entropy collection block -->
+            <div class="board-section">
+                <div class="checkbox-container hidden" style="border-bottom: 1px dashed var(--border-color); padding-bottom: 12px; margin-bottom: 16px; display: none; flex-direction: column; gap: 8px;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="use-testnet">
+                        <label for="use-testnet" style="font-weight: bold; color: var(--text-primary); cursor: pointer;">Enable Testnet4 / Regtest mode (tb1 / tprv / tpub)</label>
+                    </div>
+                    <div id="testnet-info" class="hidden" style="font-size: 0.85em; color: var(--text-secondary); line-height: 1.4; padding-left: 20px;">
+                        Active Faucets:
+                        <a href="https://testnet4.dev" target="_blank" style="color: var(--accent-blue); text-decoration: underline; margin-left: 4px;">testnet4.dev</a> |
+                        <a href="https://testnet4.info" target="_blank" style="color: var(--accent-blue); text-decoration: underline; margin-left: 4px;">testnet4.info</a> |
+                        <a href="https://coinfaucet.eu/en/btc-testnet4/" target="_blank" style="color: var(--accent-blue); text-decoration: underline; margin-left: 4px;">coinfaucet.eu</a> |
+                        <a href="https://cryptochief.com/faucet/bitcoin-testnet4/" target="_blank" style="color: var(--accent-blue); text-decoration: underline; margin-left: 4px;">cryptochief.com</a>
+                    </div>
+                </div>
+
+                <div class="bits-counter">
+                    <span>Manual Entropy</span>
+                    <span id="bits-count-text">0 / 128 bits</span>
+                </div>
+                
+                <div class="progress-bar-bg">
+                    <div id="progress-bar-fill" class="progress-bar-fill"></div>
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <div class="input-log-label">Physical Input Field</div>
+                    <input type="text" id="entropy-input" class="box-val" placeholder="Type coin flips (0/1) or dice rolls (1-6) directly here..." style="width: 100%; box-sizing: border-box; font-family: var(--font-mono); font-size: 13px; outline: none; border: 1px solid var(--border-color); background: #0d0d0d; color: var(--text-primary); border-radius: 6px; padding: 10px 12px;" autocomplete="off" autofocus>
+                </div>
+
+                <div class="warning-card" style="margin-top: -8px; margin-bottom: 20px; padding: 12px; background-color: rgba(255, 159, 28, 0.05); border-color: rgba(255, 159, 28, 0.2);">
+                    <h3 style="color: var(--accent-orange); margin-bottom: 4px; font-size: 11px;">⚠️ CRITICAL OPSEC WARNING</h3>
+                    <p style="margin: 0; font-size: 11px; color: var(--text-secondary);">DO NOT store or write down your physical entropy sequence. Enter it once to generate the keys, then immediately forget and destroy the raw flips/rolls.</p>
+                </div>
+
+                <!-- Input Sequence Log -->
+                <div class="input-log-label">Raw Input Log</div>
+                <div class="input-log" id="input-log">No inputs recorded. Press keys or use physical sources.</div>
+
+                <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px;">
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="mix-system-entropy" checked>
+                        <label for="mix-system-entropy">Mix system CSPRNG entropy (getRandomValues)</label>
+                    </div>
+                </div>
+
+                <div class="btn-group" style="grid-template-columns: 1fr 2fr;">
+                    <button id="btn-clear" class="btn-outline">Clear Board</button>
+                    <button id="btn-generate" class="glow-btn" disabled>Generate 12-Word Seed</button>
+                </div>
+
+                <!-- Metrics -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-name">Detected Mode</div>
+                        <div class="metric-val" id="val-mode">NONE</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-name">Transition Check</div>
+                        <div class="metric-val" id="val-transition">N/A</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-name">Shannon Entropy</div>
+                        <div class="metric-val" id="val-shannon">0.00 bits</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-name">Security Status</div>
+                        <div class="metric-val" id="val-status" style="color: var(--accent-red);">LOCKED</div>
+                    </div>
+                </div>
+
+                <button id="btn-dev-fill" class="btn-outline" style="width: 100%; border-style: dashed; font-size: 10px; padding: 6px; margin-top: 10px; opacity: 0.5;">[Dev] Fill 128-bit Test Vector</button>
+            </div>
+
+            <!-- Derived Private Outputs (Red Border) -->
+            <div id="private-outputs" class="output-card danger-card hidden">
+                <div class="output-title" style="color: var(--accent-red);">
+                    <span>🔴</span> PRIVATE DATA - COLD STORAGE (DANGER)
+                </div>
+
+                <div class="data-display">
+                    <label>BIP39 Mnemonic (12 Words)</label>
+                    <div class="words-grid" id="disp-mnemonic">
+                        <!-- 12 words rendered by JS -->
+                    </div>
+                </div>
+
+                <div class="data-display">
+                    <label>Derived Master Seed (Hex)</label>
+                    <div class="box-val" id="disp-seed" style="font-size: 11px;"></div>
+                </div>
+
+                <div class="data-display">
+                    <label>Account 0 Master Private Key (xprv)</label>
+                    <div class="box-val" id="disp-xprv" style="font-size: 10px;"></div>
+                </div>
+
+                <div class="data-display" style="border-top: 1px dashed var(--border-color); padding-top: 16px; margin-top: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label>BIP85 Derived Child Mnemonics (English 12-Word)</label>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="btn-bip85-prev" class="btn-outline" style="padding: 2px 8px; font-size: 10px; margin: 0;" disabled>&lt; Prev</button>
+                            <button id="btn-bip85-next" class="btn-outline" style="padding: 2px 8px; font-size: 10px; margin: 0;" disabled>Next &gt;</button>
+                        </div>
+                    </div>
+                    <div class="box-val" id="disp-bip85" style="font-size: 11px; white-space: pre-line;"></div>
+                </div>
+            </div>
+
+            <!-- Derived Public Outputs (Green Border) -->
+            <div id="public-outputs" class="output-card watch-card hidden">
+                <div class="output-title" style="color: var(--accent-green);">
+                    <span>🟢</span> WATCH-ONLY DATA - PUBLIC (EXPORT)
+                </div>
+
+                <div class="data-display">
+                    <label>Account 0 Master Public Key (xpub)</label>
+                    <div class="box-val" id="disp-xpub" style="font-size: 10px;"></div>
+                </div>
+
+                <div class="data-display">
+                    <label>Output Descriptor (Native Segwit - wpkh)</label>
+                    <div class="box-val" id="disp-descriptor" style="font-size: 11px;"></div>
+                </div>
+
+                <div class="data-display">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <label>Derived Addresses</label>
+                        <div style="display: flex; gap: 8px;">
+                            <button id="btn-addr-prev" class="btn-outline" style="padding: 2px 8px; font-size: 10px; margin: 0;" disabled>&lt; Prev</button>
+                            <button id="btn-addr-next" class="btn-outline" style="padding: 2px 8px; font-size: 10px; margin: 0;" disabled>Next &gt;</button>
+                        </div>
+                    </div>
+                    <div class="box-val" id="disp-addresses" style="font-size: 11px; white-space: pre-line;"></div>
+                </div>
+
+                <div class="qr-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; width: 100%; max-width: 320px; margin-bottom: 12px;">
+                        <button id="btn-qr-prev" class="btn-outline" style="padding: 4px 12px; font-size: 11px; margin: 0;">&lt; Prev</button>
+                        <div class="input-log-label" id="qr-label" style="margin: 0; text-align: center;">Wallet Descriptor</div>
+                        <button id="btn-qr-next" class="btn-outline" style="padding: 4px 12px; font-size: 11px; margin: 0;">Next &gt;</button>
+                    </div>
+                    <canvas id="qr-canvas" width="240" height="240"></canvas>
+                </div>
+            </div>
+
+            <button id="btn-reset" class="btn-outline hidden" style="width: 100%; margin-bottom: 24px;">Wipe Session & Generate New Wallet</button>
+        </main>
+
+        <footer class="footer-note">
+            © 2026 SubZero Keygen. Verified, Read-Only, Amnesic.
+        </footer>
+    </div>
+
+    <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

@@ -2,7 +2,7 @@
 # ===========================================================================
 #         SubZero Keyosk: Deterministic Raspberry Pi armv7 Image Builder
 # ===========================================================================
-set -e
+set -euo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 if [ "$EUID" -ne 0 ]; then
@@ -17,14 +17,17 @@ BUILD_DIR="/tmp/subzero_rpi_build"
 ROOTFS_DIR="${BUILD_DIR}/rootfs"
 MNT_DIR="${BUILD_DIR}/mnt"
 OUTPUT_DIR="${OUTPUT_DIR:-${WORKSPACE_DIR}/dist}"
-IMG_NAME="${IMG_NAME:-subzero-rpi.img}"
+TUI_ARG="${1:-${TUI_BUNDLE:-fb_vault.cjs}}"
+TUI_BUNDLE="$(basename "$TUI_ARG")"
+IMG_ARG="${2:-${IMG_NAME:-subzero-vault-rpi.img}}"
+IMG_NAME="$(basename "$IMG_ARG")"
 IMG_PATH="${OUTPUT_DIR}/${IMG_NAME}"
-TUI_BUNDLE="${TUI_BUNDLE:-tui.cjs}"
+LOOP_DEV=""
 ALPINE_VERSION="3.19.1"
 MINIROOTFS_URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/armv7/alpine-minirootfs-${ALPINE_VERSION}-armv7.tar.gz"
 
 echo "==========================================="
-echo "   BUILDING SUBZERO RASPBERRY PI armv7     "
+echo "       BUILDING SUBZERO RPI IMAGE          "
 echo "==========================================="
 
 # Step 1: Prepare staging directories
@@ -40,9 +43,9 @@ rm -rf --one-file-system "${BUILD_DIR}"
 mkdir -p "${ROOTFS_DIR}"
 mkdir -p "${WORKSPACE_DIR}/dist"
 
-# Step 2: Download Alpine Mini RootFS (armv7)
-echo -e "\n[Step 2] Downloading Alpine Mini RootFS armv7 (${ALPINE_VERSION})..."
-wget -q --show-progress -O "${BUILD_DIR}/minirootfs.tar.gz" "${MINIROOTFS_URL}"
+# Step 2: Download Alpine Mini RootFS
+echo -e "\n[Step 2] Downloading Alpine armv7 Mini RootFS (${ALPINE_VERSION})..."
+curl -sSL -o "${BUILD_DIR}/minirootfs.tar.gz" "${MINIROOTFS_URL}"
 tar -xzf "${BUILD_DIR}/minirootfs.tar.gz" -C "${ROOTFS_DIR}"
 
 # Step 3: Inject QEMU user emulator & configure repositories
@@ -52,7 +55,7 @@ echo "https://dl-cdn.alpinelinux.org/alpine/v3.19/main" > "${ROOTFS_DIR}/etc/apk
 echo "https://dl-cdn.alpinelinux.org/alpine/v3.19/community" >> "${ROOTFS_DIR}/etc/apk/repositories"
 
 # Step 4: Mount virtual filesystems for chroot
-echo -e "\n[Step 4] Mounting virtual filesystems for armv7 chroot..."
+echo -e "\n[Step 4] Mounting virtual filesystems..."
 mount --bind /dev "${ROOTFS_DIR}/dev"
 mount --make-private "${ROOTFS_DIR}/dev"
 mount --bind /proc "${ROOTFS_DIR}/proc"
@@ -69,7 +72,7 @@ cleanup_mounts() {
     umount -l "${MNT_DIR}/proc" 2>/dev/null || true
     umount -l "${MNT_DIR}/sys" 2>/dev/null || true
     umount -l "${MNT_DIR}" 2>/dev/null || true
-    if [ -n "${LOOP_DEV}" ]; then
+    if [ -n "${LOOP_DEV:-}" ]; then
         kpartx -d "${LOOP_DEV}" 2>/dev/null || true
         losetup -d "${LOOP_DEV}" 2>/dev/null || true
     fi

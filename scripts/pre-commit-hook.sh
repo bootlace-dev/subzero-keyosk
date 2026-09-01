@@ -2,6 +2,7 @@
 # ===========================================================================
 #                 SubZero Keyosk: PII Leak Prevention Hook
 # ===========================================================================
+set -euo pipefail
 
 # Blocked terms reconstructed dynamically to prevent diff self-triggering
 T1=$(echo -ne "\x70\x65\x74\x6a\x61\x6c")

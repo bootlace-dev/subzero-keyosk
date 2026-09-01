@@ -268,6 +268,190 @@ export function deriveBIP85Child(masterSeedOrRoot: Uint8Array | BIP32Node, index
     return childEntropy;
 }
 
+// BIP-85 Nostr Key Derivation (m/83696968'/1237'/index')
+export function deriveBip85Nostr(masterSeedOrRoot: Uint8Array | BIP32Node, index: number): { nsec: string, npub: string, privHex: string, pubHex: string } {
+    const root = masterSeedOrRoot instanceof BIP32Node ? masterSeedOrRoot : BIP32Node.fromSeed(masterSeedOrRoot);
+    const purpose = root.deriveHardened(83696968);
+    const app = purpose.deriveHardened(1237);
+    const childNode = app.deriveHardened(index);
+
+    const key = new TextEncoder().encode("bip-entropy-from-k");
+    const privKey = hmac(sha512, key, childNode.privateKey!).slice(0, 32);
+    const pubKey = secp256k1.getPublicKey(privKey, true).slice(1); // 32-byte X-only pubkey for Nostr
+
+    const nsecWords = bech32.bech32.toWords(privKey);
+    const nsec = bech32.bech32.encode('nsec', nsecWords);
+
+    const npubWords = bech32.bech32.toWords(pubKey);
+    const npub = bech32.bech32.encode('npub', npubWords);
+
+    const privHex = Array.from(privKey).map(b => b.toString(16).padStart(2, '0')).join('');
+    const pubHex = Array.from(pubKey).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    childNode.wipe();
+    app.wipe();
+    purpose.wipe();
+    if (!(masterSeedOrRoot instanceof BIP32Node)) {
+        root.wipe();
+    }
+
+    return { nsec, npub, privHex, pubHex };
+}
+
+// BIP-85 Hex Entropy Derivation (m/83696968'/12815'/numBytes'/index')
+export function deriveBip85Hex(masterSeedOrRoot: Uint8Array | BIP32Node, numBytes: number = 32, index: number = 0): string {
+    const root = masterSeedOrRoot instanceof BIP32Node ? masterSeedOrRoot : BIP32Node.fromSeed(masterSeedOrRoot);
+    const purpose = root.deriveHardened(83696968);
+    const app = purpose.deriveHardened(12815);
+    const lenNode = app.deriveHardened(numBytes);
+    const childNode = lenNode.deriveHardened(index);
+
+    const key = new TextEncoder().encode("bip-entropy-from-k");
+    const rawBytes = hmac(sha512, key, childNode.privateKey!).slice(0, numBytes);
+    const hex = Array.from(rawBytes).map(b => b.toString(16).padStart(2, '0')).join('');
+
+    childNode.wipe();
+    lenNode.wipe();
+    app.wipe();
+    purpose.wipe();
+    if (!(masterSeedOrRoot instanceof BIP32Node)) {
+        root.wipe();
+    }
+
+    return hex;
+}
+
+// SeedFix: 11-to-12 Word Candidate Solver & Damerau-Levenshtein Typo Fixer
+export function solve12thWordCandidates(elevenWords: string[]): string[] {
+    if (elevenWords.length !== 11) return [];
+    const validCandidates: string[] = [];
+    for (const candidate of wordlist) {
+        const testPhrase = [...elevenWords, candidate].join(' ');
+        if (bip39.validateMnemonic(testPhrase, wordlist)) {
+            validCandidates.push(candidate);
+        }
+    }
+    return validCandidates;
+}
+
+function levenshtein(a: string, b: string): number {
+    const matrix: number[][] = [];
+    for (let i = 0; i <= b.length; i++) matrix[i] = [i];
+    for (let j = 0; j <= a.length; j++) matrix[0][j] = j;
+
+    for (let i = 1; i <= b.length; i++) {
+        for (let j = 1; j <= a.length; j++) {
+            if (b.charAt(i - 1) === a.charAt(j - 1)) {
+                matrix[i][j] = matrix[i - 1][j - 1];
+            } else {
+                matrix[i][j] = Math.min(
+                    matrix[i - 1][j - 1] + 1, // substitution
+                    matrix[i][j - 1] + 1,     // insertion
+                    matrix[i - 1][j] + 1      // deletion
+                );
+            }
+        }
+    }
+    return matrix[b.length][a.length];
+}
+
+export function suggestBip39Correction(typoWord: string): { word: string, distance: number }[] {
+    const results = wordlist.map(w => ({ word: w, distance: levenshtein(typoWord.toLowerCase(), w) }));
+    results.sort((a, b) => a.distance - b.distance);
+    return results.slice(0, 5);
+}
+
+// WebCrypto-Compatible Symmetric Encryption (AES-256-GCM with PBKDF2-SHA256)
+export async function encryptVaultJson(plaintextPayload: string, passphraseSeed: string): Promise<string> {
+    const cryptoObj = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : (await import('crypto')).webcrypto as any;
+    const enc = new TextEncoder();
+    
+    const salt = cryptoObj.getRandomValues(new Uint8Array(16));
+    const iv = cryptoObj.getRandomValues(new Uint8Array(12));
+    
+    const keyMaterial = await cryptoObj.subtle.importKey(
+        'raw',
+        enc.encode(passphraseSeed.trim().toLowerCase().replace(/\s+/g, ' ')),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+
+    const key = await cryptoObj.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: 600000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['encrypt']
+    );
+
+    const ciphertextBuffer = await cryptoObj.subtle.encrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        enc.encode(plaintextPayload)
+    );
+
+    const toBase64 = (buf: Uint8Array) => Buffer.from(buf).toString('base64');
+
+    const vaultObj = {
+        format: 'subzero-vault-v1',
+        cipher: 'AES-256-GCM',
+        kdf: 'PBKDF2-HMAC-SHA256',
+        iterations: 600000,
+        salt: toBase64(salt),
+        iv: toBase64(iv),
+        ciphertext: toBase64(new Uint8Array(ciphertextBuffer))
+    };
+
+    return JSON.stringify(vaultObj, null, 2);
+}
+
+export async function decryptVaultJson(vaultJsonStr: string, passphraseSeed: string): Promise<string> {
+    const cryptoObj = typeof globalThis.crypto !== 'undefined' ? globalThis.crypto : (await import('crypto')).webcrypto as any;
+    const vault = JSON.parse(vaultJsonStr);
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+
+    const fromBase64 = (b64: string) => new Uint8Array(Buffer.from(b64, 'base64'));
+    const salt = fromBase64(vault.salt);
+    const iv = fromBase64(vault.iv);
+    const ciphertext = fromBase64(vault.ciphertext);
+
+    const keyMaterial = await cryptoObj.subtle.importKey(
+        'raw',
+        enc.encode(passphraseSeed.trim().toLowerCase().replace(/\s+/g, ' ')),
+        { name: 'PBKDF2' },
+        false,
+        ['deriveKey']
+    );
+
+    const key = await cryptoObj.subtle.deriveKey(
+        {
+            name: 'PBKDF2',
+            salt: salt,
+            iterations: vault.iterations || 600000,
+            hash: 'SHA-256'
+        },
+        keyMaterial,
+        { name: 'AES-GCM', length: 256 },
+        false,
+        ['decrypt']
+    );
+
+    const decryptedBuffer = await cryptoObj.subtle.decrypt(
+        { name: 'AES-GCM', iv: iv },
+        key,
+        ciphertext
+    );
+
+    return dec.decode(decryptedBuffer);
+}
+
 export function deriveBip85Mnemonic(masterSeedOrRoot: Uint8Array | BIP32Node, index: number, wordCount: number = 12): string {
     const entropy = deriveBIP85Child(masterSeedOrRoot, index, wordCount);
     const mnem = bip39.entropyToMnemonic(entropy, wordlist);

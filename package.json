@@ -6,7 +6,8 @@
   "scripts": {
     "build": "npx esbuild src/tui.ts --bundle --platform=node --target=node20 --outfile=dist/tui.cjs",
     "build:testnet4": "npx esbuild src/fb_testnet4.ts --bundle --platform=node --target=node20 --outfile=dist/tui_testnet4.cjs",
-    "build:all": "npm run build && npm run build:testnet4",
+    "build:vault": "npx esbuild src/fb_vault.ts --bundle --platform=node --target=node20 --outfile=dist/fb_vault.cjs",
+    "build:all": "npm run build && npm run build:testnet4 && npm run build:vault",
     "test": "vitest run"
   },
   "dependencies": {

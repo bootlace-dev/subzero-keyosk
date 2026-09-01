@@ -1,0 +1,57 @@
+================================================================================
+                    SUBZERO KEYOSK // MASTER SYSTEM MANIFEST
+================================================================================
+Generated: September 1, 2026
+Release Target: v0.1.0-testnet4 (Dual-Partition Amnesic Recovery Appliance)
+GPG Signing Key ID: F18173E554644BB59018AE50F6E96FADCA2E8E0F
+GPG User ID: bootlace-dev <bootlace-dev@users.noreply.github.com>
+
+--------------------------------------------------------------------------------
+1. PARTITION 2: ESTATE RECOVERY FILES (FAT32: SUBZERO_EST)
+--------------------------------------------------------------------------------
+0abd4bf04184214172d477b532ef3371e106a6757c89df2616840f11ebd4bea6  decrypt.html
+9b258e01855282113d1a628978b49b31b4ec6ee49914f9538e39cb83c98b257e  README.txt
+97c1483d078fa4df6e26f3571a675ed2a9efd7c7b10510abbf4fa4b78cbf30f9  vault.json
+
+* To verify Partition 2 files locally:
+  $ sha256sum -c SHA256SUMS
+
+--------------------------------------------------------------------------------
+2. PARTITION 1: UEFI BOOTLOADER & AMNESIC OS (FAT32: SUBZERO_EFI)
+--------------------------------------------------------------------------------
+EFI Bootloader (x86_64 UEFI):
+  Path: /EFI/BOOT/BOOTX64.EFI
+  Format: Standalone GRUB2 x86_64 UEFI image
+
+Amnesic Linux Kernel:
+  Path: /EFI/BOOT/vmlinuz-lts
+  Version: Linux 6.6.x LTS
+
+Early Boot RAM Staging Initramfs:
+  Path: /EFI/BOOT/initramfs-lts
+
+Amnesic Squashed Root Filesystem (toram execution):
+  Path: /rootfs.squashfs
+  Compression: Zstandard (zstd) -reproducible
+
+* Note: Partition 1 files execute 100% in volatile RAM ('toram' tmpfs).
+
+--------------------------------------------------------------------------------
+3. COMPILED KEYOSK APPLICATION RUNTIMES
+--------------------------------------------------------------------------------
+7c43f67f80df8c9de291eee9abccd0828d4db3eda71689d800fc718b7759275d  dist/fb_vault.cjs
+1872adf4a4031699cfdf1073893565a41b76f5887dc36d05de02911d0b9838d6  dist/tui_testnet4.cjs
+77229de913fe8824bd183f1a26808272c42bd2df2d51eb35b861a51929e14dbf  dist/tui.cjs
+
+--------------------------------------------------------------------------------
+4. CRYPTOGRAPHIC TEST VECTORS & ZERO-KNOWLEDGE SPECIFICATIONS
+--------------------------------------------------------------------------------
+BIP-39 Test Vector 1 (128-bit Zero Vector Entropy):
+  Entropy (Hex): 00000000000000000000000000000000
+  Mnemonic: abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about
+  Seed (SHA-512): c55257c360c07c72029aebc1b53c05ed0362ada38ead3e3e9efa3708e53495531f09a6987599d18264c1e1c92f2cf141630c7a3c4ab7c81b2f001698e7463b04
+
+PBKDF2 Estate Derivation Invariant:
+  Iterations: 600,000 SHA-256
+  Cipher: AES-256-GCM (12-byte IV, 16-byte Auth Tag)
+================================================================================

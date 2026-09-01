@@ -191,17 +191,31 @@ export class Framebuffer {
         this.drawRect(0, 0, this.geometry.width, this.geometry.height, color);
     }
 
+    public directWipe(byte: number = 0x00): void {
+        this.backBuffer.fill(byte);
+        this.flush();
+    }
+
     public drawPixel(x: number, y: number, color: RGB): void {
         if (x < 0 || x >= this.geometry.width || y < 0 || y >= this.geometry.height) return;
         const bytesPerPixel = Math.floor(this.geometry.bpp / 8) || 4;
         const offset = (y * this.geometry.stride) + (x * bytesPerPixel);
         
-        // Standard Linux DRM Little-Endian XRGB8888 (B, G, R, 0xFF)
-        this.backBuffer[offset] = color.b;
-        this.backBuffer[offset + 1] = color.g;
-        this.backBuffer[offset + 2] = color.r;
-        if (bytesPerPixel >= 4) {
-            this.backBuffer[offset + 3] = 0xFF;
+        if (this.geometry.bpp === 16) {
+            // Standard Linux 16bpp RGB565 Little-Endian
+            const r5 = (color.r >> 3) & 0x1f;
+            const g6 = (color.g >> 2) & 0x3f;
+            const b5 = (color.b >> 3) & 0x1f;
+            const rgb565 = (r5 << 11) | (g6 << 5) | b5;
+            this.backBuffer.writeUInt16LE(rgb565, offset);
+        } else {
+            // Standard Linux DRM Little-Endian XRGB8888 (B, G, R, 0xFF)
+            this.backBuffer[offset] = color.b;
+            this.backBuffer[offset + 1] = color.g;
+            this.backBuffer[offset + 2] = color.r;
+            if (bytesPerPixel >= 4) {
+                this.backBuffer[offset + 3] = 0xFF;
+            }
         }
     }
 
@@ -216,6 +230,13 @@ export class Framebuffer {
                 this.drawPixel(currX, currY, color);
             }
         }
+    }
+
+    public drawRectBorder(x: number, y: number, w: number, h: number, thickness: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): void {
+        this.drawRect(x, y, w, thickness, color);                         // Top
+        this.drawRect(x, y + h - thickness, w, thickness, color);         // Bottom
+        this.drawRect(x, y, thickness, h, color);                         // Left
+        this.drawRect(x + w - thickness, y, thickness, h, color);         // Right
     }
 
     public drawChar(x: number, y: number, ch: string, scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): void {
@@ -234,10 +255,11 @@ export class Framebuffer {
         }
     }
 
-    public drawText(x: number, y: number, text: string, scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): void {
+    public drawText(x: number, y: number, text: string = "", scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): void {
+        const safeText = String(text ?? '');
         let cursorX = x;
-        for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
+        for (let i = 0; i < safeText.length; i++) {
+            const ch = safeText[i];
             if (ch === '\n') {
                 cursorX = x;
                 y += 16 * scale + 4;
@@ -248,14 +270,15 @@ export class Framebuffer {
         }
     }
 
-    public drawTextWrapped(x: number, y: number, maxWidth: number, text: string, scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): number {
+    public drawTextWrapped(x: number, y: number, maxWidth: number, text: string = "", scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): number {
+        const safeText = String(text ?? '');
         const charW = 8 * scale;
         const lineH = 16 * scale + 4;
         let cursorX = x;
         let cursorY = y;
 
-        for (let i = 0; i < text.length; i++) {
-            const ch = text[i];
+        for (let i = 0; i < safeText.length; i++) {
+            const ch = safeText[i];
             if (ch === '\n' || cursorX + charW > x + maxWidth) {
                 cursorX = x;
                 cursorY += lineH;
@@ -267,20 +290,22 @@ export class Framebuffer {
         return cursorY + lineH;
     }
 
-    public drawTextCentered(y: number, text: string, scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): void {
-        const textWidth = text.length * 8 * scale;
+    public drawTextCentered(y: number, text: string = "", scale: number = 1, color: RGB = { r: 255, g: 255, b: 255 }): void {
+        const safeText = String(text ?? '');
+        const textWidth = safeText.length * 8 * scale;
         const startX = Math.floor((this.geometry.width - textWidth) / 2);
-        this.drawText(startX, y, text, scale, color);
+        this.drawText(startX, y, safeText, scale, color);
     }
 
     public drawQRCode(
-        text: string,
+        text: string = "",
         centerY: number,
         modulePx: number = 7,
         quietZoneModules: number = 4,
         ecc: 'L' | 'M' | 'Q' | 'H' = 'L'
     ): { startX: number, startY: number, sizePx: number } {
-        const qr = QRCode.create(text, { errorCorrectionLevel: ecc });
+        const safeText = String(text ?? '');
+        const qr = QRCode.create(safeText, { errorCorrectionLevel: ecc });
         const matrixSize = qr.modules.size;
         const totalModules = matrixSize + (quietZoneModules * 2);
         const sizePx = totalModules * modulePx;

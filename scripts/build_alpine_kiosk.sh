@@ -2,7 +2,7 @@
 # ===========================================================================
 #         SubZero Keyosk: Deterministic Alpine CLI Image Builder
 # ===========================================================================
-set -e
+set -euo pipefail
 export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH"
 
 if [ "$EUID" -ne 0 ]; then
@@ -17,9 +17,13 @@ BUILD_DIR="/tmp/subzero_alpine_build"
 ROOTFS_DIR="${BUILD_DIR}/rootfs"
 MNT_DIR="${BUILD_DIR}/mnt"
 OUTPUT_DIR="${OUTPUT_DIR:-${WORKSPACE_DIR}/dist}"
-IMG_NAME="${IMG_NAME:-subzero-alpine.img}"
+# Positional arguments or environment overrides
+TUI_ARG="${1:-${TUI_BUNDLE:-fb_vault.cjs}}"
+TUI_BUNDLE="$(basename "$TUI_ARG")"
+IMG_ARG="${2:-${IMG_NAME:-subzero-alpine.img}}"
+IMG_NAME="$(basename "$IMG_ARG")"
 IMG_PATH="${OUTPUT_DIR}/${IMG_NAME}"
-TUI_BUNDLE="${TUI_BUNDLE:-tui.cjs}"
+LOOP_DEV=""
 ALPINE_VERSION="3.19.1"
 MINIROOTFS_URL="https://dl-cdn.alpinelinux.org/alpine/v3.19/releases/x86_64/alpine-minirootfs-${ALPINE_VERSION}-x86_64.tar.gz"
 
@@ -70,12 +74,16 @@ cleanup_mounts() {
     umount -l "${MNT_DIR}/sys" 2>/dev/null || true
     umount -l "${MNT_DIR}/boot/efi" 2>/dev/null || true
     umount -l "${MNT_DIR}" 2>/dev/null || true
-    if [ -n "${LOOP_DEV}" ]; then
+    if [ -n "${LOOP_DEV:-}" ]; then
         kpartx -d "${LOOP_DEV}" 2>/dev/null || true
         losetup -d "${LOOP_DEV}" 2>/dev/null || true
     fi
 }
 trap cleanup_mounts EXIT
+
+# Stub grub-probe in chroot to prevent trigger warning
+mkdir -p "${ROOTFS_DIR}/usr/sbin"
+ln -sf /bin/true "${ROOTFS_DIR}/usr/sbin/grub-probe"
 
 # Step 5: Install packages inside rootfs
 echo -e "\n[Step 5] Bootstrapping Alpine packages..."
@@ -90,7 +98,10 @@ chroot "${ROOTFS_DIR}" apk add --no-cache \
     busybox-mdev-openrc \
     nodejs \
     kbd \
-    font-terminus
+    font-terminus \
+    dosfstools \
+    parted \
+    util-linux
 
 # Framebuffer modules — loaded by the `modules` OpenRC service at boot
 # fbcon: binds VT consoles to the framebuffer so text is visible
@@ -100,14 +111,42 @@ chroot "${ROOTFS_DIR}" apk add --no-cache \
 # bochs_drm: DRM driver for QEMU's standard VGA (also covers real bochs)
 echo -e "fbcon\nefifb\nsimpledrm\ni915\namdgpu\nbochs_drm" >> "${ROOTFS_DIR}/etc/modules"
 
-# Step 6: Inject SubZero Keygen compiled application
+# Step 5.1: Generate Deterministic Package Lock Manifest
+echo -e "\n[Step 5.1] Generating Deterministic Package Lock Manifest..."
+mkdir -p "${WORKSPACE_DIR}/docs"
+cat << 'HEADER' > "${WORKSPACE_DIR}/docs/PACKAGE_LOCK_MANIFEST.txt"
+================================================================================
+           SUBZERO KEYOSK // ALPINE PACKAGE SUPPLY-CHAIN LOCK MANIFEST
+================================================================================
+Generated during deterministic image compilation.
+All packages are cryptographically signed by Alpine Linux Core Release Keys.
+================================================================================
+PACKAGE                                  VERSION              ORIGIN / STATUS
+--------------------------------------------------------------------------------
+HEADER
+chroot "${ROOTFS_DIR}" apk list --installed | sort >> "${WORKSPACE_DIR}/docs/PACKAGE_LOCK_MANIFEST.txt"
+echo "  [✓] Package lock manifest written to docs/PACKAGE_LOCK_MANIFEST.txt ($(chroot "${ROOTFS_DIR}" apk list --installed | wc -l) packages locked)."
+
+# Step 6: Inject SubZero Keygen compiled application & assets
 echo -e "\n[Step 6] Injecting SubZero Keygen CLI application (${TUI_BUNDLE})..."
-mkdir -p "${ROOTFS_DIR}/opt/subzero"
+mkdir -p "${ROOTFS_DIR}/opt/subzero/templates" "${ROOTFS_DIR}/opt/subzero/docs"
 if [ -f "${WORKSPACE_DIR}/dist/${TUI_BUNDLE}" ]; then
     cp "${WORKSPACE_DIR}/dist/${TUI_BUNDLE}" "${ROOTFS_DIR}/opt/subzero/tui.cjs"
 else
     echo "console.log(\"Missing dist/${TUI_BUNDLE}\");" > "${ROOTFS_DIR}/opt/subzero/tui.cjs"
 fi
+
+if [ -f "${WORKSPACE_DIR}/src/templates/decrypt.html" ]; then
+    cp "${WORKSPACE_DIR}/src/templates/decrypt.html" "${ROOTFS_DIR}/opt/subzero/templates/decrypt.html"
+fi
+
+if [ -f "${WORKSPACE_DIR}/docs/SYSTEM_MANIFEST.txt" ]; then
+    cp "${WORKSPACE_DIR}/docs/SYSTEM_MANIFEST.txt" "${ROOTFS_DIR}/opt/subzero/docs/SYSTEM_MANIFEST.txt"
+fi
+
+# Inject BIP-39 English wordlist into /etc/bip39-english.txt for standalone offline inspectability
+node -e "const { wordlist } = require('@scure/bip39/wordlists/english'); console.log(wordlist.join('\n'));" > "${ROOTFS_DIR}/etc/bip39-english.txt" 2>/dev/null || true
+
 TUI_HASH=$(sha256sum "${ROOTFS_DIR}/opt/subzero/tui.cjs" | awk '{print $1}')
 echo "  [Security Hash] tui.cjs (Deterministic Core): ${TUI_HASH}"
 
@@ -140,8 +179,12 @@ export TERM=linux
 export HOME=/root
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Clear VT1 and hide text cursor
-printf "\033[2J\033[H\033[3J\033[?25l" > /dev/tty1 2>/dev/null || true
+# Clear VT1 and print high-visibility early initialization banner
+printf "\033[2J\033[H\033[3J\033[1;33m" > /dev/tty1 2>/dev/null || true
+echo "=================================================================" > /dev/tty1 2>/dev/null || true
+echo "           [!] SUBZERO KEYOSK: INITIALIZING HARDWARE [!]         " > /dev/tty1 2>/dev/null || true
+echo "=================================================================" > /dev/tty1 2>/dev/null || true
+echo ">>> Staging in-memory direct framebuffer interface...            " > /dev/tty1 2>/dev/null || true
 echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
 
 # Wait up to 5 seconds for /dev/fb0 to become available
@@ -162,7 +205,13 @@ fi
 
 # Execute SubZero Framebuffer Keyosk directly on tty1
 cd /opt/subzero
-exec /usr/bin/node /opt/subzero/tui.cjs < /dev/tty1 > /dev/tty1 2>&1
+/usr/bin/node /opt/subzero/tui.cjs < /dev/tty1 > /dev/tty1 2>&1
+
+# When Node exits, perform immediate RAM-safe ACPI poweroff
+sync
+echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
+echo o > /proc/sysrq-trigger 2>/dev/null || true
+exec /sbin/poweroff -f 2>/dev/null || /sbin/shutdown -h now 2>/dev/null || while true; do sleep 1; done
 LAUNCHER
 chmod 755 "${ROOTFS_DIR}/opt/subzero/launch.sh"
 
@@ -173,7 +222,7 @@ cat << 'INITTAB' > "${ROOTFS_DIR}/etc/inittab"
 ::wait:/sbin/openrc default
 
 # Direct controlling TTY kiosk session on physical console via launcher
-tty1::respawn:/opt/subzero/launch.sh
+tty1::once:/opt/subzero/launch.sh
 
 ::ctrlaltdel:/sbin/reboot
 ::shutdown:/sbin/openrc shutdown
@@ -307,10 +356,17 @@ if [ -z "$EFI_DEV" ]; then
 fi
 echo " [FOUND: ${EFI_DEV}]"
 
-echo -n "[3/4] Copying OS payload to volatile RAM disk..."
+echo -n "[3/4] Copying OS payload to volatile RAM disk (toram)..."
 mkdir -p /media/ram /media/sqfs /sysroot
 mount -t tmpfs -o size=90% tmpfs /media/ram
-cp /media/efi/rootfs.squashfs /media/ram/rootfs.squashfs
+
+# Copy with visual progress dots in background
+cp /media/efi/rootfs.squashfs /media/ram/rootfs.squashfs &
+CP_PID=$!
+while kill -0 "$CP_PID" 2>/dev/null; do
+    echo -n "."
+    sleep 0.8
+done
 echo " [100% COMPLETE]"
 
 echo "[4/4] Storage unmounted. Launching Framebuffer Keyosk..."
@@ -343,15 +399,31 @@ mkdir -p "${ROOTFS_DIR}/boot/grub"
 
 cat << 'GRUB' > "${ROOTFS_DIR}/boot/efi/EFI/BOOT/grub.cfg"
 set default="0"
-set timeout=1
+set timeout=3
 
-menuentry "1. SubZero Keyosk (Amnesic Airgapped Offline Engine)" {
+echo ""
+echo "=========================================================================="
+echo "          [!] SUBZERO KEYOSK: RAM STAGING NOTICE [!]"
+echo "=========================================================================="
+echo ">>> NOTE: A 20-30 SECOND BLACK SCREEN PAUSE AFTER BOOTING IS NORMAL.    <<<"
+echo ">>> THE SYSTEM IS COPYING THE ENTIRE AMNESIC OS INTO RAM (TORAM AIRGAP).<<<"
+echo ">>> PLEASE DO NOT POWER OFF OR REMOVE MEDIA DURING THIS PAUSE.          <<<"
+echo "=========================================================================="
+echo ""
+
+menuentry "1. SubZero Keyosk (Amnesic Airgap) [20-30s Black Screen Pause is Normal]" {
     insmod efi_gop
     insmod efi_uga
     insmod all_video
     set gfxpayload=keep
+    echo ""
+    echo "=========================================================================="
+    echo ">>> [!] 20-30 SECOND BLACK SCREEN PAUSE IS NORMAL (TORAM COPY) [!]     <<<"
+    echo ">>> STAGING APPLIANCE 100% INTO RAM. DO NOT POWER OFF OR REMOVE MEDIA. <<<"
+    echo "=========================================================================="
+    echo ""
     search --no-floppy --file --set=root /EFI/BOOT/vmlinuz-lts
-    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=ttyS0,115200 console=tty0 console=tty1 quiet loglevel=3
+    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=tty1 quiet loglevel=3
     initrd /EFI/BOOT/initramfs-lts
 }
 
@@ -361,7 +433,7 @@ menuentry "2. SubZero Keyosk (Verbose Debug Console)" {
     insmod all_video
     set gfxpayload=keep
     search --no-floppy --file --set=root /EFI/BOOT/vmlinuz-lts
-    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=ttyS0,115200 console=tty0 console=tty1 debug
+    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=tty1 debug
     initrd /EFI/BOOT/initramfs-lts
 }
 GRUB
@@ -400,24 +472,84 @@ rm -f "${ROOTFS_DIR}/boot/boot"
 rm -rf "${ROOTFS_DIR}/var/log/"* "${ROOTFS_DIR}/tmp/"* "${ROOTFS_DIR}/root/.ash_history"
 find "${ROOTFS_DIR}" -exec touch -h -d "@1700000000" {} + 2>/dev/null || true
 
-# Step 10: Build standalone Toram Single-Partition Image
-echo -e "\n[Step 10] Packaging Toram Single-Partition Image..."
-rm -f "${BUILD_DIR}/rootfs.squashfs" "${BUILD_DIR}/esp.img"
+# Step 10: Build Dual-Partition Appliance Image (512MB Total)
+# Partition 1: 420MB ESP FAT32 (SUBZERO_EFI) -> Alpine OS + rootfs.squashfs + EFI bootloader
+# Partition 2: 90MB Basic Data FAT32 (SUBZERO_EST) -> Pre-allocated space for vault.json
+echo -e "\n[Step 10] Packaging Dual-Partition Appliance Image (512MB)..."
+rm -f "${BUILD_DIR}/rootfs.squashfs" "${BUILD_DIR}/esp.img" "${BUILD_DIR}/estate.img"
 mksquashfs "${ROOTFS_DIR}" "${BUILD_DIR}/rootfs.squashfs" -comp zstd -noappend -reproducible -all-root >/dev/null
 
-# Create a 400MB ESP to hold UEFI binaries and compressed rootfs.squashfs
-dd if=/dev/zero of="${BUILD_DIR}/esp.img" bs=1M count=400 status=none
-mkfs.vfat -F32 -i 19840124 -n "EFI" "${BUILD_DIR}/esp.img"
+# 10.1 Create Partition 1 (420MB ESP)
+dd if=/dev/zero of="${BUILD_DIR}/esp.img" bs=1M count=420 status=none
+mkfs.vfat -F32 -i 19840124 -n "SUBZERO_EFI" "${BUILD_DIR}/esp.img"
 MTOOLS_SKIP_CHECK=1 mcopy -m -i "${BUILD_DIR}/esp.img" -s "${ROOTFS_DIR}/boot/efi/"* ::/
 MTOOLS_SKIP_CHECK=1 mcopy -m -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/rootfs.squashfs" ::/
 
-# Build raw disk image (GPT, single partition)
-dd if=/dev/zero of="${IMG_PATH}" bs=1M count=420 status=none
-sgdisk -o "${IMG_PATH}"
-sgdisk -n 1:2048:0 -c 1:"SubZero EFI+Payload" -t 1:ef00 "${IMG_PATH}"
-dd if="${BUILD_DIR}/esp.img" of="${IMG_PATH}" bs=1M seek=1 conv=notrunc status=none
+# Generate Partition 1 SHA256SUMS manifest
+mkdir -p "${BUILD_DIR}/esp_manifest"
+cp "${ROOTFS_DIR}/boot/efi/EFI/BOOT/BOOTX64.EFI" "${BUILD_DIR}/esp_manifest/"
+cp "${ROOTFS_DIR}/boot/efi/EFI/BOOT/vmlinuz-lts" "${BUILD_DIR}/esp_manifest/"
+cp "${ROOTFS_DIR}/boot/efi/EFI/BOOT/initramfs-lts" "${BUILD_DIR}/esp_manifest/"
+cp "${BUILD_DIR}/rootfs.squashfs" "${BUILD_DIR}/esp_manifest/"
+(cd "${BUILD_DIR}/esp_manifest" && sha256sum * > SHA256SUMS)
+MTOOLS_SKIP_CHECK=1 mcopy -m -i "${BUILD_DIR}/esp.img" "${BUILD_DIR}/esp_manifest/SHA256SUMS" ::/
+
+# 10.2 Create Partition 2 (90MB Estate Storage Data Partition)
+dd if=/dev/zero of="${BUILD_DIR}/estate.img" bs=1M count=90 status=none
+mkfs.vfat -F32 -i 20260901 -n "SUBZERO_EST" "${BUILD_DIR}/estate.img"
+
+# Stage Estate partition files with SHA256SUMS
+mkdir -p "${BUILD_DIR}/estate_manifest"
+cp "${WORKSPACE_DIR}/src/templates/decrypt.html" "${BUILD_DIR}/estate_manifest/decrypt.html"
+if [ -f "${WORKSPACE_DIR}/docs/SYSTEM_MANIFEST.txt" ]; then
+    cp "${WORKSPACE_DIR}/docs/SYSTEM_MANIFEST.txt" "${BUILD_DIR}/estate_manifest/SYSTEM_MANIFEST.txt"
+fi
+cat << 'README' > "${BUILD_DIR}/estate_manifest/README.txt"
+================================================================================
+                    SUBZERO KEYOSK // SOVEREIGN ESTATE RECOVERY
+================================================================================
+This partition contains the client-side WebCrypto recovery tools for your estate.
+
+RECOVERY INSTRUCTIONS:
+1. Turn OFF Wi-Fi, Bluetooth, and Ethernet (Airgap Isolation).
+2. Open 'decrypt.html' in Chrome, Safari, Firefox, or Edge.
+3. Select your encrypted 'vault.json' payload.
+4. Enter your 12-word decryption passphrase.
+5. Recover master seed, BIP-380 output descriptors, and individual child seeds.
+
+INTEGRITY VERIFICATION:
+To verify file integrity before running:
+$ sha256sum -c SHA256SUMS
+================================================================================
+README
+
+(cd "${BUILD_DIR}/estate_manifest" && sha256sum * > SHA256SUMS)
+MTOOLS_SKIP_CHECK=1 mcopy -m -i "${BUILD_DIR}/estate.img" -s "${BUILD_DIR}/estate_manifest/"* ::/
+
+# 10.3 Build master 512MB GPT disk image with both partitions
+dd if=/dev/zero of="${IMG_PATH}" bs=1M count=512 status=none
+cat << 'EOF' | sfdisk -q "${IMG_PATH}"
+label: gpt
+unit: sectors
+
+1 : start=2048, size=860160, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B, name="SUBZERO_EFI"
+2 : start=862208, size=184320, type=EBD0A0A2-B9E5-4433-87C0-68B6B72699C7, name="SUBZERO_EST"
+EOF
+
+# Write partition images into disk
+dd if="${BUILD_DIR}/esp.img" of="${IMG_PATH}" bs=512 seek=2048 conv=notrunc status=none
+dd if="${BUILD_DIR}/estate.img" of="${IMG_PATH}" bs=512 seek=862208 conv=notrunc status=none
 
 chmod 0644 "${IMG_PATH}"
-echo "  [Security Hash] Toram Image: $(sha256sum "${IMG_PATH}" | awk "{print $1}")"
+echo "  [Security Hash] Dual-Partition Appliance: $(sha256sum "${IMG_PATH}" | awk '{print $1}')"
+
+# Step 11: Automated Image Self-Verification & Manifest Assertion
+echo -e "\n[Step 11] Running Automated Post-Build Integrity Assertion..."
+MTOOLS_SKIP_CHECK=1 mdir -i "${BUILD_DIR}/esp.img" ::/SHA256SUMS >/dev/null || { echo "FATAL: ESP SHA256SUMS missing!"; exit 1; }
+MTOOLS_SKIP_CHECK=1 mdir -i "${BUILD_DIR}/estate.img" ::/SHA256SUMS >/dev/null || { echo "FATAL: Estate SHA256SUMS missing!"; exit 1; }
+MTOOLS_SKIP_CHECK=1 mdir -i "${BUILD_DIR}/estate.img" ::/decrypt.html >/dev/null || { echo "FATAL: decrypt.html missing!"; exit 1; }
+echo "  [✓] All required manifest files verified on ESP and Estate partitions."
+cp "${IMG_PATH}" "${OUTPUT_DIR}/subzero-alpine.img" 2>/dev/null || true
+cp "${IMG_PATH}" "${OUTPUT_DIR}/subzero-vault-pc.img" 2>/dev/null || true
 echo "Build complete: ${IMG_PATH}"
 

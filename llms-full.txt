@@ -175,7 +175,7 @@ Displays the 12-word English BIP39 master mnemonic and root fingerprint. Zero QR
 ---
 
 ### Pages 2/9 & 3/9: Private BIP85 Child Seeds (0–9)
-Displays 10 independent 12-word child mnemonics derived deterministically from your master seed (`m/83696968'/39'/0'/12'/index'`). For Testnet4 rehearsal, import into Nunchuk or Bitcoin Keeper as a hot software wallet. For Mainnet production, manually transcribe into mobile daily spending wallets (AQUA, BlueWallet, Blink, Blockstream Green) without exposing your master cold vault.
+Displays 10 independent 12-word child mnemonics derived deterministically from your master seed (`m/83696968'/39'/0'/12'/index'`). For Testnet4 rehearsal, import into Nunchuk or Bitcoin Keeper as a hot software wallet. For Mainnet production, manually transcribe into mobile daily spending wallets (BlueWallet, Blink, Blockstream Green) without exposing your master cold vault.
 
 * **Page 2/9:** Private BIP-85 Child Seeds (0 – 4)
 * **Page 3/9:** Private BIP-85 Child Seeds (5 – 9)
@@ -339,7 +339,7 @@ SECTION 4: DEFENSIVE RATIONALE & SYSTEM DESIGN DECISIONS
 
 ### 12. BIP-0085 Deterministic Child Wallet Delegation
 * **Decision:** Derives 10 independent 12-word child mnemonics (`m/83696968'/39'/0'/12'/i'`).
-* **Defensive Rationale:** Enables users to fund mobile daily-spending wallets (e.g. BlueWallet, AQUA, Green) deterministically derived from cold storage without exposing the master cold root.
+* **Defensive Rationale:** Enables users to fund mobile daily-spending wallets (e.g. BlueWallet, Blink, Green) deterministically derived from cold storage without exposing the master cold root.
 
 ### 13. Standard BIP-0380 Multipath Output Descriptors
 * **Decision:** Exports unified multipath descriptors: `wpkh([<fp>/84'/0'/0']<zpub>/<0;1>/*)`.
@@ -643,7 +643,7 @@ In cryptographic key generation, **what you choose NOT to build is your stronges
 
 #### 4. WON'T-DO: On-Device Camera Ingestion & PSBT Transaction Signing
 * **Why Excluded:** SubZero is a **pure key generator and descriptor vault**, not an active spending signer.
-* **Attack Surface Rationale:** Parsing complex multi-megabyte PSBT transactions, SegWit script trees, and arbitrary animated video streams from webcams introduces massive C/Rust parser attack surfaces (e.g. buffer overflows, malformed fee attacks). Spending is delegated to disposable BIP85 child seeds on mobile wallets (AQUA, BlueWallet, Blink, Green) or watch-only multisig coordinators.
+* **Attack Surface Rationale:** Parsing complex multi-megabyte PSBT transactions, SegWit script trees, and arbitrary animated video streams from webcams introduces massive C/Rust parser attack surfaces (e.g. buffer overflows, malformed fee attacks). Spending is delegated to disposable BIP85 child seeds on mobile wallets (BlueWallet, Blink, Green) or watch-only multisig coordinators.
 
 #### 5. WON'T-DO: Unchecksummed 13th / 25th Word Passphrases
 * **Why Excluded:** BIP39 passphrases contain zero error-detecting checksum bits. A single capitalization mistake or trailing space creates a valid, empty wallet. Users unknowingly deposit funds into a phantom address they can never access again.
@@ -968,12 +968,12 @@ Wanted to share an open-source project we just released that directly addresses 
 
 The Core Problem in Latin America & Africa:
 • Hardware wallets cost $150–$350 with customs extortion and courier theft.
-• Users face the "Cold Vault vs Daily Spending" paradox: they need long-term cold savings on steel, but also need daily medium-of-exchange liquidity (Lightning / Stablesats / Liquid USDt).
+• Users face the "Cold Vault vs Daily Spending" paradox: they need long-term cold savings on steel, but also need daily medium-of-exchange liquidity (Lightning / Stablesats).
 
 How SubZero Solves This:
 1. $0 Hardware Footprint: A tiny, amnesic live USB/SD image (.img) that turns any discarded $20–$30 laptop or PC e-waste into an airgapped cold vault on bare metal (zero browser engine, networking drivers purged from the kernel, boots to RAM and unmounts USB).
 2. Pure Physical Entropy: 128 coin flips (or 50 dice rolls) with real-time Markov quality shields (no unauditable silicon RNGs).
-3. The BIP85 Layer-2 Bridge: In a single session, the user stamps their 12-word master cold seed onto steel, scans the BIP380 descriptor into a watch-only app, and derives 10 isolated BIP85 12-word child seeds for daily mobile spending (AQUA / BlueWallet / Blink) without ever exposing master cold secrets to an online phone.
+3. The BIP85 Layer-2 Bridge: In a single session, the user stamps their 12-word master cold seed onto steel, scans the BIP380 descriptor into a watch-only app, and derives 10 isolated BIP85 12-word child seeds for daily mobile spending (BlueWallet / Blink / Green) without ever exposing master cold secrets to an online phone.
 
 The entire project was built and audited using autonomous AI systems engineering.
 

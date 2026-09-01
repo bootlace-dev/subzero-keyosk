@@ -43,7 +43,7 @@ If you were provided with this repository or asked to evaluate it:
 | Your Bitcoin Goal | What You Should Do | Tool Stack & Screen Flow |
 | :--- | :--- | :--- |
 | **Generational Deep Cold Storage** *(Stacking sats for 5–20 years without touching them)* | **Use SubZero Keyosk directly onto steel.** Zero hardware wallet supply-chain tracking, zero closed firmware bugs, zero shipping data leaks, pure physical coin/dice entropy. | **SubZero $\to$ Steel $\to$ Phone App (Nunchuk on Mobile / Sparrow on Desktop)**<br><br>[Page 1/9: Private Master Seed (12 words)] |
-| **Active Spending / Daily Sats / Lightning** *(Buying coffee, paying invoices, or spending weekly)* | **Do NOT put cold vault keys on an online phone.** Use SubZero's **BIP85 Child Seeds (Pages 2–3)** to derive disposable 12-word hot wallets without ever risking your master cold vault. | **SubZero (BIP85) $\to$ Mobile Wallet (AQUA / BlueWallet / Green)**<br><br>[Pages 2/9 & 3/9: BIP85 Child Seeds 0–9] |
+| **Active Spending / Daily Sats / Lightning** *(Buying coffee, paying invoices, or spending weekly)* | **Do NOT put cold vault keys on an online phone.** Use SubZero's **BIP85 Child Seeds (Pages 2–3)** to derive disposable 12-word hot wallets without ever risking your master cold vault. | **SubZero (BIP85) $\to$ Mobile Wallet (BlueWallet / Blink / Green)**<br><br>[Pages 2/9 & 3/9: BIP85 Child Seeds 0–9] |
 | **Frequent Medium-Vault Spending** *(Signing multi-thousand-dollar transactions monthly)* | **Generate your master seed with real coin flips on SubZero first** (bypassing potentially backdoored or faulty hardware random number chips), then import that 12-word seed into your dedicated hardware signer. | **SubZero (Pure Entropy) $\to$ Hardware Signer**<br><br>[Pages 5/9 & 6/9: Watch-Only Public QR] |
 
 ---
@@ -56,7 +56,7 @@ If you were provided with this repository or asked to evaluate it:
 | **Bitcoin Keeper** | Mobile (iOS / Android) | **Page 6/9** (Cold) or **Pages 2–3/9** (Hot) | BIP-380 Descriptor QR or Seed | **Mobile Coordinator & Rehearsal Spender** (Native Testnet4 toggle in *More $\to$ App Settings $\to$ Network Type $\to$ Testnet*) |
 | **Sparrow Wallet** | Desktop (Linux / macOS / Win) | **Page 6/9** (Cold) or **Pages 2–3/9** (Hot) | BIP-380 Descriptor (Webcam/File) | **Primary Desktop Coordinator** (Native Testnet4 toggle & multi-tab cold vault tracking) |
 | **Blockstream Green** | Mobile & Desktop | **Page 5/9** (Cold Watch-Only) | SLIP-132 `vpub` QR | **Secondary Mobile Watch-Only** (Scans `vpub` for `tb1q...`; enable testnet under *App Settings $\to$ Enable Testnet*) |
-| **BlueWallet / AQUA / Blink / Green** | Mobile & Desktop | **Pages 2–3/9** *(Mainnet Only)* | BIP-85 12-Word Child Seeds / `zpub` | **Mainnet Daily Spending & Cold Vaults** (Real funds: Native SegWit `bc1q`, Liquid USDt, & Lightning; note: BlueWallet does not support Testnet4) |
+| **BlueWallet / Blink / Green** | Mobile & Desktop | **Pages 2–3/9** *(Mainnet Only)* | BIP-85 12-Word Child Seeds / `zpub` | **Mainnet Daily Spending & Cold Vaults** (Real funds: Native SegWit `bc1q` & Lightning; note: BlueWallet does not support Testnet4) |
 
 ---
 
@@ -99,33 +99,75 @@ If your AI assistant uncovers an unhandled edge case, subtle timing attack, cryp
 
 ---
 
+### 🎛️ Integrated Operating Modes (Kiosk HUD)
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                  SUBZERO KEYOSK: 5 SOVEREIGN OPERATING MODES                 │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [1] GENERATE SOVEREIGN HEIR TREASURY & ENCRYPTED VAULT                       │
+│     Pure Physical Entropy -> BIP-85 Children -> AES-256 vault.json export.   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [2] DECRYPT & RECOVER INHERITANCE VAULT (vault.json)                         │
+│     Mounts Partition 2 (/dev/sd*2) -> Unlocks with 12-Word Passphrase.       │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [3] BIP-85 MULTI-PROTOCOL KEY FACTORY                                        │
+│     Deterministic Offshoots for Nostr npub/nsec, Passphrase & Heir Seeds.   │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [4] SEEDFIX BIP-39 12TH-WORD CHECKSUM & CANDIDATE SOLVER                     │
+│     Calculates all 128 Valid 12th Words and Ranks Single-Word Typo Fixes.    │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [5] STORAGE DEVICE HASHER & INTEGRITY SCANNER                                │
+│     Direct 64MB unbuffered block latency profiling (<15ms) & SHA-256 verify. │
+├──────────────────────────────────────────────────────────────────────────────┤
+│ [Q] SECURE MEMORY ZEROIZATION & HARDWARE POWER OFF                           │
+│     3-Pass RAM/VRAM Scrub -> Unmount Block Devices -> Kernel SysRq Cutoff.   │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 💾 Dual-Partition Storage Architecture
+
+Every flashed media card contains two distinct hardware partitions:
+1. **Partition 1 (ESP - FAT32, ~256MB)**: Standalone UEFI Bootloader (`BOOTX64.EFI`), Alpine Linux LTS 6.6 minimal kernel (`toram` tmpfs), direct framebuffer kiosk (`/dev/fb0`).
+2. **Partition 2 (`SUBZERO_EST` - FAT32, ~256MB)**: Standard data partition readable by any macOS, Windows, Linux, or Android device in Airplane Mode. Contains `README.txt`, standalone amnesic [`decrypt.html`](dist/decrypt.html), and target encrypted [`vault.json`](dist/decrypt.html).
+
+---
+
 ### 🚀 Deterministic Build & Physical Media Flashing
 
-The entire appliance compiles deterministically inside a disposable container for both generic PCs and Raspberry Pi boards:
+The entire appliance compiles deterministically inside a disposable container or native host for both generic PCs and Raspberry Pi boards:
 
-#### Option A: Generic PC (x86_64)
+#### Option A: Generic PC / Dell Chromebook (x86_64)
 ```bash
-# 1. Build the raw bootable UEFI/BIOS disk image (.img)
-./scripts/build_alpine_containerized.sh
+# 1. Build the raw bootable UEFI disk image (512MB dual-partition)
+sudo ./scripts/build_alpine_kiosk.sh dist/fb_vault.cjs subzero-vault-pc.img
 
 # 2. Test boot in virtual sandbox (QEMU UEFI)
-qemu-system-x86_64 -enable-kvm -m 512 -bios /usr/share/ovmf/OVMF.fd -drive file=dist/subzero-testnet4-pc.img,format=raw,if=ide
+qemu-system-x86_64 -enable-kvm -m 512 -bios /usr/share/ovmf/OVMF.fd -drive file=dist/subzero-vault-pc.img,format=raw,if=ide
 
-# 3. Flash to USB flash drive (Linux CLI)
-sudo dd if=dist/subzero-testnet4-pc.img of=/dev/sdX bs=4M status=progress conv=fsync
+# 3. Flash to SD Card or USB drive (Linux CLI)
+sudo dd if=dist/subzero-vault-pc.img of=/dev/sdX bs=4M status=progress conv=fsync
 ```
 
-#### Option B: Raspberry Pi (armv7)
+#### Option B: Raspberry Pi (armv7 / aarch64)
 ```bash
-# 1. Build the raw Raspberry Pi disk image (.img)
-./scripts/build_rpi_containerized.sh
+# 1. Build the raw Raspberry Pi dual-partition disk image
+sudo ./scripts/build_rpi_kiosk.sh dist/fb_vault.cjs subzero-vault-rpi.img
 
-# 2. Test boot in virtual sandbox (QEMU ARM Emulation)
-./scripts/run_qemu_rpi.sh
-
-# 3. Flash to MicroSD card (Linux CLI)
-sudo dd if=dist/subzero-testnet4-rpi.img of=/dev/sdX bs=4M status=progress conv=fsync
+# 2. Flash to MicroSD card (Linux CLI)
+sudo dd if=dist/subzero-vault-rpi.img of=/dev/sdX bs=4M status=progress conv=fsync
 ```
+
+---
+
+### 🛡️ Hardware Verification & Testing Matrix
+
+| Hardware Architecture | Support Status | Live Verification Baseline |
+| :--- | :--- | :--- |
+| **x86_64 PC (Dell Chromebook 3180 / Celeron N3060, ThinkPad T14, Generic UEFI/BIOS)** | **[✓] Physically Verified** | Tested and verified live on bare-metal physical hardware with real SD/USB media and native `/dev/fb0` rendering. |
+| **Raspberry Pi (Pi 2, 3, 4, 5, Zero 2W - armv7 / aarch64)** | **[i] Containerized / Virtualized** | Built via automated containerized pipeline and tested in QEMU ARM sandbox. Community bare-metal testing welcome. |
 
 ---
 

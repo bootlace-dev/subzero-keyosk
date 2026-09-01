@@ -3,7 +3,10 @@ import os, sys, time, socket, subprocess, shutil, glob
 
 DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(DIR)
-IMG_PATH = os.path.join(BASE_DIR, "dist", "subzero-testnet4-pc.img")
+IMG_PATH = os.path.join(BASE_DIR, "dist", "subzero-vault-pc.img")
+if not os.path.exists(IMG_PATH):
+    IMG_PATH = os.path.join(BASE_DIR, "dist", "subzero-alpine.img")
+
 OUTPUT_GIF = os.path.join(BASE_DIR, "docs", "screenshots", "subzero_demo.gif")
 FRAME_DIR = "/tmp/subzero_gif_frames"
 
@@ -40,7 +43,7 @@ qemu_cmd = [
     "-monitor", f"unix:{SOCK_PATH},server,nowait"
 ]
 
-print("[*] Launching QEMU instance with SubZero Testnet4 image...")
+print(f"[*] Launching QEMU instance with {IMG_PATH}...")
 proc = subprocess.Popen(qemu_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 time.sleep(1)
 
@@ -83,87 +86,105 @@ def send_key(k):
     time.sleep(0.08)
 
 try:
-    print("[*] Recording Initial Entropy Prompt Screen...")
+    print("[*] [1/7] Recording Main Menu HUD...")
+    capture_frame(repeat=20)
+
+    # 1. Option 1: Heir Treasury Generation
+    print("[*] [2/7] Entering Option [1]: Heir Treasury Generation...")
+    send_key("1")
+    time.sleep(0.5)
     capture_frame(repeat=15)
 
-    # Type test5 deterministic test vector
     test_str = "test5"
-    print(f"[*] Typing '{test_str}' test vector (BIP39 maximum entropy: zoo zoo ... wrong)...")
+    print(f"[*] Typing '{test_str}' vector (Zoo 0xFF Boundary)...")
     for char in test_str:
         send_key(char)
         capture_frame(repeat=4)
+    capture_frame(repeat=10)
 
-    print("[*] Pausing on completed test vector input...")
-    capture_frame(repeat=15)
-
-    print("[*] Pressing ENTER to derive keys...")
+    print("[*] Deriving keys (ENTER)...")
     send_key("ret")
     time.sleep(1.0)
 
-    # Page 1: Private Master Seed (12 words)
-    print("[*] Recording Page 1/9: Private Master Seed (12 words)...")
+    # View Carousel Pages
+    print("[*] Carousel Page 1 (Master Seed & Decoupled Passphrase)...")
     capture_frame(repeat=25)
 
-    # Page 2: BIP-85 Child Seeds (0-4)
-    print("[*] Navigating to Page 2/9: BIP-85 Child Seeds (0-4)...")
     send_key("spc")
     time.sleep(0.5)
+    print("[*] Carousel Page 2 (Nostr Identity & BIP-85 Hex)...")
     capture_frame(repeat=20)
 
-    # Page 3: BIP-85 Child Seeds (5-9)
-    print("[*] Navigating to Page 3/9: BIP-85 Child Seeds (5-9)...")
     send_key("spc")
     time.sleep(0.5)
+    print("[*] Carousel Page 3 (Watch-Only BIP-84 & Fingerprint)...")
     capture_frame(repeat=20)
 
-    # Page 4: Account Summary & Fingerprint
-    print("[*] Navigating to Page 4/9: Watch-Only Account Summary...")
     send_key("spc")
     time.sleep(0.5)
-    capture_frame(repeat=20)
-
-    # Page 5: SLIP-132 vpub QR Code (Green & BlueWallet)
-    print("[*] Navigating to Page 5/9: Account vpub QR Code (Green / BlueWallet)...")
-    send_key("spc")
-    time.sleep(0.8)
+    print("[*] Carousel Page 4 (BIP-380 Descriptor QR Code)...")
     capture_frame(repeat=30)
 
-    # Page 6: BIP-380 Output Descriptor QR Code (Sparrow & Nunchuk)
-    print("[*] Navigating to Page 6/9: BIP-380 Output Descriptor QR Code (Sparrow / Nunchuk)...")
-    send_key("spc")
-    time.sleep(0.8)
-    capture_frame(repeat=35)
-
-    # Page 7: Receive Addresses 0-14
-    print("[*] Navigating to Page 7/9: First Receive Addresses...")
     send_key("spc")
     time.sleep(0.5)
+    print("[*] Carousel Page 5 (Native SegWit Receive Addresses)...")
     capture_frame(repeat=20)
 
-    # Page 8: Address #0 QR Code (Faucet / Sweep Target)
-    print("[*] Navigating to Page 8/9: Address #0 Receive & Faucet QR Code...")
-    send_key("spc")
-    time.sleep(0.8)
-    capture_frame(repeat=30)
-
-    # Page 9: Invariants & Amnesic Exit
-    print("[*] Navigating to Page 9/9: Colophon, Provenance & Verification Protocol...")
-    send_key("spc")
-    time.sleep(0.5)
-    capture_frame(repeat=25)
-
-    # Zeroize Memory via ESC / R
-    print("[*] Triggering instant memory zeroization (ESC key) back to entropy prompt...")
+    # Return to Menu
     send_key("esc")
-    time.sleep(0.8)
+    time.sleep(0.6)
+    capture_frame(repeat=12)
+
+    # 2. Option 3: BIP-85 Key Factory
+    print("[*] [3/7] Entering Option [3]: BIP-85 Key Factory...")
+    send_key("3")
+    time.sleep(0.6)
+    capture_frame(repeat=25)
+
+    send_key("esc")
+    time.sleep(0.5)
+
+    # 3. Option 4: SeedFix BIP-39 Solver
+    print("[*] [4/7] Entering Option [4]: SeedFix Checksum & Candidate Solver...")
+    send_key("4")
+    time.sleep(0.6)
     capture_frame(repeat=20)
+
+    # Type 11 words demo
+    seedfix_str = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo"
+    print(f"[*] Typing 11 words for SeedFix solver...")
+    for char in "zoo zoo zoo ":
+        send_key("spc" if char == " " else char)
+        capture_frame(repeat=2)
+    capture_frame(repeat=20)
+
+    send_key("esc")
+    time.sleep(0.5)
+
+    # 4. Option 5: Storage Device Hasher
+    print("[*] [5/7] Entering Option [5]: Storage Device Hasher...")
+    send_key("5")
+    time.sleep(0.6)
+    capture_frame(repeat=20)
+
+    print("[*] Triggering 64MB live block read hash (H)...")
+    send_key("h")
+    time.sleep(1.2)
+    capture_frame(repeat=30)
+
+    send_key("esc")
+    time.sleep(0.5)
+
+    # 5. Return to Main Menu
+    print("[*] [6/7] Main Menu HUD final state...")
+    capture_frame(repeat=25)
 
 finally:
     sock.close()
     proc.terminate()
     proc.wait()
 
-print("[*] Compiling optimized GIF with ffmpeg & bayer dither...")
+print("[*] [7/7] Compiling optimized demo GIF with ffmpeg & bayer dither...")
 palette_path = "/tmp/palette.png"
 subprocess.run([
     "ffmpeg", "-y", "-framerate", "10",
@@ -183,4 +204,3 @@ subprocess.run([
 print(f"[+] Demo GIF successfully compiled: {OUTPUT_GIF}")
 file_size_mb = os.path.getsize(OUTPUT_GIF) / (1024 * 1024)
 print(f"[+] File Size: {file_size_mb:.2f} MB")
-

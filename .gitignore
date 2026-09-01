@@ -1,6 +1,19 @@
 dist/
 .DS_Store
 *.log
+*.jsonl
+*.out
+logs/
 node_modules/
 *.pyc
 __pycache__/
+
+# Binary Disk Images & Large Artifacts
+*.img
+*.iso
+*.squashfs
+*.ppm
+*.raw
+*.qcow2
+*.zip
+*.tar.gz
