@@ -167,7 +167,7 @@ sudo dd if=dist/subzero-vault-rpi.img of=/dev/sdX bs=4M status=progress conv=fsy
 | Hardware Architecture | Support Status | Live Verification Baseline |
 | :--- | :--- | :--- |
 | **x86_64 PC (Dell Chromebook 3180 / Celeron N3060, ThinkPad T14, Generic UEFI/BIOS)** | **[✓] Physically Verified** | Tested and verified live on bare-metal physical hardware with real SD/USB media and native `/dev/fb0` rendering. |
-| **Raspberry Pi (Pi 2, 3, 4, 5, Zero 2W - armv7 / aarch64)** | **[i] Containerized / Virtualized** | Built via automated containerized pipeline and tested in QEMU ARM sandbox. Community bare-metal testing welcome. |
+| **Raspberry Pi (Pi 2, 3, 4, 5, Zero 2W - armv7 / aarch64)** | **[✓] Physically Verified** | Tested and verified live on bare-metal physical Raspberry Pi hardware with native HDMI `/dev/fb0` rendering, USB keyboard input, and amnesic RAM execution. |
 
 ---
 
