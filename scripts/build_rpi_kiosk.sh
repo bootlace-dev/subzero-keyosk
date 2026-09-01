@@ -45,7 +45,11 @@ mkdir -p "${WORKSPACE_DIR}/dist"
 
 # Step 2: Download Alpine Mini RootFS
 echo -e "\n[Step 2] Downloading Alpine armv7 Mini RootFS (${ALPINE_VERSION})..."
-curl -sSL -o "${BUILD_DIR}/minirootfs.tar.gz" "${MINIROOTFS_URL}"
+if command -v wget >/dev/null 2>&1; then
+    wget -q -O "${BUILD_DIR}/minirootfs.tar.gz" "${MINIROOTFS_URL}"
+else
+    curl -sSL -o "${BUILD_DIR}/minirootfs.tar.gz" "${MINIROOTFS_URL}"
+fi
 tar -xzf "${BUILD_DIR}/minirootfs.tar.gz" -C "${ROOTFS_DIR}"
 
 # Step 3: Inject QEMU user emulator & configure repositories

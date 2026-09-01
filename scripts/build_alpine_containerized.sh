@@ -38,10 +38,11 @@ echo -e "\n[Step 3] Running containerized Alpine build (${IMG_NAME})..."
 mkdir -p "${WORKSPACE_DIR}/dist"
 
 docker run --rm --privileged \
-    -v "${WORKSPACE_DIR}/scripts:/build/scripts:ro" \
-    -v "${WORKSPACE_DIR}/dist:/build/dist:ro" \
-    -v "${WORKSPACE_DIR}/dist:/build/output" \
-    -e "OUTPUT_DIR=/build/output" \
+    -v "${WORKSPACE_DIR}:/build" \
+    -v "/dev:/dev" \
+    -e SOURCE_DATE_EPOCH=1700000000 \
+    -e TZ=UTC \
+    -e "OUTPUT_DIR=/build/dist" \
     -e "TUI_BUNDLE=${TUI_BUNDLE}" \
     -e "IMG_NAME=${IMG_NAME}" \
     subzero-alpine-compiler

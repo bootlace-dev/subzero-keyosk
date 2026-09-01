@@ -54,56 +54,57 @@ jobs:
       - name: Install Dependencies
         run: npm ci
 
-      - name: Build Single-Binary Testnet4 TUI Bundle
+      - name: Build All Bundles (Vault & TUI)
         run: |
           export SOURCE_DATE_EPOCH=1700000000
           export TZ=UTC
-          npm run build:testnet4
+          npm run build:all
 
-      - name: Build Containerized Alpine Testnet4 Image (x86_64 PC)
+      - name: Build Containerized Alpine PC Image (x86_64 PC / Dell Chromebook)
         run: |
           chmod +x scripts/*.sh
-          ./scripts/build_alpine_containerized.sh tui_testnet4.cjs subzero-testnet4-pc.img
+          ./scripts/build_alpine_containerized.sh fb_vault.cjs subzero-vault-pc.img
 
-      - name: Build Containerized Raspberry Pi Testnet4 Image (armv7 / arm64)
+      - name: Build Containerized Raspberry Pi Image (armv7 / arm64)
         run: |
-          ./scripts/build_rpi_containerized.sh tui_testnet4.cjs subzero-testnet4-rpi.img
+          ./scripts/build_rpi_containerized.sh fb_vault.cjs subzero-vault-rpi.img
 
       - name: Compress Release Packages & Generate Checksums
         run: |
           cd dist
-          zip -9 -j subzero-testnet4-pc.img.zip subzero-testnet4-pc.img
-          zip -9 -j subzero-testnet4-rpi.img.zip subzero-testnet4-rpi.img
-          sha256sum subzero-testnet4-pc.img subzero-testnet4-rpi.img subzero-testnet4-pc.img.zip subzero-testnet4-rpi.img.zip tui_testnet4.cjs > SHA256SUMS.txt
+          zip -9 -j subzero-vault-pc.img.zip subzero-vault-pc.img
+          zip -9 -j subzero-vault-rpi.img.zip subzero-vault-rpi.img
+          sha256sum subzero-vault-pc.img subzero-vault-rpi.img subzero-vault-pc.img.zip subzero-vault-rpi.img.zip fb_vault.cjs decrypt.html > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-          PC_ZIP_HASH=$(sha256sum subzero-testnet4-pc.img.zip | awk '{print $1}')
-          RPI_ZIP_HASH=$(sha256sum subzero-testnet4-rpi.img.zip | awk '{print $1}')
-          TUI_HASH=$(sha256sum tui_testnet4.cjs | awk '{print $1}')
+          PC_ZIP_HASH=$(sha256sum subzero-vault-pc.img.zip | awk '{print $1}')
+          RPI_ZIP_HASH=$(sha256sum subzero-vault-rpi.img.zip | awk '{print $1}')
+          VAULT_HASH=$(sha256sum fb_vault.cjs | awk '{print $1}')
 
           cat << EOF >> $GITHUB_STEP_SUMMARY
-          ## 🛡️ SubZero Keyosk Testnet4 Build Digest & Checksums
+          ## 🛡️ SubZero Keyosk Dual-Partition Build Digest & Checksums
 
           ### 🔒 Deterministic Cryptographic Core
           | Artifact | Architecture | Universal SHA-256 |
           | :--- | :--- | :--- |
-          | **\`tui_testnet4.cjs\`** | Standalone Node.js (All Platforms) | \`${TUI_HASH}\` |
+          | **\`fb_vault.cjs\`** | Standalone Linux Framebuffer (/dev/fb0) | \`${VAULT_HASH}\` |
 
           ### 📦 Live Bootable Delivery Packages
           | Release Package | Target Hardware | SHA-256 (Compressed .zip) |
           | :--- | :--- | :--- |
-          | **\`subzero-testnet4-pc.img.zip\`** | x86_64 PC / Laptop (UEFI/BIOS) | \`${PC_ZIP_HASH}\` |
-          | **\`subzero-testnet4-rpi.img.zip\`** | Raspberry Pi 5, 4B, 400, 3B+, Zero 2 W | \`${RPI_ZIP_HASH}\` |
+          | **\`subzero-vault-pc.img.zip\`** | x86_64 PC / Dell Chromebook (UEFI/BIOS) | \`${PC_ZIP_HASH}\` |
+          | **\`subzero-vault-rpi.img.zip\`** | Raspberry Pi 2/3/4/5 / Zero 2W | \`${RPI_ZIP_HASH}\` |
           EOF
 
-      - name: Upload Testnet4 Artifacts
+      - name: Upload Release Artifacts
         uses: actions/upload-artifact@4cec3d8aa04e39d1a68397de0c4cd6fb9dce8ec1 # v4.6.1
         with:
-          name: subzero-testnet4-release-images
+          name: subzero-vault-release-images
           path: |
-            dist/subzero-testnet4-pc.img.zip
-            dist/subzero-testnet4-rpi.img.zip
-            dist/tui_testnet4.cjs
+            dist/subzero-vault-pc.img.zip
+            dist/subzero-vault-rpi.img.zip
+            dist/fb_vault.cjs
+            dist/decrypt.html
             dist/SHA256SUMS.txt
           retention-days: 14
 
@@ -112,9 +113,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            dist/subzero-testnet4-pc.img.zip
-            dist/subzero-testnet4-rpi.img.zip
-            dist/tui_testnet4.cjs
+            dist/subzero-vault-pc.img.zip
+            dist/subzero-vault-rpi.img.zip
+            dist/fb_vault.cjs
+            dist/decrypt.html
             dist/SHA256SUMS.txt
             bootlace-dev-release.asc
           draft: false
