@@ -222,25 +222,25 @@ async function main() {
     function getTestVectorEntropy(testKey: string): Uint8Array {
         const lower = testKey.trim().toLowerCase();
         if (lower === 'test' || lower === 'test0') {
-            return new Uint8Array(16).fill(0x00);
+            return new Uint8Array(16).fill(0x00); // abandon abandon ... about
         } else if (lower === 'test1') {
-            return sha256(new TextEncoder().encode("subzero-testnet4-vector-1")).slice(0, 16);
+            return new Uint8Array(16).fill(0x55); // fetch primary fetch primary ... problem
         } else if (lower === 'test2') {
-            return sha256(new TextEncoder().encode("subzero-testnet4-vector-2")).slice(0, 16);
+            return new Uint8Array(16).fill(0xAA); // primary fetch primary fetch ... fever
         } else if (lower === 'test3') {
-            return sha256(new TextEncoder().encode("subzero-testnet4-vector-3")).slice(0, 16);
+            return new Uint8Array(16).fill(0x7F); // legal winner thank year ... yellow
         } else if (lower === 'test4') {
-            return sha256(new TextEncoder().encode("subzero-testnet4-vector-4")).slice(0, 16);
+            return new Uint8Array(16).fill(0x80); // letter advice cage absurd ... above
         } else if (lower === 'test5') {
-            return new Uint8Array(16).fill(0xFF);
+            return new Uint8Array(16).fill(0xFF); // zoo zoo zoo ... wrong
         } else if (lower === 'test6') {
-            return sha256(new TextEncoder().encode("The Times 03/Jan/2009 Chancellor on brink of second bailout for banks")).slice(0, 16);
+            return Uint8Array.from([0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef,0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef]); // abuse boss fly ...
         } else if (lower === 'test7') {
-            return sha256(new TextEncoder().encode("Running bitcoin - Hal Finney 10 Jan 2009")).slice(0, 16);
+            return Uint8Array.from([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]); // abandon amount liar ...
         } else if (lower === 'test8') {
-            return sha256(new TextEncoder().encode("correct horse battery staple")).slice(0, 16);
+            return sha256(new TextEncoder().encode("The Times 03/Jan/2009 Chancellor on brink of second bailout for banks")).slice(0, 16);
         } else if (lower === 'test9') {
-            return sha256(new TextEncoder().encode("subzero-testnet4-deep-nesting-vector-9")).slice(0, 16);
+            return sha256(new TextEncoder().encode("Running bitcoin - Hal Finney 10 Jan 2009")).slice(0, 16);
         }
         return new Uint8Array(16).fill(0x00);
     }
@@ -700,12 +700,12 @@ seed words and cannot be decrypted.
         // Test Vectors Reference Card
         fb.drawRect(40, y, fb.geometry.width - 80, 125, COLOR_BADGE_BG);
         fb.drawRectBorder(40, y, fb.geometry.width - 80, 125, 1, COLOR_CARD_BORDER);
-        fb.drawText(55, y + 12, "DEMO SHORTCUTS: 10 SATOSHI LORE TEST VECTORS (INSTANT LAB RECOVERY):", 1, COLOR_GOLD);
-        fb.drawText(55, y + 32, " * 'test0': Genesis (All Zeros)       | * 'test5': All-Ones Boundary (Zoo)", 1, COLOR_WHITE);
-        fb.drawText(55, y + 50, " * 'test1': Faucet Spender (Vector 1) | * 'test6': Satoshi Genesis Lore (2009)", 1, COLOR_WHITE);
-        fb.drawText(55, y + 68, " * 'test2': Watch Treasury (Vector 2) | * 'test7': Hal Finney 2009 Tribute", 1, COLOR_WHITE);
-        fb.drawText(55, y + 86, " * 'test3': Hot Wallet Pair (Vector 3)| * 'test8': Correct Horse Battery", 1, COLOR_WHITE);
-        fb.drawText(55, y + 104, " * 'test4': Edge Descriptor (Vector 4)| * 'test9': 256-Bit Stress Matrix", 1, COLOR_WHITE);
+        fb.drawText(55, y + 12, "DEMO SHORTCUTS: 10 CANONICAL TEST VECTORS (INSTANT LAB RECOVERY):", 1, COLOR_GOLD);
+        fb.drawText(55, y + 32, " * 'test0': All 0s (Abandon ... About)| * 'test5': All 1s (Zoo ... Wrong)", 1, COLOR_WHITE);
+        fb.drawText(55, y + 50, " * 'test1': Alt 0101 (Fetch Primary)  | * 'test6': Ascending Nibbles (Abuse Boss)", 1, COLOR_WHITE);
+        fb.drawText(55, y + 68, " * 'test2': Alt 1010 (Primary Fetch)  | * 'test7': Byte Counter (00..0F)", 1, COLOR_WHITE);
+        fb.drawText(55, y + 86, " * 'test3': Canonical 0x7F (Legal)    | * 'test8': Satoshi Genesis Lore (2009)", 1, COLOR_WHITE);
+        fb.drawText(55, y + 104, " * 'test4': Canonical 0x80 (Letter)   | * 'test9': Hal Finney 2009 Tribute", 1, COLOR_WHITE);
 
         renderFooter("Controls: [TYPE] = 4-Char Autocomplete | [ENTER] = Decrypt | [ESC] = Menu | [Q] = Power Off", true);
         fb.flush();

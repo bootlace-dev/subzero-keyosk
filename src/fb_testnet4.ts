@@ -257,23 +257,23 @@ async function main() {
         if (lower === 'test' || lower === 'test0') {
             finalEntropy = new Uint8Array(16).fill(0x00);
         } else if (lower === 'test1') {
-            finalEntropy = sha256(new TextEncoder().encode("subzero-testnet4-vector-1")).slice(0, 16);
+            finalEntropy = new Uint8Array(16).fill(0x55);
         } else if (lower === 'test2') {
-            finalEntropy = sha256(new TextEncoder().encode("subzero-testnet4-vector-2")).slice(0, 16);
+            finalEntropy = new Uint8Array(16).fill(0xAA);
         } else if (lower === 'test3') {
-            finalEntropy = sha256(new TextEncoder().encode("subzero-testnet4-vector-3")).slice(0, 16);
+            finalEntropy = new Uint8Array(16).fill(0x7F);
         } else if (lower === 'test4') {
-            finalEntropy = sha256(new TextEncoder().encode("subzero-testnet4-vector-4")).slice(0, 16);
+            finalEntropy = new Uint8Array(16).fill(0x80);
         } else if (lower === 'test5') {
             finalEntropy = new Uint8Array(16).fill(0xFF);
         } else if (lower === 'test6') {
-            finalEntropy = sha256(new TextEncoder().encode("The Times 03/Jan/2009 Chancellor on brink of second bailout for banks")).slice(0, 16);
+            finalEntropy = Uint8Array.from([0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef,0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef]);
         } else if (lower === 'test7') {
-            finalEntropy = sha256(new TextEncoder().encode("Running bitcoin - Hal Finney 10 Jan 2009")).slice(0, 16);
+            finalEntropy = Uint8Array.from([0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f]);
         } else if (lower === 'test8') {
-            finalEntropy = sha256(new TextEncoder().encode("correct horse battery staple")).slice(0, 16);
+            finalEntropy = sha256(new TextEncoder().encode("The Times 03/Jan/2009 Chancellor on brink of second bailout for banks")).slice(0, 16);
         } else if (lower === 'test9') {
-            finalEntropy = sha256(new TextEncoder().encode("subzero-testnet4-deep-nesting-vector-9")).slice(0, 16);
+            finalEntropy = sha256(new TextEncoder().encode("Running bitcoin - Hal Finney 10 Jan 2009")).slice(0, 16);
         } else {
             const clean = getSanitizedEntropy(entropyRaw);
             finalEntropy = sha256(new TextEncoder().encode(clean)).slice(0, 16);
