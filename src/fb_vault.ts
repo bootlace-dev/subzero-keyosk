@@ -880,18 +880,45 @@ seed words and cannot be decrypted.
         fb.flush();
     }
 
-    function runRealStorageHash() {
-        if (hasherScanning) return;
+    function findActiveStorageDevice(): string {
         const execSync = require('child_process').execSync;
-        let target = "";
+        let candidates: string[] = [];
         try {
             const devs = execSync("ls /dev/sd[a-z] /dev/mmcblk[0-9] /dev/vd[a-z] /dev/nvme[0-9]n[0-9] 2>/dev/null || true")
                 .toString().trim().split(/\s+/).filter(Boolean);
-            target = devs.find((d: string) => d.includes('sdb') || d.includes('mmcblk0') || d.includes('sda')) || devs[0] || "";
+            candidates = devs;
         } catch (_) {}
 
+        // Prioritize sdb, mmcblk0, sdc before sda
+        candidates.sort((a, b) => {
+            const scoreA = a.includes('sdb') ? 3 : (a.includes('mmcblk0') ? 2 : (a.includes('sdc') ? 1 : 0));
+            const scoreB = b.includes('sdb') ? 3 : (b.includes('mmcblk0') ? 2 : (b.includes('sdc') ? 1 : 0));
+            return scoreB - scoreA;
+        });
+
+        // Actively test-read 512 bytes from each device to bypass ENOMEDIUM / unpopulated slots
+        for (const devPath of candidates) {
+            try {
+                const fd = fs.openSync(devPath, 'r');
+                const probeBuf = Buffer.alloc(512);
+                const n = fs.readSync(fd, probeBuf, 0, 512, 0);
+                fs.closeSync(fd);
+                if (n > 0) {
+                    return devPath;
+                }
+            } catch (_) {
+                // Device not ready or unpopulated, continue probing next
+            }
+        }
+        return candidates[0] || "";
+    }
+
+    function runRealStorageHash() {
+        if (hasherScanning) return;
+        const target = findActiveStorageDevice();
+
         if (!target) {
-            hasherStatus = "[!] ERROR: No raw block device detected! Insert SD/USB drive.";
+            hasherStatus = "[!] ERROR: No active block device detected! Insert SD/USB drive.";
             renderStorageHasher();
             return;
         }
