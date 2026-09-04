@@ -174,6 +174,11 @@ fn run_event_loop(
                                 }
                             }
                         }
+                        KeyCode::Char('r') | KeyCode::Char('R') => {
+                            // Populate 128 pseudo-random bits from device OS CSPRNG for convenient new wallet testing
+                            state.entropy_input = crypto::generate_random_128bit_binary();
+                            state.update_entropy_status();
+                        }
                         KeyCode::Char('c') | KeyCode::Char('C') => {
                             // Quick simulation of 128 pseudo-random coin flips passing Markov & repeat checks
                             let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";

@@ -236,6 +236,8 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::raw(" Page 1  "),
         Span::styled("[0-9]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw(" Test Vectors  "),
+        Span::styled("[R]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw(" RNG  "),
         Span::styled("[C/D]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         Span::raw(" Sim  "),
         Span::styled("[Q/ESC]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -458,7 +460,8 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         lines.push(Line::from("      Type '1' - '6' directly for casino dice roll whitening (50 rolls)."));
         lines.push(Line::from("      Type [Backspace] to delete characters."));
         lines.push(Line::from(""));
-        lines.push(Line::from("    Quick Emulations:"));
+        lines.push(Line::from("    Quick Emulations & Testing:"));
+        lines.push(Line::from("      [R]   - Populate 128-bit random binary from device RNG (New Dynamic Wallet)"));
         lines.push(Line::from("      [C]   - Simulate 128 pseudo-random physical coin flips"));
         lines.push(Line::from("      [D]   - Simulate 50 casino dice rolls"));
         lines.push(Line::from("      [0-9] - Load Canonical SubZero Test Vectors (test0 .. test9)"));

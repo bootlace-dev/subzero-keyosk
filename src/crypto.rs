@@ -237,6 +237,21 @@ pub fn get_test_vector(id: u8) -> Result<(Vec<u8>, &'static str), CryptoError> {
     }
 }
 
+/// Generate 128 pseudo-random bits from device OS CSPRNG formatted as a binary string.
+/// Convenience utility for testing dynamic wallets without pre-funded test vectors.
+pub fn generate_random_128bit_binary() -> String {
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    rand::thread_rng().fill_bytes(&mut bytes);
+    let mut bits = String::with_capacity(128);
+    for b in bytes {
+        for i in (0..8).rev() {
+            bits.push(if (b >> i) & 1 == 1 { '1' } else { '0' });
+        }
+    }
+    bits
+}
+
 /// Convert sanitized binary ("010101...") or dice ("164235...") input into 128-bit entropy bytes.
 pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str), CryptoError> {
     let clean: String = raw_input.chars().filter(|c| !c.is_whitespace() && *c != ',' && *c != '-').collect();
