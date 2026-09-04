@@ -647,7 +647,12 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if let Some(ref seed) = state.seed {
         match render_qr_to_lines(&seed.descriptor) {
-            Ok(qr_lines) => {
+            Ok(mut qr_lines) => {
+                qr_lines.push(Line::from(""));
+                qr_lines.push(Line::from(vec![
+                    Span::styled("  Watch-Only Descriptor: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(&seed.descriptor, Style::default().fg(Color::Yellow)),
+                ]));
                 let p = Paragraph::new(qr_lines)
                     .alignment(Alignment::Center)
                     .block(block);
