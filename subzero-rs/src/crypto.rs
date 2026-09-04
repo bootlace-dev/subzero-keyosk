@@ -97,6 +97,7 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
     Err(CryptoError::InvalidEntropyLength(clean.len()))
 }
 
+/// Process physical entropy to generate a Testnet4 (BIP-84 Native SegWit `tb1q...`) vault suite.
 pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, CryptoError> {
     let (entropy_bytes, mode) = parse_physical_entropy(raw_input)?;
     let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy_bytes)?;
@@ -104,24 +105,28 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
 
     let seed = mnemonic.to_seed("");
     let secp = Secp256k1::new();
-    let master_xprv = Xpriv::new_master(Network::Bitcoin, &seed)?;
+    
+    // Default network: Testnet4 (bip-0094 / testnet)
+    let master_xprv = Xpriv::new_master(Network::Testnet4, &seed)?;
     let master_fingerprint = master_xprv.fingerprint(&secp).to_string();
 
-    let account_path = DerivationPath::from_str("m/84'/0'/0'")?;
+    // BIP-84 Native SegWit Testnet path: m/84'/1'/0'
+    let account_path = DerivationPath::from_str("m/84'/1'/0'")?;
     let account_xprv = master_xprv.derive_priv(&secp, &account_path)?;
     let account_xpub = Xpub::from_priv(&secp, &account_xprv);
     let vpub = account_xpub.to_string();
 
+    // Derive first 5 tb1q Receive Addresses: m/84'/1'/0'/0/{0..4}
     let mut addresses = Vec::with_capacity(5);
     for idx in 0..5 {
-        let recv_path = DerivationPath::from_str(&format!("m/84'/0'/0'/0/{}", idx))?;
+        let recv_path = DerivationPath::from_str(&format!("m/84'/1'/0'/0/{}", idx))?;
         let key = master_xprv.derive_priv(&secp, &recv_path)?;
         let compressed_pk = CompressedPublicKey(key.to_keypair(&secp).public_key());
-        let addr = Address::p2wpkh(&compressed_pk, KnownHrp::Mainnet);
+        let addr = Address::p2wpkh(&compressed_pk, KnownHrp::Testnets);
         addresses.push(addr.to_string());
     }
 
-    let descriptor = format!("wpkh([{}/84'/0'/0']{}/<0;1>/*)", master_fingerprint, account_xpub);
+    let descriptor = format!("wpkh([{}/84'/1'/0']{}/<0;1>/*)", master_fingerprint, account_xpub);
 
     Ok(GeneratedSeed {
         mnemonic: mnemonic_str,
@@ -137,7 +142,7 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
     let mnemonic = Mnemonic::from_str(master_mnemonic_str)?;
     let seed = mnemonic.to_seed("");
     let secp = Secp256k1::new();
-    let master_xprv = Xpriv::new_master(Network::Bitcoin, &seed)?;
+    let master_xprv = Xpriv::new_master(Network::Testnet4, &seed)?;
 
     let mut children = Vec::new();
     for i in 1..=count {

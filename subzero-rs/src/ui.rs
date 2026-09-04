@@ -136,7 +136,7 @@ fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)
-                .title(" SUBZERO-RS // AIRGAPPED BITCOIN APPLIANCE ")
+                .title(" SUBZERO-RS // AIRGAPPED BITCOIN TESTNET4 APPLIANCE ")
                 .title_alignment(Alignment::Left)
                 .style(Style::default().fg(Color::Cyan)),
         )
@@ -290,7 +290,7 @@ fn render_qr_view(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" First 5 Receive Addresses (BIP-84 Native SegWit bc1q...) ")
+        .title(" First 5 Receive Addresses (BIP-84 Native SegWit tb1q... [Testnet4]) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -298,7 +298,7 @@ fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(""));
         for (i, addr) in seed.addresses.iter().enumerate() {
             lines.push(Line::from(vec![
-                Span::styled(format!("  m/84'/0'/0'/0/{:<2}: ", i), Style::default().fg(Color::Cyan)),
+                Span::styled(format!("  m/84'/1'/0'/0/{:<2}: ", i), Style::default().fg(Color::Cyan)),
                 Span::styled(addr, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
             ]));
         }
