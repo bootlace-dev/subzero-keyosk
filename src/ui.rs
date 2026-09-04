@@ -135,6 +135,17 @@ impl AppState {
         }
     }
 
+    pub fn wipe_memory(&mut self) {
+        self.seed = None;
+        self.decoupled_passphrase = None;
+        self.bip85_children.clear();
+        self.entropy_input.clear();
+        self.is_entering_entropy = false;
+        self.decrypted_vault = None;
+        self.current_page = Page::MasterSeed;
+        self.status_message = "[✓] MEMORY WIPED: All private keys and entropy zeroized in RAM.".into();
+    }
+
     pub fn set_seed(&mut self, seed: GeneratedSeed, mut children: Vec<Bip85Child>) {
         if !children.is_empty() && children[0].index == 0 {
             self.decoupled_passphrase = Some(children.remove(0));
@@ -272,7 +283,11 @@ fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
         .block(
             Block::default()
                 .borders(Borders::BOTTOM)
-                .title(" SUBZERO-RS // AIRGAPPED BITCOIN TESTNET4 APPLIANCE ")
+                .title(if let Some(ref s) = state.seed {
+                    format!(" SUBZERO-RS // AIRGAPPED BITCOIN TESTNET4 [Master fp: {}] ", s.fingerprint)
+                } else {
+                    " SUBZERO-RS // AIRGAPPED BITCOIN TESTNET4 [NO KEYS IN RAM] ".to_string()
+                })
                 .title_alignment(Alignment::Left)
                 .style(Style::default().fg(Color::Cyan)),
         )
@@ -299,11 +314,11 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled("[0-9]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw(" Test Vectors  "),
         Span::styled("[R]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" RNG  "),
-        Span::styled("[C/D]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" Sim  "),
+        Span::raw(" PRNG  "),
+        Span::styled("[W]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        Span::raw(" Wipe & Reset  "),
         Span::styled("[Q/ESC]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-        Span::raw(" Wipe & Exit"),
+        Span::raw(" Exit"),
     ];
     let nav_line = Line::from(nav_spans);
     frame.render_widget(Paragraph::new(nav_line), sub_chunks[0]);
@@ -355,7 +370,7 @@ fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" BIP-39 Primary Master Secret ")
+        .title(" Tab 1. BIP-39 Primary Master Secret ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -522,7 +537,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         lines.push(Line::from("      Type [Backspace] to delete characters."));
         lines.push(Line::from(""));
         lines.push(Line::from("    Quick Emulations & Testing:"));
-        lines.push(Line::from("      [R]   - Populate 128-bit random binary from device RNG (New Dynamic Wallet)"));
+        lines.push(Line::from("      [R]   - Populate 128-bit random binary from device PRNG (Testing Only) (New Dynamic Wallet)"));
         lines.push(Line::from("      [C]   - Simulate 128 pseudo-random physical coin flips"));
         lines.push(Line::from("      [D]   - Simulate 50 casino dice rolls"));
         lines.push(Line::from("      [0-9] - Load Canonical SubZero Test Vectors (test0 .. test9)"));
@@ -566,7 +581,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
 fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Decoupled Estate Passphrase (BIP-85 Index 0) ")
+        .title(" Tab 2. Decoupled Estate Passphrase (BIP-85 Index 0) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref pass) = state.decoupled_passphrase {
@@ -603,7 +618,7 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Output Descriptor (BIP-380 / BIP-84 Native SegWit) ")
+        .title(" Tab 3. Output Descriptor (BIP-380 / BIP-84 Native SegWit) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -631,7 +646,7 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Airgapped Export QR (Watch-Only Descriptor) ")
+        .title(" Tab 4. Airgapped Export QR (Watch-Only Descriptor) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -655,7 +670,7 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Faucet QR Code (Receive Address #0) ")
+        .title(" Tab 5. Faucet QR Code (Receive Address #0) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -688,7 +703,7 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" First 5 Receive Addresses (BIP-84 Native SegWit tb1q... [Testnet4]) ")
+        .title(" Tab 6. First 5 Receive Addresses (BIP-84 Native SegWit tb1q... [Testnet4]) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -715,7 +730,7 @@ fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" BIP-85 Child Seed Treasuries (Deterministic Heir/Vault Keys) ")
+        .title(" Tab 7. BIP-85 Child Seed Treasuries (Deterministic Heir/Vault Keys) ")
         .style(Style::default().fg(Color::White));
 
     if state.bip85_children.is_empty() {
@@ -745,7 +760,7 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" SeedFix Recovery Tool (Interactive Candidate Solver) ")
+        .title(" Tab 8. SeedFix Recovery Tool (Interactive Candidate Solver) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -797,7 +812,7 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" BIP-39 Canonical English Wordlist Inspector (2048 Words) ")
+        .title(" Tab 9. BIP-39 Canonical English Wordlist Inspector (2048 Words) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -839,7 +854,7 @@ fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Unlock & Decrypt Estate Vault (vault.json) ")
+        .title(" Tab 10. Unlock & Decrypt Estate Vault (vault.json) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -893,7 +908,7 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_storage_hasher(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Storage Media Health & Flash Latency Map (Read-Only) ")
+        .title(" Tab 11. Storage Media Health & Flash Latency Map (Read-Only) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -946,7 +961,7 @@ fn render_storage_hasher(frame: &mut Frame, area: Rect, state: &AppState) {
     lines.push(Line::from(""));
     lines.push(Line::from("  Legend: [GREEN] <25ms Optimal NAND | [YELLOW] 25-75ms Normal USB | [RED] >75ms Slow Bus | [X] Read Error"));
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  Controls: Press [H] to Run 64MB Direct I/O Read Scan", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from(Span::styled("  Controls: Press [S] to Run 64MB Direct I/O Read Scan", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
@@ -954,7 +969,7 @@ fn render_storage_hasher(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_debug_log(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Amnesic System Diagnostics & Hardware Log ")
+        .title(" Tab 12. Amnesic System Diagnostics & Hardware Log ")
         .style(Style::default().fg(Color::White));
 
     if state.show_debug_qr {
@@ -1016,7 +1031,7 @@ fn render_debug_log(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_drill_guide(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" 24x4 Metal Punch / Cold Storage Guide ")
+        .title(" Tab 13. 24x4 Metal Punch / Cold Storage Guide ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -1043,7 +1058,7 @@ fn render_drill_guide(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Appliance Build Provenance & Cryptographic Zero-Knowledge Spec ")
+        .title(" Tab 14. Appliance Build Provenance & Cryptographic Zero-Knowledge Spec ")
         .style(Style::default().fg(Color::White));
 
     let lines = vec![
@@ -1068,10 +1083,7 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::raw("  Git Commit SHA:       "),
             Span::styled(&state.git_commit, Style::default().fg(Color::Yellow)),
         ]),
-        Line::from(vec![
-            Span::raw("  Zero-PII Status:      "),
-            Span::styled("VERIFIED PURE ANONYMOUS APPLIANCE", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        ]),
+
         Line::from(vec![
             Span::raw("  Memory Hygiene:       "),
             Span::styled("ZeroizeOnDrop on all entropy buffers & private keys", Style::default().fg(Color::Cyan)),

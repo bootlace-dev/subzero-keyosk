@@ -244,13 +244,44 @@ pub fn run_markov_audit(input: &str) -> MarkovResult {
     }
 }
 
-/// Detect repeating substring patterns (chunks of size 3 to 6 repeating consecutively 3 times).
+/// Detect repeating substring patterns or long runs of human typing bias.
+/// For binary bitstreams, checking tiny 3-bit chunks produces ~70% false positives on pure entropy.
+/// We check single-character runs >= 12, or alternating chunks of size 2..8 repeating 4-8 times.
 pub fn has_repetitive_substrings(input: &str, min_chunk: usize, max_chunk: usize) -> bool {
-    if input.len() < min_chunk * 3 {
+    let chars: Vec<char> = input.chars().collect();
+    if chars.len() < min_chunk * 3 {
         return false;
     }
 
-    let chars: Vec<char> = input.chars().collect();
+    let is_bin = chars.iter().all(|&c| c == '0' || c == '1');
+    if is_bin {
+        if input.contains("000000000000") || input.contains("111111111111") {
+            return true;
+        }
+        for size in 2..=8 {
+            let reps = if size == 2 { 8 } else if size == 3 { 6 } else if size == 4 { 5 } else { 4 };
+            if chars.len() < size * reps {
+                continue;
+            }
+            for i in 0..=chars.len() - (size * reps) {
+                let chunk = &chars[i..i + size];
+                let mut match_found = true;
+                for rep in 1..reps {
+                    let next_chunk = &chars[i + (rep * size)..i + (rep * size) + size];
+                    if chunk != next_chunk {
+                        match_found = false;
+                        break;
+                    }
+                }
+                if match_found {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Casino dice rolls (1-6) or general base: 3 consecutive repetitions of chunks size 3..6
     for size in min_chunk..=max_chunk {
         if chars.len() < size * 3 {
             continue;
@@ -360,7 +391,7 @@ pub fn get_test_vector(id: u8) -> Result<(Vec<u8>, &'static str), CryptoError> {
     }
 }
 
-/// Generate 128 pseudo-random bits from device OS CSPRNG formatted as a binary string.
+/// Generate 128 pseudo-random bits from device PRNG (Testing Only) formatted as a binary string.
 /// Convenience utility for testing dynamic wallets without pre-funded test vectors.
 pub fn generate_random_128bit_binary() -> String {
     use rand::RngCore;

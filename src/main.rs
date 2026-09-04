@@ -149,7 +149,7 @@ fn run_event_loop(
                     break;
                 }
 
-                // Global Tab / Left / Right navigation
+                // Global Navigation & Memory Management
                 match key.code {
                     KeyCode::Tab | KeyCode::Right => {
                         state.current_page = state.current_page.next();
@@ -162,6 +162,13 @@ fn run_event_loop(
                     KeyCode::Home => {
                         state.current_page = ui::Page::MasterSeed;
                         continue;
+                    }
+                    KeyCode::Char('w') | KeyCode::Char('W') => {
+                        // Only trigger wipe if not typing inside an active text field (SeedFix, Wordlist, Vault)
+                        if state.current_page != ui::Page::SeedFix && state.current_page != ui::Page::WordlistInspector && state.current_page != ui::Page::VaultUnlock {
+                            state.wipe_memory();
+                            continue;
+                        }
                     }
                     _ => {}
                 }
