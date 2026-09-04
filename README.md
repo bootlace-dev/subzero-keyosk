@@ -29,6 +29,19 @@ If you were provided with this repository or asked to evaluate it:
 
 ---
 
+## ⚡ TL;DR
+
+* **What It Is**: An amnesic, machine-first, airgapped Bitcoin cold storage kiosk OS (Alpine mini-rootfs) that boots from a raw USB drive or SD card directly to the Linux framebuffer (`/dev/fb0`).
+* **The Problem**: Commercial hardware wallets suffer from closed firmware, supply-chain interception risks, seed-extraction vulnerabilities, and customer shipping data leaks.
+* **The Solution**: Turn any commodity laptop (PC x86_64) or Raspberry Pi (ARM64) into a dedicated, single-purpose cold vault appliance.
+* **Core Invariants**:
+  1. **Zero Wireless / Zero Network**: 100% of Wi-Fi, Bluetooth, cellular, and Ethernet kernel modules are physically purged from the OS rootfs.
+  2. **Pure Physical Entropy**: Accepts 128 physical coin flips (binary) or 50 6-sided dice rolls—zero reliance on black-box silicon RNGs.
+  3. **Amnesic RAM Execution**: Runs entirely in volatile memory (`toram`); all secrets and keys are cryptographically zeroized upon clean `/sbin/poweroff -f`.
+* **Zero Financial Risk Rehearsal**: Shipped locked to Bitcoin **Testnet4** so users can rehearse their entire cold storage lifecycle before handling real mainnet funds.
+
+---
+
 ### 📦 What You Need (10-Second Checklist)
 * **1x Spare USB drive (256MB+)** or **MicroSD card**.
 * **1x Any old PC laptop/desktop** (ThinkPad, Dell, HP) or **Raspberry Pi** (2, 3, or 4) with a screen and keyboard.

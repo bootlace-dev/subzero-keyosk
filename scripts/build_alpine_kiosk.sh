@@ -101,6 +101,7 @@ chroot "${ROOTFS_DIR}" apk add --no-cache \
     font-terminus \
     dosfstools \
     parted \
+    gptfdisk \
     util-linux
 
 # Framebuffer modules — loaded by the `modules` OpenRC service at boot
@@ -132,8 +133,9 @@ echo -e "\n[Step 6] Injecting SubZero Keygen CLI application (${TUI_BUNDLE})..."
 mkdir -p "${ROOTFS_DIR}/opt/subzero/templates" "${ROOTFS_DIR}/opt/subzero/docs"
 if [ -f "${WORKSPACE_DIR}/dist/${TUI_BUNDLE}" ]; then
     cp "${WORKSPACE_DIR}/dist/${TUI_BUNDLE}" "${ROOTFS_DIR}/opt/subzero/tui.cjs"
-else
-    echo "console.log(\"Missing dist/${TUI_BUNDLE}\");" > "${ROOTFS_DIR}/opt/subzero/tui.cjs"
+fi
+if [ -f "${WORKSPACE_DIR}/dist/fb_vault.cjs" ]; then
+    cp "${WORKSPACE_DIR}/dist/fb_vault.cjs" "${ROOTFS_DIR}/opt/subzero/fb_vault.cjs"
 fi
 
 if [ -f "${WORKSPACE_DIR}/src/templates/decrypt.html" ]; then
@@ -203,15 +205,22 @@ if [ ! -c /dev/fb0 ]; then
     sleep 5
 fi
 
-# Execute SubZero Framebuffer Keyosk directly on tty1
+# Execute SubZero Framebuffer Keyosk with controlling TTY session
 cd /opt/subzero
-/usr/bin/node /opt/subzero/tui.cjs < /dev/tty1 > /dev/tty1 2>&1
+if [ -f /opt/subzero/fb_vault.cjs ]; then
+    APP_TARGET="/opt/subzero/fb_vault.cjs"
+else
+    APP_TARGET="/opt/subzero/tui.cjs"
+fi
 
-# When Node exits, perform immediate RAM-safe ACPI poweroff
-sync
-echo 1 > /proc/sys/kernel/sysrq 2>/dev/null || true
-echo o > /proc/sysrq-trigger 2>/dev/null || true
-exec /sbin/poweroff -f 2>/dev/null || /sbin/shutdown -h now 2>/dev/null || while true; do sleep 1; done
+echo "[SUBZERO] Launching: ${APP_TARGET}..." > /dev/tty1
+openvt -c 1 -w -s -- /usr/bin/node "$APP_TARGET" || \
+/usr/bin/node "$APP_TARGET" < /dev/tty1 > /dev/tty1 2>&1 || true
+
+# When Node exits, keep error on screen and drop to rescue shell instead of instant poweroff
+echo "[SUBZERO] Application exited. Diagnostics console:" > /dev/tty1
+echo "Press Ctrl+Alt+Del to reboot or inspect logs." > /dev/tty1
+exec /bin/sh < /dev/tty1 > /dev/tty1 2>&1
 LAUNCHER
 chmod 755 "${ROOTFS_DIR}/opt/subzero/launch.sh"
 
@@ -326,13 +335,22 @@ echo "========================================================"
 echo "    [+] SUBZERO KEYOSK // AIRGAPPED BOOTLOADER [+]     "
 echo "========================================================"
 echo -n "[1/4] Initializing hardware drivers..."
-for mod in hwmon libata scsi_mod sd_mod ata_piix pata_acpi ata_generic ahci virtio_pci virtio_blk virtio_scsi nvme_core nvme mmc_block sdhci sdhci-pci xhci-pci xhci-hcd ehci-pci ehci-hcd usb-storage uas vfat fat nls_cp437 nls_iso8859_1 loop squashfs overlay wmi video fbcon efifb simpledrm i915 amdgpu bochs_drm hid hid-generic usbhid; do
+for mod in $(find /lib/modules -type f \( -name "*.ko" -o -name "*.ko.gz" \) 2>/dev/null | grep -E "(block|ata|scsi|mmc|usb|pci|rtsx|sdhci|vfat|nls|squashfs|overlay|fb|drm|hid)" | sed 's/.*\///; s/\.ko.*//'); do
     modprobe "$mod" 2>/dev/null
 done
 echo " [OK]"
 echo -n "[2/4] Scanning storage devices for SubZero payload..."
 EFI_DEV=""
 for attempt in $(seq 1 30); do
+    # Force devtmpfs / mdev to synthesize device nodes for all kernel block devices
+    mdev -s 2>/dev/null || true
+    for b in $(ls -d /sys/class/block/* 2>/dev/null | sed 's/.*\///'); do
+        if [ ! -b "/dev/$b" ] && [ -f "/sys/class/block/$b/dev" ]; then
+            majmin=$(cat "/sys/class/block/$b/dev")
+            mknod "/dev/$b" b ${majmin%:*} ${majmin#*:} 2>/dev/null || true
+        fi
+    done
+
     for dev in $(ls /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* 2>/dev/null); do
         [ -b "$dev" ] || continue
         mkdir -p /media/efi
@@ -350,11 +368,32 @@ done
 
 if [ -z "$EFI_DEV" ]; then
     echo -e "\nFATAL: Could not locate rootfs.squashfs payload on any block device!"
-    echo "Executing emergency poweroff in 5 seconds..."
-    sleep 5
-    poweroff -f 2>/dev/null || reboot -f 2>/dev/null || halt -f
+    echo "Active block devices in sysfs:"
+    ls -l /sys/class/block/ 2>/dev/null || true
+    echo "Dropping to rescue shell for diagnostics (type 'exit' to retry scan)..."
+    while true; do
+        /bin/sh < /dev/tty1 > /dev/tty1 2>&1
+        echo "Rescanning storage devices for SubZero payload..."
+        for dev in $(ls /dev/sd* /dev/vd* /dev/nvme* /dev/mmcblk* 2>/dev/null); do
+            [ -b "$dev" ] || continue
+            mkdir -p /media/efi
+            if mount -t vfat -o ro "$dev" /media/efi 2>/dev/null; then
+                if [ -f "/media/efi/rootfs.squashfs" ]; then
+                    EFI_DEV="$dev"
+                    break 2
+                fi
+                umount /media/efi 2>/dev/null
+            fi
+        done
+        [ -n "$EFI_DEV" ] && break
+        echo "Still cannot find rootfs.squashfs. Re-entering shell..."
+    done
 fi
 echo " [FOUND: ${EFI_DEV}]"
+
+# Record exact parent boot disk for kiosk cloner isolation
+PARENT_BOOT_DISK=$(echo "$EFI_DEV" | sed -E 's#/dev/##; s#p?[0-9]+$##')
+PARENT_BOOT_UUID=$(blkid "$EFI_DEV" 2>/dev/null | grep -o 'UUID="[^"]*"' | head -1 | cut -d'"' -f2)
 
 echo -n "[3/4] Copying OS payload to volatile RAM disk (toram)..."
 mkdir -p /media/ram /media/sqfs /sysroot
@@ -378,8 +417,16 @@ mkdir -p /sysroot/dev /sysroot/proc /sysroot/sys
 mount --move /dev /sysroot/dev
 mount --move /proc /sysroot/proc
 mount --move /sys /sysroot/sys
+
+# Persist boot disk identity into live kiosk environment
+mkdir -p /sysroot/run/subzero /sysroot/etc
+echo "$PARENT_BOOT_DISK" > /sysroot/etc/subzero_boot_disk
+echo "$PARENT_BOOT_DISK" > /sysroot/run/subzero/boot_disk
+echo "$EFI_DEV" > /sysroot/etc/subzero_boot_partition
+echo "$PARENT_BOOT_UUID" > /sysroot/etc/subzero_boot_uuid
 echo "========================================================"
 echo " >> SUCCESS: OS RUNNING ENTIRELY FROM VOLATILE RAM <<"
+echo " >> BOOT MEDIA: /dev/${PARENT_BOOT_DISK} (${EFI_DEV}) UUID=${PARENT_BOOT_UUID} <<"
 echo "========================================================"
 
 # Switch execution into the RAM-based root filesystem
@@ -542,6 +589,14 @@ dd if="${BUILD_DIR}/estate.img" of="${IMG_PATH}" bs=512 seek=862208 conv=notrunc
 
 chmod 0644 "${IMG_PATH}"
 echo "  [Security Hash] Dual-Partition Appliance: $(sha256sum "${IMG_PATH}" | awk '{print $1}')"
+
+# Step 10.4: Generate Timestamped Archive Copy alongside Canonical Image
+BUILD_STAMP_IMG=$(date -u +"%y%m%d%H%MZ")
+BASE_NAME="$(basename "${IMG_NAME}" .img)"
+TIMESTAMPED_IMG="${OUTPUT_DIR}/${BASE_NAME}-${BUILD_STAMP_IMG}.img"
+cp -f "${IMG_PATH}" "${TIMESTAMPED_IMG}"
+echo "  [✓] Timestamped Artifact: ${TIMESTAMPED_IMG}"
+echo "  [✓] Canonical Symlink/Image: ${IMG_PATH}"
 
 # Step 11: Automated Image Self-Verification & Manifest Assertion
 echo -e "\n[Step 11] Running Automated Post-Build Integrity Assertion..."

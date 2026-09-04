@@ -4,10 +4,10 @@
   "description": "A tiny, auditable live USB/SD image turning any PC or Raspberry Pi into an amnesic, airgapped Bitcoin seed and key generator from physical coin flips & dice.",
   "main": "dist/tui_testnet4.cjs",
   "scripts": {
-    "build": "npx esbuild src/tui.ts --bundle --platform=node --target=node20 --outfile=dist/tui.cjs",
-    "build:testnet4": "npx esbuild src/fb_testnet4.ts --bundle --platform=node --target=node20 --outfile=dist/tui_testnet4.cjs",
-    "build:vault": "npx esbuild src/fb_vault.ts --bundle --platform=node --target=node20 --outfile=dist/fb_vault.cjs && cp src/templates/decrypt.html dist/decrypt.html",
-    "build:all": "npm run build && npm run build:testnet4 && npm run build:vault",
+    "build": "node scripts/build_bundle.js tui",
+    "build:testnet4": "node scripts/build_bundle.js testnet4",
+    "build:vault": "node scripts/build_bundle.js vault",
+    "build:all": "node scripts/build_bundle.js all",
     "test": "vitest run"
   },
   "dependencies": {

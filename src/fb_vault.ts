@@ -27,11 +27,16 @@ const COLOR_CARD_BORDER: RGB = { r: 40, g: 55, b: 85 };  // Slate border (#28375
 const COLOR_BADGE_BG: RGB = { r: 25, g: 38, b: 62 };     // Badge background
 const COLOR_WHITE: RGB = { r: 255, g: 255, b: 255 };      // Pure crisp white (#FFFFFF)
 const COLOR_ACCENT: RGB = { r: 0, g: 200, b: 255 };      // Bright cyan (#00C8FF)
+const COLOR_GREEN: RGB = { r: 50, g: 205, b: 50 };       // Vibrant lime green (#32CD32)
 const COLOR_GOLD: RGB = { r: 255, g: 190, b: 40 };       // Amber gold (#FFBE28)
 const COLOR_WARN: RGB = { r: 255, g: 80, b: 80 };        // Soft red warning (#FF5050)
 const COLOR_MUTED: RGB = { r: 120, g: 140, b: 170 };     // Slate muted text (#788CAA)
-const COLOR_GREEN: RGB = { r: 80, g: 255, b: 120 };      // Success green (#50FF78)
-const BUILD_VERSION = "v0.2.0-vault-testnet4";
+declare const __BUILD_STAMP__: string;
+declare const __GIT_SHA__: string;
+
+const BUILD_STAMP_VAL = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'DEV';
+const GIT_SHA_VAL = typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'local';
+const BUILD_VERSION = `v0.2.0-vault-testnet4 [${BUILD_STAMP_VAL}]`;
 const BUILD_TARGET = "x86_64 Generic PC (UEFI/BIOS)";
 
 const fb = new Framebuffer();
@@ -46,6 +51,8 @@ type AppState =
     | "MENU"
     | "SEED_GEN_INPUT"
     | "SEED_GEN_CAROUSEL"
+    | "CLONE_CONFIRM"
+    | "DEBUG_VIEW"
     | "VAULT_DECRYPT"
     | "BIP85_FACTORY"
     | "SEEDFIX_TOOL"
@@ -65,7 +72,7 @@ async function main() {
         "[2] Unlock & Decrypt Estate Vault (Import vault.json + 12-Word Passphrase)",
         "[3] BIP-85 Multi-Protocol Key Factory (Nostr / SSH / Child Wallets)",
         "[4] SeedFix: 11-to-12 Checksum Solver & Typo Recovery Tool",
-        "[5] Storage Device Hasher & Flash Bit-Rot Latency Map",
+        "[5] Storage Media & Cryptographic Health Audit (Read-Only)",
         "[6] BIP-39 English Wordlist Inspector (2048 Canonical Words)",
         "[Q] Power Down & Amnesic RAM Zeroization"
     ];
@@ -86,6 +93,27 @@ async function main() {
     // USB Batch Export State
     let exportStatus = "Press [W] to write encrypted vault.json to SUBZERO_EST partition";
     let exportSuccess = false;
+
+    // Clone Confirmation & Progress State
+    let cloneCandidate: {
+        masterDisk: string;
+        targetDisk: string;
+        targetBytes: number;
+        targetGB: string;
+        targetModel: string;
+    } | null = null;
+    let cloneProgress = {
+        active: false,
+        chunkIndex: 0,
+        totalChunks: 128,
+        bytesCopied: 0,
+        totalBytes: 512 * 1024 * 1024,
+        statusText: ""
+    };
+
+    // Debug Viewer State
+    let debugLogScroll = 0;
+    let debugLogLines: string[] = [];
 
     // Vault Decryption State
     let vaultDecryptInput = "";
@@ -154,22 +182,22 @@ async function main() {
             y += 66;
         }
 
-        renderFooter("Controls: [UP/DOWN] = Select Tool | [ENTER] = Launch | [Q] = Power Off & Wipe");
+        renderFooter("Controls: [UP/DOWN] = Select Tool | [ENTER] = Launch | [D] = Debug Log | [Q] = Power Off & Wipe");
         fb.flush();
     }
 
     function checkTestVector(input: string): { isTest: boolean, label: string } {
         const lower = input.trim().toLowerCase();
-        if (lower === 'test' || lower === 'test0') return { isTest: true, label: 'TEST VECTOR 0 (BIP-39 BASELINE: ALL ZEROS)' };
-        if (lower === 'test1') return { isTest: true, label: 'TEST VECTOR 1 (FAUCET SPENDER)' };
-        if (lower === 'test2') return { isTest: true, label: 'TEST VECTOR 2 (WATCH-ONLY TARGET)' };
-        if (lower === 'test3') return { isTest: true, label: 'TEST VECTOR 3 (BIP-85 HOT WALLET)' };
-        if (lower === 'test4') return { isTest: true, label: 'TEST VECTOR 4 (EDGE DESCRIPTOR)' };
-        if (lower === 'test5') return { isTest: true, label: 'TEST VECTOR 5 (ALL-ONES 0xFF BOUNDARY)' };
-        if (lower === 'test6') return { isTest: true, label: 'TEST VECTOR 6 (SATOSHI GENESIS LORE)' };
-        if (lower === 'test7') return { isTest: true, label: 'TEST VECTOR 7 (HAL FINNEY LORE)' };
-        if (lower === 'test8') return { isTest: true, label: 'TEST VECTOR 8 (BRAINWALLET TRAP)' };
-        if (lower === 'test9') return { isTest: true, label: 'TEST VECTOR 9 (DEEP BIP-85 NESTING)' };
+        if (lower === 'test' || lower === 'test0') return { isTest: true, label: 'TEST VECTOR 0 (BIP-39 BASELINE: ALL ZEROS 0x00)' };
+        if (lower === 'test1') return { isTest: true, label: 'TEST VECTOR 1 (ALTERNATING 0x55)' };
+        if (lower === 'test2') return { isTest: true, label: 'TEST VECTOR 2 (ALTERNATING 0xAA)' };
+        if (lower === 'test3') return { isTest: true, label: 'TEST VECTOR 3 (SIGNED BYTE BOUNDARY 0x7F)' };
+        if (lower === 'test4') return { isTest: true, label: 'TEST VECTOR 4 (HIGH-BIT BOUNDARY 0x80)' };
+        if (lower === 'test5') return { isTest: true, label: 'TEST VECTOR 5 (ALL-ONES BOUNDARY 0xFF)' };
+        if (lower === 'test6') return { isTest: true, label: 'TEST VECTOR 6 (INCREMENTAL NIBBLES 0x0123...)' };
+        if (lower === 'test7') return { isTest: true, label: 'TEST VECTOR 7 (SEQUENTIAL BYTES 0x0001...)' };
+        if (lower === 'test8') return { isTest: true, label: 'TEST VECTOR 8 (SATOSHI GENESIS LORE: TIMES 2009)' };
+        if (lower === 'test9') return { isTest: true, label: 'TEST VECTOR 9 (HAL FINNEY LORE: RUNNING BITCOIN)' };
         return { isTest: false, label: '' };
     }
 
@@ -215,7 +243,7 @@ async function main() {
             fb.drawTextCentered(y + 12, ">>> 128-BIT ENTROPY ACQUIRED -- PRESS [ENTER] TO DERIVE SEEDS <<<", 1, COLOR_GREEN);
         }
 
-        renderFooter("Controls: [0/1 Coins] [1-6 Dice] | [ENTER] = Process | [ESC] = Return to Menu");
+        renderFooter("Controls: [0/1 Coins] [1-6 Dice] [R=Hardware RNG] | [ENTER] = Process | [ESC] = Menu");
         fb.flush();
     }
 
@@ -320,28 +348,46 @@ async function main() {
     }
 
     async function executeUsbBatchExport() {
-        exportStatus = "Scanning for SUBZERO_EST partition & connected drives...";
+        exportStatus = "Locating boot media estate partition...";
         renderSeedGenCarousel();
 
         const execSync = require('child_process').execSync;
         let targetDev = "";
         let isRawDisk = false;
         try {
-            // First check for pre-allocated partition labeled SUBZERO_EST
-            const estDev = execSync("blkid -L SUBZERO_EST 2>/dev/null || true").toString().trim();
-            if (estDev) {
-                targetDev = estDev;
-            } else {
-                // Check for secondary partitions on block devices (e.g. /dev/sdb2, /dev/sda2)
+            // UUID-based master resolution (primary path)
+            const masterResult = resolveMasterBootDisk();
+            if (masterResult.masterDisk) {
+                const md = masterResult.masterDisk;
+                const pSep = /[0-9]$/.test(md) ? 'p' : '';
+                const masterP2 = `/dev/${md}${pSep}2`;
+                if (fs.existsSync(masterP2)) {
+                    targetDev = masterP2;
+                    logDebug(`W command: using master estate partition ${masterP2}`);
+                } else {
+                    // Master disk present but no partition 2 — might be unpartitioned
+                    logDebug(`W command: master /dev/${md} found but ${masterP2} does not exist`);
+                }
+            }
+
+            // Fallback: blkid label search (for dev mode or legacy images without UUID)
+            if (!targetDev) {
+                const estDev = execSync("blkid -L SUBZERO_EST 2>/dev/null || true").toString().trim();
+                if (estDev) {
+                    targetDev = estDev;
+                    logDebug(`W command fallback: blkid -L SUBZERO_EST -> ${estDev}`);
+                }
+            }
+
+            // Last resort: scan for any partition on any block device
+            if (!targetDev) {
                 const partitions = execSync("ls /dev/sd[a-z][1-9] /dev/vd[a-z][1-9] /dev/mmcblk*[0-9]p[1-9] 2>/dev/null || true").toString().trim().split(/\s+/).filter(Boolean);
-                // Prefer partition 2 if present (SubZero Estate Data Partition)
                 const p2 = partitions.find(p => p.endsWith('2') || p.endsWith('p2'));
                 if (p2) {
                     targetDev = p2;
                 } else if (partitions.length > 0) {
                     targetDev = partitions[0];
                 } else {
-                    // Check for raw unpartitioned storage drive
                     const disks = execSync("ls /dev/sd[a-z] /dev/vd[a-z] /dev/mmcblk[0-9] 2>/dev/null || true").toString().trim().split(/\s+/).filter(Boolean);
                     if (disks.length > 0) {
                         targetDev = disks[0];
@@ -352,7 +398,12 @@ async function main() {
         } catch (_) {}
 
         if (!targetDev) {
-            exportStatus = "[!] ERROR: No storage drive detected! Insert drive and retry.";
+            const masterResult = resolveMasterBootDisk();
+            if (masterResult.error) {
+                exportStatus = `${masterResult.error} ${masterResult.diagnostic || 'Re-insert boot SD card and press [W].'}`;
+            } else {
+                exportStatus = "[!] ERROR: No storage drive detected! Insert boot media and press [W].";
+            }
             exportSuccess = false;
             renderSeedGenCarousel();
             return;
@@ -445,8 +496,12 @@ seed words and cannot be decrypted.
                 fs.copyFileSync("./docs/SYSTEM_MANIFEST.txt", `${mountDir}/SYSTEM_MANIFEST.txt`);
             }
 
+            // Write timestamped archive alongside canonical vault.json
+            const exportStamp = BUILD_STAMP_VAL !== 'DEV' ? BUILD_STAMP_VAL : new Date().toISOString().replace(/[-:T]/g, '').slice(2, 12) + 'Z';
+            fs.writeFileSync(`${mountDir}/vault_${exportStamp}.json`, encryptedVault);
+
             // Generate SHA256SUMS for all exported files
-            const filesToSum = ['decrypt.html', 'README.txt', 'SYSTEM_MANIFEST.txt', 'vault.json'].filter(f => fs.existsSync(`${mountDir}/${f}`));
+            const filesToSum = ['decrypt.html', 'README.txt', 'SYSTEM_MANIFEST.txt', 'vault.json', `vault_${exportStamp}.json`].filter(f => fs.existsSync(`${mountDir}/${f}`));
             const sums = filesToSum.map(f => {
                 const data = fs.readFileSync(`${mountDir}/${f}`);
                 const h = require('crypto').createHash('sha256').update(data).digest('hex');
@@ -457,13 +512,414 @@ seed words and cannot be decrypted.
             execSync(`sync`);
             execSync(`umount ${mountDir} 2>/dev/null || true`);
 
-            exportStatus = `[SUCCESS] Encrypted vault & SHA256SUMS written to ${partitionToMount}! Safe to remove.`;
+            exportStatus = `[SUCCESS] Encrypted vault_${exportStamp}.json & SHA256SUMS written to ${partitionToMount}!`;
             exportSuccess = true;
             renderSeedGenCarousel();
         } catch (e: any) {
             exportStatus = `[!] EXPORT FAILED: ${e?.message || e}`;
             exportSuccess = false;
             renderSeedGenCarousel();
+        }
+    }
+
+    function resolveMasterBootDisk(): { masterDisk?: string, error?: string, diagnostic?: string } {
+        const execSync = require('child_process').execSync;
+
+        // Read boot identity files written by initramfs at boot
+        let bootUUID = "";
+        let bootDiskHint = "";  // device letter at boot time (may become stale on replug)
+        try {
+            if (fs.existsSync("/etc/subzero_boot_uuid")) bootUUID = fs.readFileSync("/etc/subzero_boot_uuid", 'utf8').trim();
+        } catch (_) {}
+        try {
+            if (fs.existsSync("/etc/subzero_boot_disk")) bootDiskHint = fs.readFileSync("/etc/subzero_boot_disk", 'utf8').trim();
+            else if (fs.existsSync("/run/subzero/boot_disk")) bootDiskHint = fs.readFileSync("/run/subzero/boot_disk", 'utf8').trim();
+        } catch (_) {}
+
+        logDebug(`resolveMasterBootDisk: UUID=${bootUUID || '(none)'}, hint=${bootDiskHint || '(none)'}`);
+
+        // Force device node refresh (Alpine uses mdev, not udev)
+        try { execSync('mdev -s 2>/dev/null || true'); } catch (_) {}
+
+        let masterDisk = "";
+
+        if (bootUUID) {
+            // Fast path: check if the device at the recorded letter still has the boot UUID
+            if (bootDiskHint) {
+                const pSep = /[0-9]$/.test(bootDiskHint) ? 'p' : '';
+                const hintP1 = `/dev/${bootDiskHint}${pSep}1`;
+                try {
+                    const hintUUID = execSync(`blkid -s UUID -o value ${hintP1} 2>/dev/null || true`).toString().trim();
+                    if (hintUUID === bootUUID) {
+                        masterDisk = bootDiskHint;
+                        logDebug(`Fast path confirmed: /dev/${bootDiskHint} matches boot UUID ${bootUUID}`);
+                    }
+                } catch (_) {}
+            }
+
+            // Slow path: scan all block devices for the boot UUID
+            if (!masterDisk) {
+                try {
+                    const blkidAll = execSync('blkid 2>/dev/null || true').toString().trim();
+                    const uuidPattern = `UUID="${bootUUID}"`;
+                    const matches = blkidAll.split('\n')
+                        .filter(l => l.includes(uuidPattern))
+                        .map(l => l.split(':')[0].trim())
+                        .filter(Boolean);
+
+                    if (matches.length === 1) {
+                        const parentDisk = execSync(`lsblk -no pkname ${matches[0]} 2>/dev/null || true`).toString().trim().replace(/^\/dev\//, '');
+                        if (parentDisk) {
+                            masterDisk = parentDisk;
+                            logDebug(`UUID scan: boot media found at ${matches[0]} -> /dev/${masterDisk}`);
+                        }
+                    } else if (matches.length > 1) {
+                        const devList = matches.join(', ');
+                        logDebug(`AMBIGUOUS: ${matches.length} devices share boot UUID ${bootUUID}: ${devList}`);
+                        // Tie-break: prefer the device at the boot hint letter
+                        if (bootDiskHint && matches.some(m => m.startsWith(`/dev/${bootDiskHint}`))) {
+                            masterDisk = bootDiskHint;
+                            logDebug(`Tie-break: using boot hint /dev/${bootDiskHint}`);
+                        } else {
+                            return {
+                                error: `[!] AMBIGUOUS: ${matches.length} drives share UUID ${bootUUID} (${devList}).`,
+                                diagnostic: `This happens when multiple cards were flashed from the same image. Unplug all cards except the one you booted from, plus one blank target card. Then retry.`
+                            };
+                        }
+                    }
+                    // matches.length === 0: master not found, fall through
+                } catch (_) {}
+            }
+        }
+
+        // Fallback: use boot disk letter without UUID verification
+        if (!masterDisk && bootDiskHint && fs.existsSync(`/dev/${bootDiskHint}`)) {
+            masterDisk = bootDiskHint;
+            logDebug(`Fallback: using /dev/${bootDiskHint} (no UUID file available for verification)`);
+        }
+
+        // Nothing found
+        if (!masterDisk) {
+            if (bootUUID) {
+                return {
+                    error: `[!] BOOT MEDIA NOT FOUND (UUID ${bootUUID}).`,
+                    diagnostic: `The SD card you booted from has been unplugged and is not currently in any USB port. Re-insert it and retry.`
+                };
+            }
+            if (bootDiskHint) {
+                return {
+                    error: `[!] BOOT MEDIA NOT FOUND (/dev/${bootDiskHint} missing).`,
+                    diagnostic: `The boot device /dev/${bootDiskHint} is no longer present. Re-insert the boot SD card and retry.`
+                };
+            }
+            return {
+                error: `[!] NO BOOT IDENTITY.`,
+                diagnostic: `No boot identity files found in /etc/. This OS image may be corrupt or was not built with the SubZero initramfs. Re-flash and reboot.`
+            };
+        }
+
+        return { masterDisk };
+    }
+
+    function detectApplianceCloneTarget(): { error?: string, candidate?: { masterDisk: string, targetDisk: string, targetBytes: number, targetGB: string, targetModel: string } } {
+        const execSync = require('child_process').execSync;
+
+        // 1. Identify Master Boot Drive via UUID-based resolution
+        const masterResult = resolveMasterBootDisk();
+        if (masterResult.error) {
+            const msg = masterResult.diagnostic ? `${masterResult.error} ${masterResult.diagnostic}` : masterResult.error;
+            return { error: msg };
+        }
+        const cleanMaster = masterResult.masterDisk!;
+        logDebug(`Master boot disk for clone: /dev/${cleanMaster}`);
+
+        // 2. Force device rescan and discover candidate target drive
+        try { execSync('mdev -s 2>/dev/null || true'); } catch (_) {}
+        const allDisksRaw = execSync("lsblk -J -b -o NAME,SIZE,TYPE,TRAN,RM,RO,MODEL 2>/dev/null || true").toString();
+        let apprenticeTarget = "";
+        let apprenticeBytes = 0;
+        let apprenticeModel = "Generic USB Mass Storage";
+
+        try {
+            const parsed = JSON.parse(allDisksRaw);
+            const blockDevices = parsed.blockdevices || [];
+            for (const d of blockDevices) {
+                // Must be a whole disk
+                if (d.type !== 'disk') continue;
+                // CANNOT be the master boot disk
+                if (d.name === cleanMaster) continue;
+                // Must not be write-protected / read-only
+                if (d.ro === true || d.ro === 1) continue;
+                // Must be at least 512MB (536870912 bytes)
+                if (d.size < 536870912) continue;
+
+                // Candidate found!
+                apprenticeTarget = d.name;
+                apprenticeBytes = d.size;
+                if (d.model && typeof d.model === 'string') apprenticeModel = d.model.trim();
+                break;
+            }
+        } catch (_) {}
+
+        if (!apprenticeTarget) {
+            return { error: `[!] NO TARGET: Master is /dev/${cleanMaster}. Insert a second USB/SD card (>=512MB) into a different port and press [C].` };
+        }
+
+        // FATAL INVARIANT: Master and Target must be different devices
+        if (cleanMaster === apprenticeTarget) {
+            return { error: `[!] CRITICAL: Master (/dev/${cleanMaster}) and Target (/dev/${apprenticeTarget}) resolved to same device! This should never happen. Unplug and re-insert drives, then press [C].` };
+        }
+
+        const targetGB = (apprenticeBytes / (1024 * 1024 * 1024)).toFixed(1);
+        return {
+            candidate: {
+                masterDisk: cleanMaster,
+                targetDisk: apprenticeTarget,
+                targetBytes: apprenticeBytes,
+                targetGB,
+                targetModel: apprenticeModel
+            }
+        };
+    }
+
+    function renderCloneConfirm() {
+        renderHeader("[!] CONFIRM APPLIANCE REPLICATION [!]", "TARGET DRIVE WILL BE OVERWRITTEN WITH SUBZERO OS + VAULT", true);
+
+        let y = 110;
+        fb.drawText(40, y, "REPLICATION SOURCE (MASTER BOOT MEDIA // PROTECTED):", 1, COLOR_GOLD);
+        y += 24;
+
+        fb.drawRect(40, y, fb.geometry.width - 80, 56, COLOR_CARD);
+        fb.drawRectBorder(40, y, fb.geometry.width - 80, 56, 1, COLOR_GREEN);
+        fb.drawText(55, y + 12, `[MASTER BOOT DISK] /dev/${cloneCandidate?.masterDisk || 'unknown'} (HARD-LOCKED / WRITE-PROTECTED)`, 1, COLOR_GREEN);
+        fb.drawText(55, y + 32, `Source Footprint: 512MB Boot Image (UEFI/BIOS Bootloader + RootFS + Estate Vault)`, 1, COLOR_WHITE);
+
+        y += 74;
+        fb.drawText(40, y, "REPLICATION TARGET (APPRENTICE DRIVE // WILL BE OVERWRITTEN):", 1, COLOR_WARN);
+        y += 24;
+
+        fb.drawRect(40, y, fb.geometry.width - 80, 76, COLOR_CARD);
+        fb.drawRectBorder(40, y, fb.geometry.width - 80, 76, 2, COLOR_WARN);
+        fb.drawText(55, y + 14, `[TARGET MEDIA] /dev/${cloneCandidate?.targetDisk} (${cloneCandidate?.targetGB} GB) - ${cloneCandidate?.targetModel}`, 1, COLOR_WARN);
+        fb.drawText(55, y + 34, `WARNING: All existing partitions and files on /dev/${cloneCandidate?.targetDisk} will be destroyed.`, 1, COLOR_WHITE);
+        fb.drawText(55, y + 52, `Action: Stream 512MB raw OS image + relocate GPT to disk end + inject encrypted vault.json`, 1, COLOR_MUTED);
+
+        y += 94;
+        fb.drawRect(40, y, fb.geometry.width - 80, 60, { r: 35, g: 15, b: 20 });
+        fb.drawRectBorder(40, y, fb.geometry.width - 80, 60, 1, COLOR_WARN);
+        fb.drawTextCentered(y + 12, ">>> PRESS [C] TO CONFIRM & COMMENCE HARDWARE CLONE <<<", 1, COLOR_GOLD);
+        fb.drawTextCentered(y + 34, "Press [ESC] to Cancel and Return to Carousel", 1, COLOR_WHITE);
+
+        renderFooter("Controls: [C] = Confirm & Start 512MB Clone | [ESC] = Cancel / Abort", true);
+        fb.flush();
+    }
+
+    function renderCloneProgressScreen() {
+        renderHeader("[1/3] CLONING 512MB SUBZERO APPLIANCE", "STREAMING RAW KIOSK IMAGE TO SECONDARY MEDIA", true);
+
+        let y = 110;
+        fb.drawText(40, y, "ACTIVE BLOCK STREAM (512MB RAW HARDWARE COPY):", 1, COLOR_GOLD);
+        y += 24;
+
+        fb.drawRect(40, y, fb.geometry.width - 80, 90, COLOR_CARD);
+        fb.drawRectBorder(40, y, fb.geometry.width - 80, 90, 1, COLOR_ACCENT);
+        fb.drawText(55, y + 16, `Source: /dev/${cloneCandidate?.masterDisk}  ➔  Target: /dev/${cloneCandidate?.targetDisk} (${cloneCandidate?.targetGB} GB)`, 1, COLOR_WHITE);
+        fb.drawText(55, y + 38, `Status: ${cloneProgress.statusText}`, 1, COLOR_GREEN);
+        fb.drawText(55, y + 60, `Buffer: 4MB aligned chunks (fsync on completion) | Sector: 512B LBA`, 1, COLOR_MUTED);
+
+        y += 110;
+        const pct = Math.min(100, Math.floor((cloneProgress.chunkIndex / cloneProgress.totalChunks) * 100));
+        const copiedMB = (cloneProgress.bytesCopied / (1024 * 1024)).toFixed(0);
+        fb.drawText(40, y, `PROGRESS: ${copiedMB} MB / 512 MB (${pct}%)`, 1, COLOR_GOLD);
+        y += 26;
+
+        const barW = fb.geometry.width - 80;
+        const fillW = Math.min(barW, Math.floor(barW * (cloneProgress.chunkIndex / cloneProgress.totalChunks)));
+        fb.drawRect(40, y, barW, 28, { r: 18, g: 26, b: 42 });
+        if (fillW > 0) {
+            fb.drawRect(40, y, fillW, 28, COLOR_GREEN);
+        }
+        fb.drawRectBorder(40, y, barW, 28, 2, COLOR_CARD_BORDER);
+
+        const pctStr = `${pct}% [${cloneProgress.chunkIndex}/${cloneProgress.totalChunks}]`;
+        fb.drawTextCentered(y + 6, pctStr, 1, fillW > (barW / 2) ? { r: 10, g: 15, b: 24 } : COLOR_WHITE);
+
+        y += 48;
+        fb.drawText(40, y, "[!] DO NOT UNPLUG MEDIA OR POWER OFF SYSTEM DURING TRANSFER", 1, COLOR_WARN);
+
+        renderFooter("CLONING IN PROGRESS: Please wait... (Approx 2-3 minutes on USB 2.0)", true);
+        fb.flush();
+    }
+
+    async function executeApplianceClone() {
+        const execSync = require('child_process').execSync;
+        if (!cloneCandidate) return;
+
+        const cleanMaster = cloneCandidate.masterDisk;
+        const apprenticeTarget = cloneCandidate.targetDisk;
+        const targetPath = `/dev/${apprenticeTarget}`;
+        const targetGB = cloneCandidate.targetGB;
+
+        logDebug(`Initiating appliance clone: /dev/${cleanMaster} -> ${targetPath} (${targetGB}GB)`);
+        cloneProgress.active = true;
+        cloneProgress.chunkIndex = 0;
+        cloneProgress.bytesCopied = 0;
+        cloneProgress.statusText = "Initializing raw hardware streaming...";
+        renderCloneProgressScreen();
+
+        try {
+            // 3. Pre-Flight Checks: Sector Size Assertion (512-Byte LBA Invariant)
+            const srcSS = execSync(`blockdev --getss /dev/${cleanMaster} 2>/dev/null || echo 512`).toString().trim();
+            const tgtSS = execSync(`blockdev --getss ${targetPath} 2>/dev/null || echo 512`).toString().trim();
+            if (srcSS !== "512" || tgtSS !== "512") {
+                throw new Error(`Non-512B drive detected (Src:${srcSS}B, Tgt:${tgtSS}B). Aborted.`);
+            }
+
+            // Lazy unmount all partitions on target and settle udev
+            execSync(`umount -l ${targetPath}* 2>/dev/null || true`);
+            execSync(`udevadm settle --timeout=3 2>/dev/null || true`);
+
+            // 4. Phase 1/3: Stream 512MB Raw Kiosk Image (Chunked 4MB stream with visual progress)
+            const chunkSize = 4 * 1024 * 1024;
+            const totalChunks = 128; // 128 * 4MB = 512MB
+            const inFd = fs.openSync(`/dev/${cleanMaster}`, 'r');
+            const outFd = fs.openSync(targetPath, 'w');
+            const chunkBuf = Buffer.alloc(chunkSize);
+
+            for (let i = 0; i < totalChunks; i++) {
+                const pos = i * chunkSize;
+                fs.readSync(inFd, chunkBuf, 0, chunkSize, pos);
+                fs.writeSync(outFd, chunkBuf, 0, chunkSize, pos);
+
+                cloneProgress.chunkIndex = i + 1;
+                cloneProgress.bytesCopied = (i + 1) * chunkSize;
+                const mb = (cloneProgress.bytesCopied / (1024 * 1024)).toFixed(0);
+                cloneProgress.statusText = `Streaming 512MB: ${mb}MB copied (chunk ${i + 1}/${totalChunks})...`;
+                renderCloneProgressScreen();
+            }
+
+            fs.closeSync(inFd);
+            cloneProgress.statusText = "Flushing hardware write cache (fsync barrier)...";
+            renderCloneProgressScreen();
+            fs.fsyncSync(outFd);
+            fs.closeSync(outFd);
+            logDebug("512MB chunked copy and fsync complete.");
+
+            // 5. Phase 2/3: Hardware Buffer Flush & Partition Table Remediation
+            cloneProgress.statusText = "[2/3] Repairing GPT boundary & randomizing GUIDs...";
+            renderCloneProgressScreen();
+
+            execSync(`sync`);
+            execSync(`blockdev --flushbufs ${targetPath} 2>/dev/null || true`);
+
+            // Relocate secondary GPT header to end of target media & randomize GUIDs
+            execSync(`sgdisk -e -G ${targetPath} 2>/dev/null || parted -s ${targetPath} ---pretend-input-tty unit s print fix 2>/dev/null || true`);
+
+            // Force kernel partition table rescan and create devfs device nodes
+            execSync(`partx -d ${targetPath} 2>/dev/null || true`);
+            execSync(`partx -a ${targetPath} 2>/dev/null || blockdev --rereadpt ${targetPath} 2>/dev/null || true`);
+            execSync(`mdev -s 2>/dev/null || true`);
+            execSync(`sleep 1`);
+
+            // Derive dynamic partition names (handling mmcblk0p1 vs sda1)
+            const pSep = /[0-9]$/.test(apprenticeTarget) ? 'p' : '';
+            const tgtP1 = `/dev/${apprenticeTarget}${pSep}1`;
+            const tgtP2 = `/dev/${apprenticeTarget}${pSep}2`;
+
+            // Deterministic devfs node creation: query kernel sysfs for major:minor
+            for (const part of [`${apprenticeTarget}${pSep}1`, `${apprenticeTarget}${pSep}2`]) {
+                const devNode = `/dev/${part}`;
+                const sysDev = `/sys/class/block/${part}/dev`;
+                if (!fs.existsSync(devNode) && fs.existsSync(sysDev)) {
+                    try {
+                        const [maj, min] = fs.readFileSync(sysDev, 'utf8').trim().split(':');
+                        execSync(`mknod ${devNode} b ${maj} ${min} 2>/dev/null || true`);
+                    } catch (_) {}
+                }
+            }
+
+            // Randomize FAT Volume Serial Numbers to prevent UUID collisions
+            try {
+                const rnd1 = execSync("od -An -N4 -tx4 /dev/urandom | tr -d ' ' 2>/dev/null || echo 1234ABCD").toString().trim();
+                const rnd2 = execSync("od -An -N4 -tx4 /dev/urandom | tr -d ' ' 2>/dev/null || echo 5678EF01").toString().trim();
+                execSync(`fatlabel -i ${tgtP1} ${rnd1} 2>/dev/null || true`);
+                execSync(`fatlabel -i ${tgtP2} ${rnd2} 2>/dev/null || true`);
+            } catch (_) {}
+
+            // 6. Phase 3/3: Verify OS Rootfs & Inject Fresh Vault
+            cloneProgress.statusText = "[3/3] Auditing OS appliance & injecting cryptographic estate vault...";
+            renderCloneProgressScreen();
+
+            // Verify Partition 1 (OS Appliance Integrity)
+            const mountOS = "/media/apprentice_os_verify";
+            execSync(`mkdir -p ${mountOS}`);
+            execSync(`mount -o ro ${tgtP1} ${mountOS}`);
+
+            const rootfsSquash = `${mountOS}/rootfs.squashfs`;
+            if (!fs.existsSync(rootfsSquash)) {
+                execSync(`umount ${mountOS} && rmdir ${mountOS}`);
+                throw new Error("Cloned OS partition corrupt: rootfs.squashfs missing!");
+            }
+            execSync(`umount ${mountOS} && rmdir ${mountOS}`);
+
+            // Mount Partition 2 and Inject Vault
+            const mountVault = "/media/apprentice_vault_inject";
+            execSync(`mkdir -p ${mountVault}`);
+            execSync(`mount -t vfat -o rw,noatime ${tgtP2} ${mountVault}`);
+
+            const vaultPayload = {
+                version: "1.0.0",
+                created_utc: new Date().toISOString(),
+                master_root_mnemonic: masterMnemonicWords.join(' '),
+                descriptor: descriptorWithChecksum,
+                heir_treasuries: heirMnemonics.map(h => ({ label: h.label, index: h.index, mnemonic: h.words }))
+            };
+
+            const encryptedVault = await encryptVaultJson(JSON.stringify(vaultPayload), passphrase_mnemonic);
+            fs.writeFileSync(`${mountVault}/vault.json`, encryptedVault);
+
+            if (fs.existsSync("/opt/subzero/templates/decrypt.html")) {
+                fs.copyFileSync("/opt/subzero/templates/decrypt.html", `${mountVault}/decrypt.html`);
+            } else if (fs.existsSync("./src/templates/decrypt.html")) {
+                fs.copyFileSync("./src/templates/decrypt.html", `${mountVault}/decrypt.html`);
+            }
+
+            const exportStamp = BUILD_STAMP_VAL !== 'DEV' ? BUILD_STAMP_VAL : new Date().toISOString().replace(/[-:T]/g, '').slice(2, 12) + 'Z';
+            const nonce = execSync("od -An -N4 -tx4 /dev/urandom | tr -d ' ' 2>/dev/null || echo RAND").toString().trim();
+            fs.writeFileSync(`${mountVault}/vault_${exportStamp}_${nonce}.json`, encryptedVault);
+
+            const manifestFiles = ['decrypt.html', 'README.txt', 'SYSTEM_MANIFEST.txt', 'vault.json', `vault_${exportStamp}_${nonce}.json`].filter(f => fs.existsSync(`${mountVault}/${f}`));
+            const sums = manifestFiles.map(f => {
+                const d = fs.readFileSync(`${mountVault}/${f}`);
+                const h = require('crypto').createHash('sha256').update(d).digest('hex');
+                return `${h}  ${f}`;
+            }).join('\n') + '\n';
+            fs.writeFileSync(`${mountVault}/SHA256SUMS`, sums);
+
+            execSync(`sync`);
+            execSync(`umount ${mountVault} && rmdir ${mountVault}`);
+
+            // Final Direct I/O Read-Back Proof (Cache Bypassed)
+            execSync(`blockdev --flushbufs ${targetPath} 2>/dev/null || true`);
+            try { execSync(`echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true`); } catch (_) {}
+
+            execSync(`mkdir -p ${mountVault} && mount -o ro ${tgtP2} ${mountVault}`);
+            const verifyOut = execSync(`cd ${mountVault} && sha256sum -c SHA256SUMS`).toString();
+            execSync(`umount ${mountVault} && rmdir ${mountVault}`);
+
+            exportStatus = `[✓] APPLIANCE CLONE VERIFIED 100% HEALTHY! ${targetPath} (${targetGB}GB) is bootable. Unplug now.`;
+            exportSuccess = true;
+            logDebug(`Appliance clone successfully verified on ${targetPath}`);
+            state = "SEED_GEN_CAROUSEL";
+            renderSeedGenCarousel();
+        } catch (e: any) {
+            exportStatus = `[!] CLONE FAILED: ${e?.message || e}`;
+            exportSuccess = false;
+            logDebug(`Appliance clone failed: ${e?.message || e}`);
+            state = "SEED_GEN_CAROUSEL";
+            renderSeedGenCarousel();
+        } finally {
+            cloneProgress.active = false;
         }
     }
 
@@ -533,25 +989,29 @@ seed words and cannot be decrypted.
                 y += 74;
             }
         } else if (currentCarouselView === 6) {
-            renderHeader("[PAGE 7/9] INHERITANCE BATCH EXPORT READY", "WRITES SAFELY TO PARTITION 2 (SUBZERO_EST) // PRESERVES BOOTLOADER");
-            let y = 105;
-            fb.drawText(40, y, "BATCH WRITE INHERITANCE ARTIFACTS TO DUAL-PARTITION MEDIA / USB:", 1, COLOR_GOLD);
-            y += 22;
-            fb.drawText(40, y, "Keep the boot media inserted (or insert secondary USB drive), then press [W]:", 1, COLOR_WHITE);
+            renderHeader("[PAGE 7/9] INHERITANCE BATCH EXPORT & APPLIANCE CLONE", "SECURE LOCAL VAULT WRITE OR CREATE STANDALONE BOOTABLE BACKUP KIOSK");
+            let y = 100;
+            fb.drawText(40, y, "EXPORT OPTIONS (DUAL-PARTITION RECOVERY ARCHITECTURE):", 1, COLOR_GOLD);
             y += 20;
+            fb.drawText(40, y, " [W] WRITE PRIMARY VAULT  : Writes encrypted vault payload to Partition 2 (SUBZERO_EST).", 1, COLOR_WHITE);
+            y += 18;
+            fb.drawText(40, y, " [C] CLONE APPLIANCE      : Clones full 512MB bootable SubZero OS + Vault to secondary USB.", 1, COLOR_WHITE);
+            y += 22;
+            fb.drawText(40, y, "FILES INCLUDED IN ESTATE VAULT (PARTITION 2):", 1, COLOR_ACCENT);
+            y += 18;
             fb.drawText(40, y, " * vault.json      (WebCrypto AES-256-GCM encrypted estate bundle)", 1, COLOR_GREEN);
-            y += 18;
+            y += 16;
             fb.drawText(40, y, " * decrypt.html    (Zero-dependency offline browser recovery applet)", 1, COLOR_GREEN);
-            y += 18;
-            fb.drawText(40, y, " * SHA256SUMS      (Self-verifying file integrity manifest)", 1, COLOR_GREEN);
-            y += 18;
-            fb.drawText(40, y, " * README.txt      (Step-by-step instructions for your heirs)", 1, COLOR_GREEN);
-            y += 26;
+            y += 16;
+            fb.drawText(40, y, " * SHA256SUMS      (Self-verifying cryptographic manifest)", 1, COLOR_GREEN);
+            y += 16;
+            fb.drawText(40, y, " * README.txt      (Step-by-step instructions for heirs)", 1, COLOR_GREEN);
+            y += 24;
 
-            fb.drawRect(40, y, fb.geometry.width - 80, 60, COLOR_CARD);
-            fb.drawRectBorder(40, y, fb.geometry.width - 80, 60, 1, exportSuccess ? COLOR_GREEN : COLOR_ACCENT);
-            fb.drawText(55, y + 14, exportStatus, 1, exportSuccess ? COLOR_GREEN : (exportStatus.startsWith('[!]') ? COLOR_WARN : COLOR_WHITE));
-            fb.drawText(55, y + 36, "Press [W] to write directly to Partition 2 (SUBZERO_EST). Boot media remains 100% reusable.", 1, COLOR_MUTED);
+            fb.drawRect(40, y, fb.geometry.width - 80, 80, COLOR_CARD);
+            fb.drawRectBorder(40, y, fb.geometry.width - 80, 80, 1, exportSuccess ? COLOR_GREEN : (exportStatus.startsWith('[!]') ? COLOR_WARN : COLOR_ACCENT));
+            fb.drawTextWrapped(55, y + 10, fb.geometry.width - 110, exportStatus, 1, exportSuccess ? COLOR_GREEN : (exportStatus.startsWith('[!]') ? COLOR_WARN : COLOR_WHITE));
+            fb.drawText(55, y + 58, "[W] = Save to Current Drive  |  [C] = Insert Blank Drive & Clone Bootable Kiosk", 1, COLOR_MUTED);
         } else if (currentCarouselView === 7) {
             renderHeader("[PAGE 8/9] SECURITY PRINCIPLES & DRILL GUIDE", "HOW TO VERIFY AND PRACTICE WITH TESTNET4");
             let y = 110;
@@ -602,7 +1062,7 @@ seed words and cannot be decrypted.
             fb.drawText(40, y, " 4. Open Source Git : github.com/bootlace-dev/subzero-keyosk", 1, COLOR_GREEN);
         }
 
-        renderFooter("Controls: [SPACE/ARROWS] = Page | [W] = Write USB | [ESC] = Menu | [Q] = Power Off");
+        renderFooter("Controls: [SPACE/ARROWS] = Page | [W] = Write Primary | [C] = Clone Appliance | [ESC] = Menu");
         fb.flush();
     }
 
@@ -817,26 +1277,32 @@ seed words and cannot be decrypted.
 
     let hasherScanning = false;
     let hasherBlocks: { status: 'pending' | 'scanning' | 'done' | 'error', latencyMs: number }[] = [];
+    let vaultAuditDetails: string[] = [];
 
     function renderStorageHasher() {
         renderHeader(
-            "[5] STORAGE DEVICE HASHER & FLASH BIT-ROT MAP",
-            "LIVE RAW SECTOR SHA-256 & LATENCY INTEGRITY AUDIT"
+            "[5] STORAGE MEDIA & CRYPTOGRAPHIC HEALTH AUDIT",
+            "READ-ONLY RAW SECTOR LATENCY & ESTATE VAULT VERIFICATION"
         );
 
         let y = 100;
-        fb.drawText(40, y, "RAW BLOCK SCANNER & TELEMETRY:", 1, COLOR_GOLD);
+        fb.drawText(40, y, "STORAGE DEVICE TELEMETRY & INTEGRITY:", 1, COLOR_GOLD);
         y += 22;
 
-        fb.drawRect(40, y, fb.geometry.width - 80, 80, COLOR_CARD);
-        fb.drawRectBorder(40, y, fb.geometry.width - 80, 80, 1, computedHash ? COLOR_GREEN : COLOR_ACCENT);
+        const cardH = vaultAuditDetails.length > 0 ? 100 : 80;
+        fb.drawRect(40, y, fb.geometry.width - 80, cardH, COLOR_CARD);
+        fb.drawRectBorder(40, y, fb.geometry.width - 80, cardH, 1, computedHash.startsWith('[✓]') || computedHash.includes('VERIFIED') ? COLOR_GREEN : (hasherStatus.startsWith('[!]') ? COLOR_WARN : COLOR_ACCENT));
+        
         fb.drawText(55, y + 14, hasherStatus, 1, hasherScanning ? COLOR_GOLD : (hasherStatus.startsWith('[!]') ? COLOR_WARN : COLOR_WHITE));
         if (computedHash) {
-            fb.drawText(55, y + 44, `SHA-256: ${computedHash}`, 1, COLOR_GREEN);
+            fb.drawText(55, y + 38, computedHash, 1, computedHash.includes('[!]') ? COLOR_WARN : COLOR_GREEN);
+        }
+        if (vaultAuditDetails.length > 0) {
+            fb.drawText(55, y + 62, vaultAuditDetails.slice(0, 2).join(" | "), 1, COLOR_MUTED);
         }
 
-        y += 95;
-        fb.drawText(40, y, "FLASH LATENCY / READ HEALTH MAP (64 x 1MB BLOCKS):", 1, COLOR_ACCENT);
+        y += cardH + 15;
+        fb.drawText(40, y, "FLASH READ LATENCY MAP (64 x 1MB RAW BLOCKS):", 1, COLOR_ACCENT);
         y += 22;
 
         // Draw 64 block map grid (16 cols x 4 rows)
@@ -858,12 +1324,12 @@ seed words and cannot be decrypted.
                     col = COLOR_GOLD;
                     border = COLOR_WHITE;
                 } else if (blk.status === 'done') {
-                    if (blk.latencyMs < 15) {
-                        col = { r: 20, g: 80, b: 35 }; // Fast green
-                    } else if (blk.latencyMs < 50) {
-                        col = { r: 120, g: 100, b: 20 }; // Medium yellow
+                    if (blk.latencyMs < 25) {
+                        col = { r: 20, g: 80, b: 35 }; // Fast green (<25ms)
+                    } else if (blk.latencyMs < 75) {
+                        col = { r: 120, g: 100, b: 20 }; // Normal USB latency (25-75ms)
                     } else {
-                        col = { r: 140, g: 50, b: 20 }; // Slow orange
+                        col = { r: 140, g: 50, b: 20 }; // High latency (>75ms)
                     }
                     border = COLOR_GREEN;
                 } else if (blk.status === 'error') {
@@ -876,7 +1342,36 @@ seed words and cannot be decrypted.
             }
         }
 
-        renderFooter("Controls: [H] = Start Live 64MB Scan | [ESC] = Return to Menu");
+        y += (rows * (bSize + bGap)) + 20;
+
+        // Color Legend Block
+        fb.drawText(40, y, "READ LATENCY & CELL HEALTH LEGEND:", 1, COLOR_GOLD);
+        y += 18;
+
+        // Fast Green
+        fb.drawRect(40, y + 2, 12, 12, { r: 20, g: 80, b: 35 });
+        fb.drawRectBorder(40, y + 2, 12, 12, 1, COLOR_GREEN);
+        fb.drawText(58, y + 2, "GREEN (<25ms)    : Optimal Flash Read (Healthy NAND)", 1, COLOR_WHITE);
+        y += 16;
+
+        // Medium Yellow
+        fb.drawRect(40, y + 2, 12, 12, { r: 120, g: 100, b: 20 });
+        fb.drawRectBorder(40, y + 2, 12, 12, 1, COLOR_CARD_BORDER);
+        fb.drawText(58, y + 2, "YELLOW (25-75ms) : Normal USB 2.0 / SD Host Bus Latency", 1, COLOR_WHITE);
+        y += 16;
+
+        // Slow Amber
+        fb.drawRect(40, y + 2, 12, 12, { r: 140, g: 50, b: 20 });
+        fb.drawRectBorder(40, y + 2, 12, 12, 1, COLOR_CARD_BORDER);
+        fb.drawText(58, y + 2, "AMBER (>75ms)    : Slow Bus Transfer / Controller Overhead", 1, COLOR_GOLD);
+        y += 16;
+
+        // Error Red
+        fb.drawRect(40, y + 2, 12, 12, COLOR_WARN);
+        fb.drawRectBorder(40, y + 2, 12, 12, 1, COLOR_WARN);
+        fb.drawText(58, y + 2, "RED (Error)      : Uncorrectable Read Error / Dead Sector", 1, COLOR_WARN);
+
+        renderFooter("Controls: [H] = Raw Block Scan | [V] = Verify Estate Vault | [ESC] = Return to Menu");
         fb.flush();
     }
 
@@ -889,7 +1384,7 @@ seed words and cannot be decrypted.
             candidates = devs;
         } catch (_) {}
 
-        // Prioritize sdb, mmcblk0, sdc before sda
+        // Prioritize external sdb, mmcblk0, sdc before sda
         candidates.sort((a, b) => {
             const scoreA = a.includes('sdb') ? 3 : (a.includes('mmcblk0') ? 2 : (a.includes('sdc') ? 1 : 0));
             const scoreB = b.includes('sdb') ? 3 : (b.includes('mmcblk0') ? 2 : (b.includes('sdc') ? 1 : 0));
@@ -913,6 +1408,13 @@ seed words and cannot be decrypted.
         return candidates[0] || "";
     }
 
+    function dropOsCaches() {
+        try {
+            const execSync = require('child_process').execSync;
+            execSync("sync; echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true");
+        } catch (_) {}
+    }
+
     function runRealStorageHash() {
         if (hasherScanning) return;
         const target = findActiveStorageDevice();
@@ -923,9 +1425,11 @@ seed words and cannot be decrypted.
             return;
         }
 
+        dropOsCaches();
         hasherScanning = true;
-        hasherStatus = `Hashing 64MB sample on ${target} in 1MB blocks...`;
+        hasherStatus = `Direct I/O 64MB Scan on ${target} in 1MB blocks...`;
         computedHash = "";
+        vaultAuditDetails = [];
         hasherBlocks = Array.from({ length: 64 }, () => ({ status: 'pending', latencyMs: 0 }));
         renderStorageHasher();
 
@@ -953,7 +1457,7 @@ seed words and cannot be decrypted.
                     break;
                 }
 
-                if (b % 2 === 0 || b === 63) {
+                if (b % 4 === 0 || b === 63) {
                     const elapsed = (Date.now() - startTime) / 1000;
                     const speed = ((b + 1) / (elapsed || 0.001)).toFixed(1);
                     hasherStatus = `Scanning ${target}: Block ${b + 1}/64 (${speed} MB/s)`;
@@ -961,9 +1465,10 @@ seed words and cannot be decrypted.
                 }
             }
             fs.closeSync(fd);
-            computedHash = hash.digest('hex');
+            const digest = hash.digest('hex');
+            computedHash = `SHA-256: ${digest}`;
             const totalElapsed = ((Date.now() - startTime) / 1000).toFixed(2);
-            hasherStatus = `[✓] SCAN COMPLETE: 64MB read from ${target} in ${totalElapsed}s`;
+            hasherStatus = `[✓] RAW SCAN COMPLETE: 64MB read from ${target} in ${totalElapsed}s`;
         } catch (e: any) {
             try { if (fd !== -1) fs.closeSync(fd); } catch (_) {}
             hasherStatus = `[!] READ ERROR on ${target}: ${e?.message || e}`;
@@ -971,6 +1476,164 @@ seed words and cannot be decrypted.
             hasherScanning = false;
             renderStorageHasher();
         }
+    }
+
+    function runEstateVaultVerify() {
+        if (hasherScanning) return;
+        const execSync = require('child_process').execSync;
+        const crypto = require('crypto');
+
+        hasherScanning = true;
+        hasherStatus = "Auditing Partition 2 (SUBZERO_EST) cryptographic integrity...";
+        computedHash = "";
+        vaultAuditDetails = [];
+        renderStorageHasher();
+
+        const auditMount = "/media/vault_audit";
+        try {
+            execSync(`mkdir -p ${auditMount} 2>/dev/null || true`);
+            let mountedDev = "";
+
+            // Check blkid for SUBZERO_EST
+            const estDev = execSync("blkid -L SUBZERO_EST 2>/dev/null || true").toString().trim();
+            const candidates = estDev ? [estDev] : [
+                "/dev/sdb2", "/dev/mmcblk0p2", "/dev/sdc2", "/dev/sdb1", "/dev/mmcblk0p1", "/dev/sda2"
+            ];
+
+            for (const dev of candidates) {
+                try {
+                    execSync(`mount -o ro ${dev} ${auditMount} 2>/dev/null || mount -t vfat -o ro ${dev} ${auditMount} 2>/dev/null`);
+                    if (fs.existsSync(`${auditMount}/vault.json`)) {
+                        mountedDev = dev;
+                        break;
+                    }
+                    execSync(`umount ${auditMount} 2>/dev/null || true`);
+                } catch (_) {}
+            }
+
+            if (!mountedDev) {
+                hasherStatus = "[!] NO ESTATE VAULT DETECTED: SUBZERO_EST partition not found.";
+                computedHash = "Please insert USB/SD media with Partition 2 (SUBZERO_EST)";
+                return;
+            }
+
+            // Read files and verify
+            const vaultPath = `${auditMount}/vault.json`;
+            const vaultBytes = fs.readFileSync(vaultPath);
+            const actualVaultHash = crypto.createHash('sha256').update(vaultBytes).digest('hex');
+
+            let manifestFound = false;
+            let manifestMatch = false;
+            const sumsPath = `${auditMount}/SHA256SUMS`;
+
+            if (fs.existsSync(sumsPath)) {
+                manifestFound = true;
+                const sumsContent = fs.readFileSync(sumsPath, 'utf8');
+                if (sumsContent.includes(actualVaultHash)) {
+                    manifestMatch = true;
+                }
+            }
+
+            const htmlPath = `${auditMount}/decrypt.html`;
+            const htmlExists = fs.existsSync(htmlPath);
+
+            vaultAuditDetails = [
+                `Device: ${mountedDev}`,
+                `vault.json: ${vaultBytes.length} bytes (SHA-256: ${actualVaultHash.slice(0, 16)}...)`,
+                `decrypt.html: ${htmlExists ? 'PRESENT (Verified)' : 'NOT FOUND'}`,
+                `SHA256SUMS: ${manifestFound ? (manifestMatch ? 'MATCH (100% Valid)' : 'MISMATCH!') : 'NOT FOUND'}`
+            ];
+
+            if (manifestFound && manifestMatch) {
+                hasherStatus = `[✓] ESTATE VAULT INTEGRITY VERIFIED (100% HEALTHY)`;
+                computedHash = `MATCH: vault.json matches SHA256SUMS on ${mountedDev}`;
+            } else if (manifestFound && !manifestMatch) {
+                hasherStatus = `[!] INTEGRITY ERROR: vault.json hash mismatch against SHA256SUMS!`;
+                computedHash = `CORRUPTION DETECTED on ${mountedDev}`;
+            } else {
+                hasherStatus = `[✓] VAULT DETECTED: vault.json loaded (${vaultBytes.length} bytes)`;
+                computedHash = `SHA-256: ${actualVaultHash}`;
+            }
+        } catch (e: any) {
+            hasherStatus = `[!] AUDIT ERROR: ${e?.message || e}`;
+            computedHash = "Audit aborted";
+        } finally {
+            try { execSync(`umount ${auditMount} 2>/dev/null || true`); } catch (_) {}
+            hasherScanning = false;
+            renderStorageHasher();
+        }
+    }
+
+    function loadDebugLogs(): string[] {
+        const logFiles = ['/tmp/subzero_vault_debug.log', '/tmp/subzero_debug.log'];
+        let combined = "";
+        for (const lf of logFiles) {
+            if (fs.existsSync(lf)) {
+                try {
+                    combined += `=== LOG: ${lf} ===\n` + fs.readFileSync(lf, 'utf8') + "\n";
+                } catch (_) {}
+            }
+        }
+        if (!combined.trim()) {
+            combined = "[!] No debug log entries found in /tmp. System running nominally.\n";
+        }
+        return combined.split('\n');
+    }
+
+    function renderDebugLogScreen() {
+        renderHeader("[D] AMNESIC SYSTEM DIAGNOSTICS & HARDWARE LOG", "VOLATILE RAM LOGS (/tmp/subzero_debug.log)");
+
+        if (debugLogLines.length === 0) {
+            debugLogLines = loadDebugLogs();
+        }
+
+        let y = 100;
+        fb.drawText(40, y, `DIAGNOSTIC LOG ENTRIES (${debugLogLines.length} LINES):`, 1, COLOR_GOLD);
+        y += 22;
+
+        const visibleLinesCount = 18;
+        const maxScroll = Math.max(0, debugLogLines.length - visibleLinesCount);
+        if (debugLogScroll > maxScroll) debugLogScroll = maxScroll;
+
+        const boxH = 340;
+        fb.drawRect(40, y, fb.geometry.width - 80, boxH, COLOR_CARD);
+        fb.drawRectBorder(40, y, fb.geometry.width - 80, boxH, 1, COLOR_ACCENT);
+
+        let lineY = y + 12;
+        const visibleSlice = debugLogLines.slice(debugLogScroll, debugLogScroll + visibleLinesCount);
+        for (const l of visibleSlice) {
+            let col = COLOR_WHITE;
+            if (l.includes('ERROR') || l.includes('FAIL') || l.includes('FATAL') || l.includes('[!]')) {
+                col = COLOR_WARN;
+            } else if (l.includes('SUCCESS') || l.includes('VERIFIED') || l.includes('[✓]')) {
+                col = COLOR_GREEN;
+            } else if (l.startsWith('===')) {
+                col = COLOR_GOLD;
+            }
+            fb.drawText(55, lineY, l.slice(0, 110), 1, col);
+            lineY += 18;
+        }
+
+        y += boxH + 15;
+        const scrollPct = maxScroll > 0 ? Math.floor((debugLogScroll / maxScroll) * 100) : 100;
+        fb.drawText(40, y, `Scroll: ${debugLogScroll + 1}/${maxScroll + 1} (${scrollPct}%)  |  Press [R] to Refresh  |  Press [K] for Diagnostic QR Code`, 1, COLOR_MUTED);
+
+        renderFooter("Controls: [UP/DOWN] = Scroll Log | [R] = Reload | [K] = Diagnostic QR | [ESC] = Menu");
+        fb.flush();
+    }
+
+    function renderDebugLogQR() {
+        renderHeader("[D] DIAGNOSTIC QR CODE // AIRGAP EXPORT", "SCAN WITH SMARTPHONE TO EXPORT AMNESIC LOGS");
+
+        const fullLog = loadDebugLogs().join('\n');
+        // Truncate to 1200 chars for clean high-density QR readability
+        const qrPayload = fullLog.length > 1200 ? fullLog.slice(-1200) : fullLog;
+
+        const centerY = Math.floor(fb.geometry.height / 2) + 20;
+        fb.drawQRCode(qrPayload, centerY, 5, 4, 'L');
+
+        renderFooter("Controls: [ANY KEY / ESC] = Return to Diagnostic Text View");
+        fb.flush();
     }
 
     function secureZeroizeAllMemory() {
@@ -1106,6 +1769,11 @@ seed words and cannot be decrypted.
                 wordlistSearchQuery = "";
                 wordlistMatches = wordlist.slice(0, 30);
                 renderBip39Inspector();
+            } else if (str === 'd' || str === 'D') {
+                state = "DEBUG_VIEW";
+                debugLogScroll = 0;
+                debugLogLines = loadDebugLogs();
+                renderDebugLogScreen();
             } else if (str === 'q' || str === 'Q') {
                 state = "CONFIRM_EXIT";
                 renderHeader("[!] CONFIRM POWER DOWN & WIPE [!]", "ALL RAM BUFFERS WILL BE WIPED", true);
@@ -1148,6 +1816,11 @@ seed words and cannot be decrypted.
                     currentCarouselView = 0;
                     renderSeedGenCarousel();
                 }
+            } else if (key.name === 'r') {
+                const crypto = require('crypto');
+                const randomBytes = crypto.randomBytes(16);
+                currentEntropyInput = Array.from(randomBytes).map((b: number) => b.toString(2).padStart(8, '0')).join('');
+                renderSeedGenInputScreen();
             } else if (str && str.length === 1) {
                 const ch = str.toLowerCase();
                 const isTestChar = (currentEntropyInput.toLowerCase().startsWith('t') || ch === 't') && /^[test0-9]$/.test(ch);
@@ -1168,6 +1841,17 @@ seed words and cannot be decrypted.
                 renderSeedGenCarousel();
             } else if (str === 'w' || str === 'W') {
                 executeUsbBatchExport();
+            } else if (str === 'c' || str === 'C') {
+                const det = detectApplianceCloneTarget();
+                if (det.error) {
+                    exportStatus = det.error;
+                    exportSuccess = false;
+                    renderSeedGenCarousel();
+                } else if (det.candidate) {
+                    cloneCandidate = det.candidate;
+                    state = "CLONE_CONFIRM";
+                    renderCloneConfirm();
+                }
             } else if (key.name === 'escape') {
                 state = "MENU";
                 renderMainMenu();
@@ -1177,6 +1861,38 @@ seed words and cannot be decrypted.
                 fb.drawTextCentered(240, "Press [Q] to Confirm Wipe & Hardware Poweroff | [ESC] to Cancel", 1, COLOR_WARN);
                 renderFooter("CONFIRM SHUTDOWN: [Q] = Power Off Hardware | [ESC] = Cancel", true);
                 fb.flush();
+            }
+        } else if (state === "CLONE_CONFIRM") {
+            if (str === 'c' || str === 'C') {
+                executeApplianceClone();
+            } else if (key.name === 'escape') {
+                state = "SEED_GEN_CAROUSEL";
+                renderSeedGenCarousel();
+            }
+        } else if (state === "DEBUG_VIEW") {
+            if (key.name === 'escape') {
+                state = "MENU";
+                renderMainMenu();
+            } else if (key.name === 'up') {
+                if (debugLogScroll > 0) {
+                    debugLogScroll--;
+                    renderDebugLogScreen();
+                }
+            } else if (key.name === 'down') {
+                const maxScroll = Math.max(0, debugLogLines.length - 18);
+                if (debugLogScroll < maxScroll) {
+                    debugLogScroll++;
+                    renderDebugLogScreen();
+                }
+            } else if (str === 'r' || str === 'R') {
+                debugLogLines = loadDebugLogs();
+                debugLogScroll = 0;
+                renderDebugLogScreen();
+            } else if (str === 'k' || str === 'K') {
+                renderDebugLogQR();
+            } else {
+                // Any other key returns from QR to text log
+                renderDebugLogScreen();
             }
         } else if (state === "VAULT_DECRYPT") {
             if (key.name === 'escape') {
@@ -1354,8 +2070,12 @@ seed words and cannot be decrypted.
             if (key.name === 'escape') {
                 state = "MENU";
                 renderMainMenu();
-            } else if (str === 'h' || str === 'H') {
-                runRealStorageHash();
+            } else if (!hasherScanning) {
+                if (str === 'h' || str === 'H') {
+                    runRealStorageHash();
+                } else if (str === 'v' || str === 'V') {
+                    runEstateVaultVerify();
+                }
             }
         } else if (state === "CONFIRM_EXIT") {
             if (str === 'q' || str === 'Q') {

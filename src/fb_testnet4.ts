@@ -21,8 +21,12 @@ const COLOR_ACCENT: RGB = { r: 0, g: 200, b: 255 };      // Bright cyan (#00C8FF
 const COLOR_GOLD: RGB = { r: 255, g: 190, b: 40 };       // Amber gold (#FFBE28)
 const COLOR_WARN: RGB = { r: 255, g: 80, b: 80 };        // Soft red warning (#FF5050)
 const COLOR_MUTED: RGB = { r: 120, g: 140, b: 170 };     // Slate muted text (#788CAA)
-const COLOR_GREEN: RGB = { r: 80, g: 255, b: 120 };      // Success green (#50FF78)
-const BUILD_VERSION = "v0.1.0-testnet4";
+declare const __BUILD_STAMP__: string;
+declare const __GIT_SHA__: string;
+
+const BUILD_STAMP_VAL = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'DEV';
+const GIT_SHA_VAL = typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'local';
+const BUILD_VERSION = `v0.1.0-testnet4 [${BUILD_STAMP_VAL}]`;
 const BUILD_TARGET = "x86_64 Generic PC (UEFI/BIOS)";
 const PROVENANCE_HASH_SHORT = "3ff8cdb9";
 const PROVENANCE_HASH_FULL = "3ff8cdb90f66a25880903a73b431cf0e1debff02e1731d2338c9199de903da41";
@@ -95,16 +99,16 @@ async function main() {
 
     function checkTestVector(input: string): { isTest: boolean, label: string } {
         const lower = input.trim().toLowerCase();
-        if (lower === 'test' || lower === 'test0') return { isTest: true, label: 'TEST VECTOR 0 (BIP-39 BASELINE: ALL ZEROS)' };
-        if (lower === 'test1') return { isTest: true, label: 'TEST VECTOR 1 (FAUCET SPENDER)' };
-        if (lower === 'test2') return { isTest: true, label: 'TEST VECTOR 2 (WATCH-ONLY TARGET)' };
-        if (lower === 'test3') return { isTest: true, label: 'TEST VECTOR 3 (BIP-85 HOT WALLET)' };
-        if (lower === 'test4') return { isTest: true, label: 'TEST VECTOR 4 (EDGE DESCRIPTOR)' };
-        if (lower === 'test5') return { isTest: true, label: 'TEST VECTOR 5 (ALL-ONES 0xFF BOUNDARY)' };
-        if (lower === 'test6') return { isTest: true, label: 'TEST VECTOR 6 (SATOSHI GENESIS LORE)' };
-        if (lower === 'test7') return { isTest: true, label: 'TEST VECTOR 7 (HAL FINNEY LORE)' };
-        if (lower === 'test8') return { isTest: true, label: 'TEST VECTOR 8 (BRAINWALLET TRAP)' };
-        if (lower === 'test9') return { isTest: true, label: 'TEST VECTOR 9 (DEEP BIP-85 NESTING)' };
+        if (lower === 'test' || lower === 'test0') return { isTest: true, label: 'TEST VECTOR 0 (BIP-39 BASELINE: ALL ZEROS 0x00)' };
+        if (lower === 'test1') return { isTest: true, label: 'TEST VECTOR 1 (ALTERNATING 0x55)' };
+        if (lower === 'test2') return { isTest: true, label: 'TEST VECTOR 2 (ALTERNATING 0xAA)' };
+        if (lower === 'test3') return { isTest: true, label: 'TEST VECTOR 3 (SIGNED BYTE BOUNDARY 0x7F)' };
+        if (lower === 'test4') return { isTest: true, label: 'TEST VECTOR 4 (HIGH-BIT BOUNDARY 0x80)' };
+        if (lower === 'test5') return { isTest: true, label: 'TEST VECTOR 5 (ALL-ONES BOUNDARY 0xFF)' };
+        if (lower === 'test6') return { isTest: true, label: 'TEST VECTOR 6 (INCREMENTAL NIBBLES 0x0123...)' };
+        if (lower === 'test7') return { isTest: true, label: 'TEST VECTOR 7 (SEQUENTIAL BYTES 0x0001...)' };
+        if (lower === 'test8') return { isTest: true, label: 'TEST VECTOR 8 (SATOSHI GENESIS LORE: TIMES 2009)' };
+        if (lower === 'test9') return { isTest: true, label: 'TEST VECTOR 9 (HAL FINNEY LORE: RUNNING BITCOIN)' };
         return { isTest: false, label: '' };
     }
 
