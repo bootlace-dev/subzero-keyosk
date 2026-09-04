@@ -1,30 +1,55 @@
-use subzero::crypto::{process_physical_entropy, derive_bip85_children};
+use subzero::crypto::{process_physical_entropy, derive_bip85_children, CryptoError};
 use subzero::seedfix::solve_twelfth_word;
 
 #[test]
-fn test_coin_entropy_to_bip39() {
-    // 128-bit binary entropy (alternating 1s and 0s)
-    let binary_str = "10101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010";
+fn test_coin_entropy_to_bip39_testnet4() {
+    // 128-bit realistic binary entropy passing Markov and repetition tests
+    let binary_str = "10100110110010111010100101101001010110100110100101101001010110100110110010111010100101101001010110100110100101101001010110100110";
     let seed = process_physical_entropy(binary_str).expect("Failed to process coin entropy");
 
     assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
     assert_eq!(seed.fingerprint.len(), 8);
     assert!(seed.descriptor.starts_with("wpkh(["));
+    assert!(seed.descriptor.contains("/84'/1'/0'"));
+    assert!(seed.descriptor.contains('#')); // BIP-380 Checksum present!
     assert_eq!(seed.addresses.len(), 5);
     for addr in &seed.addresses {
-        assert!(addr.starts_with("bc1q"));
+        assert!(addr.starts_with("tb1q"));
     }
 }
 
 #[test]
-fn test_dice_entropy_to_bip39() {
-    // 50 dice rolls (1-6)
-    let dice_str = "12345612345612345612345612345612345612345612345612";
+fn test_dice_entropy_to_bip39_testnet4() {
+    // 50 realistic dice rolls passing Markov and repetition tests
+    let dice_str = "42312461325243625522323266341621355533154531632254";
     let seed = process_physical_entropy(dice_str).expect("Failed to process dice entropy");
 
     assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
     assert_eq!(seed.fingerprint.len(), 8);
-    assert!(seed.descriptor.contains("/84'/0'/0'"));
+    assert!(seed.descriptor.contains("/84'/1'/0'"));
+    assert!(seed.descriptor.contains('#')); // BIP-380 Checksum present!
+    for addr in &seed.addresses {
+        assert!(addr.starts_with("tb1q"));
+    }
+}
+
+#[test]
+fn test_entropy_quality_hard_block() {
+    // Patterned alternating coin flips (10101010...) MUST fail Markov audit
+    let biased_str = "10101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010101010";
+    let err = process_physical_entropy(biased_str).expect_err("Should have failed Markov audit");
+    match err {
+        CryptoError::MarkovAuditFailed(_) => {},
+        _ => panic!("Expected MarkovAuditFailed, got {:?}", err),
+    }
+
+    // Repetitive chunk string (123123123...) MUST fail repetition check
+    let repeat_str = "123123123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
+    let err2 = process_physical_entropy(repeat_str).expect_err("Should have failed repetition check");
+    match err2 {
+        CryptoError::RepetitivePatternDetected | CryptoError::MarkovAuditFailed(_) => {},
+        _ => panic!("Expected repetition/markov error, got {:?}", err2),
+    }
 }
 
 #[test]
@@ -32,8 +57,13 @@ fn test_bip85_derivation() {
     let mnemonic = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
     let children = derive_bip85_children(mnemonic, 3).expect("BIP-85 derivation failed");
 
-    assert_eq!(children.len(), 3);
-    for child in children {
+    // Index 0 (passphrase) + Indices 1..=3 (heirs) = 4 keys total
+    assert_eq!(children.len(), 4);
+    assert_eq!(children[0].index, 0);
+    assert!(children[0].label.contains("Passphrase"));
+    assert_eq!(children[0].mnemonic.split_whitespace().count(), 12);
+
+    for child in &children[1..] {
         assert_eq!(child.mnemonic.split_whitespace().count(), 12);
     }
 }

@@ -46,8 +46,6 @@ enum Commands {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let build_timestamp = env!("CARGO_PKG_VERSION");
-    let git_commit = "musl-reproducible";
 
     if let Some(cmd) = cli.command {
         match cmd {
@@ -60,7 +58,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let eleven = word_list[0..11].join(" ");
                 let typo = word_list.get(11).copied();
-                let results = seedfix::solve_twelfth_word(&eleven, typo)?;
+                let results = seedfix::solve_twelfth_word(&eleven, typo).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 println!("Found {} valid checksum candidates:", results.len());
                 for (rank, candidate) in results.iter().take(10).enumerate() {
                     println!("  {:2}. Word 12: {:<12} Full: {}", rank + 1, candidate.twelfth_word, candidate.full_mnemonic);
@@ -86,8 +84,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut state = ui::AppState::new(
-        option_env!("BUILD_TIMESTAMP").unwrap_or("2026-09-04T04:30:00Z").to_string(),
-        option_env!("GIT_COMMIT").unwrap_or("fe48812").to_string(),
+        env!("BUILD_TIMESTAMP").to_string(),
+        env!("GIT_COMMIT").to_string(),
     );
 
     // If CLI provided initial entropy, process it immediately
@@ -125,40 +123,94 @@ fn run_event_loop(
                     break;
                 }
 
+                // Global exits
+                if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') || key.code == KeyCode::Esc {
+                    break;
+                }
+
+                // Global navigation (always available)
                 match key.code {
-                    KeyCode::Char('q') | KeyCode::Char('Q') => break,
                     KeyCode::Tab | KeyCode::Right => {
                         state.current_page = state.current_page.next();
+                        continue;
                     }
                     KeyCode::BackTab | KeyCode::Left => {
                         state.current_page = state.current_page.prev();
+                        continue;
                     }
-                    KeyCode::Char('c') | KeyCode::Char('C') => {
-                        // Quick simulation of 128 coin flips for verification
-                        let coin_entropy = "10101100111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011011110";
-                        if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
-                            let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                            state.set_seed(seed, children);
-                        }
-                    }
-                    KeyCode::Char('d') | KeyCode::Char('D') => {
-                        // Quick simulation of 50 dice rolls for verification
-                        let dice_entropy = "12345612345612345612345612345612345612345612345612";
-                        if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
-                            let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                            state.set_seed(seed, children);
-                        }
-                    }
-                    KeyCode::Char('r') | KeyCode::Char('R') => {
-                        // Generate fresh TRNG seed
-                        let entropy = [42u8; 16]; // Deterministic test vector
-                        let hex = hex::encode(entropy);
-                        if let Ok(seed) = crypto::process_physical_entropy(&hex) {
-                            let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                            state.set_seed(seed, children);
-                        }
+                    KeyCode::Home | KeyCode::Char('h') | KeyCode::Char('H') => {
+                        state.current_page = ui::Page::MasterSeed;
+                        continue;
                     }
                     _ => {}
+                }
+
+                // If seed is not loaded, handle live physical entropy input
+                if state.seed.is_none() {
+                    match key.code {
+                        KeyCode::Char('0' | '1') => {
+                            if let KeyCode::Char(c) = key.code {
+                                state.push_entropy_char(c);
+                            }
+                        }
+                        KeyCode::Char('2'..='6') => {
+                            if let KeyCode::Char(c) = key.code {
+                                state.push_entropy_char(c);
+                            }
+                        }
+                        KeyCode::Backspace => {
+                            state.pop_entropy_char();
+                        }
+                        KeyCode::Enter => {
+                            if !state.entropy_input.is_empty() {
+                                match crypto::process_physical_entropy(&state.entropy_input) {
+                                    Ok(seed) => {
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                        state.set_seed(seed, children);
+                                    }
+                                    Err(e) => {
+                                        state.status_message = format!("[BLOCKED] {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('c') | KeyCode::Char('C') => {
+                            // Quick simulation of 128 pseudo-random coin flips passing Markov & repeat checks
+                            let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                            if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
+                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                state.set_seed(seed, children);
+                            }
+                        }
+                        KeyCode::Char('d') | KeyCode::Char('D') => {
+                            // Quick simulation of 50 casino dice rolls passing Markov & repeat checks
+                            let dice_entropy = "42312461325416235142635142316524136251436251436251";
+                            if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
+                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                state.set_seed(seed, children);
+                            }
+                        }
+                        KeyCode::Char(digit @ '0'..='9') => {
+                            let vec_name = format!("test{}", digit);
+                            if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
+                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                state.set_seed(seed, children);
+                            }
+                        }
+                        _ => {}
+                    }
+                } else {
+                    // Seed already loaded
+                    match key.code {
+                        KeyCode::Char(digit @ '0'..='9') => {
+                            let vec_name = format!("test{}", digit);
+                            if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
+                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                state.set_seed(seed, children);
+                            }
+                        }
+                        _ => {}
+                    }
                 }
             }
         }
