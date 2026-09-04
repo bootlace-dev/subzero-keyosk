@@ -487,9 +487,9 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
     let account_xpub = Xpub::from_priv(&secp, &account_xprv);
     let vpub = account_xpub.to_string();
 
-    // Derive first 5 tb1q Receive Addresses: m/84'/1'/0'/0/{0..4}
-    let mut addresses = Vec::with_capacity(5);
-    for idx in 0..5 {
+    // Derive first 50 tb1q Receive Addresses: m/84'/1'/0'/0/{0..49}
+    let mut addresses = Vec::with_capacity(50);
+    for idx in 0..50 {
         let recv_path = DerivationPath::from_str(&format!("m/84'/1'/0'/0/{}", idx))?;
         let key = master_xprv.derive_priv(&secp, &recv_path)?;
         let compressed_pk = CompressedPublicKey(key.to_keypair(&secp).public_key());

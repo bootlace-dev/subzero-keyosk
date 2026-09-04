@@ -12,7 +12,7 @@ fn test_coin_entropy_to_bip39_testnet4() {
     assert!(seed.descriptor.starts_with("wpkh(["));
     assert!(seed.descriptor.contains("/84'/1'/0'"));
     assert!(seed.descriptor.contains('#')); // BIP-380 Checksum present!
-    assert_eq!(seed.addresses.len(), 5);
+    assert_eq!(seed.addresses.len(), 50);
     for addr in &seed.addresses {
         assert!(addr.starts_with("tb1q"));
     }

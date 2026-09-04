@@ -40,7 +40,7 @@ enum Commands {
     Bip85 {
         #[arg(short, long)]
         mnemonic: String,
-        #[arg(short, long, default_value_t = 5)]
+        #[arg(short, long, default_value_t = 20)]
         count: u32,
     },
     /// Inspect or search canonical 2048-word BIP-39 English wordlist
@@ -108,7 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // If CLI provided initial entropy, process it immediately
     if let Some(entropy_str) = cli.entropy {
         if let Ok(seed) = crypto::process_physical_entropy(&entropy_str) {
-            let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+            let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
             state.set_seed(seed, children);
         }
     }
@@ -149,7 +149,7 @@ fn run_event_loop(
                     break;
                 }
 
-                // Global Navigation & Memory Management
+                // Global Navigation & Memory Wipe
                 match key.code {
                     KeyCode::Tab | KeyCode::Right => {
                         state.current_page = state.current_page.next();
@@ -164,7 +164,7 @@ fn run_event_loop(
                         continue;
                     }
                     KeyCode::Char('w') | KeyCode::Char('W') => {
-                        // Only trigger wipe if not typing inside an active text field (SeedFix, Wordlist, Vault)
+                        // Global Wipe & Reset (disabled inside active typing inputs)
                         if state.current_page != ui::Page::SeedFix && state.current_page != ui::Page::WordlistInspector && state.current_page != ui::Page::VaultUnlock {
                             state.wipe_memory();
                             continue;
@@ -173,72 +173,91 @@ fn run_event_loop(
                     _ => {}
                 }
 
-                // Contextual Keypress Handlers based on Current Page
+                // Contextual Page Handlers
                 match state.current_page {
                     ui::Page::MasterSeed => {
-                        if state.seed.is_none() {
-                            match key.code {
-                                KeyCode::Char('0' | '1') => {
-                                    if let KeyCode::Char(c) = key.code {
-                                        state.push_entropy_char(c);
-                                    }
+                        match key.code {
+                            KeyCode::Char('r') | KeyCode::Char('R') => {
+                                let rand_bits = crypto::generate_random_128bit_binary();
+                                if let Ok(seed) = crypto::process_physical_entropy(&rand_bits) {
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                    state.set_seed(seed, children);
+                                    state.status_message = "[PRNG] Derived dynamic testing wallet from device PRNG (Untrusted).".into();
                                 }
-                                KeyCode::Char('2'..='6') => {
-                                    if let KeyCode::Char(c) = key.code {
-                                        state.push_entropy_char(c);
-                                    }
-                                }
-                                KeyCode::Backspace => {
-                                    state.pop_entropy_char();
-                                }
-                                KeyCode::Enter => {
-                                    if !state.entropy_input.is_empty() {
-                                        match crypto::process_physical_entropy(&state.entropy_input) {
-                                            Ok(seed) => {
-                                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                                state.set_seed(seed, children);
-                                            }
-                                            Err(e) => {
-                                                state.status_message = format!("[BLOCKED] {}", e);
-                                            }
-                                        }
-                                    }
-                                }
-                                KeyCode::Char('r') | KeyCode::Char('R') => {
-                                    state.entropy_input = crypto::generate_random_128bit_binary();
-                                    state.update_entropy_status();
-                                }
-                                KeyCode::Char('c') | KeyCode::Char('C') => {
-                                    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
-                                    if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
-                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                        state.set_seed(seed, children);
-                                    }
-                                }
-                                KeyCode::Char('d') | KeyCode::Char('D') => {
-                                    let dice_entropy = "42312461325416235142635142316524136251436251436251";
-                                    if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
-                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                        state.set_seed(seed, children);
-                                    }
-                                }
-                                KeyCode::Char(digit @ '0'..='9') => {
-                                    let vec_name = format!("test{}", digit);
-                                    if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
-                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                        state.set_seed(seed, children);
-                                    }
-                                }
-                                _ => {}
                             }
-                        } else {
-                            if let KeyCode::Char(digit @ '0'..='9') = key.code {
-                                let vec_name = format!("test{}", digit);
-                                if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                            KeyCode::Char('c') | KeyCode::Char('C') => {
+                                let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                                if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
                                     state.set_seed(seed, children);
                                 }
                             }
+                            KeyCode::Char('d') | KeyCode::Char('D') => {
+                                let dice_entropy = "42312461325416235142635142316524136251436251436251";
+                                if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                    state.set_seed(seed, children);
+                                }
+                            }
+                            KeyCode::Backspace => {
+                                if state.seed.is_none() {
+                                    state.pop_entropy_char();
+                                }
+                            }
+                            KeyCode::Enter => {
+                                if state.seed.is_none() && !state.entropy_input.is_empty() {
+                                    match crypto::process_physical_entropy(&state.entropy_input) {
+                                        Ok(seed) => {
+                                            let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                            state.set_seed(seed, children);
+                                        }
+                                        Err(e) => {
+                                            state.status_message = format!("[BLOCKED] {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            KeyCode::Char(c) if c.is_ascii_alphanumeric() => {
+                                if state.seed.is_none() {
+                                    state.push_entropy_char(c);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::Addresses => {
+                        // Pagination for receive addresses (10 per page across 50 total)
+                        match key.code {
+                            KeyCode::Down | KeyCode::PageDown => {
+                                if let Some(ref s) = state.seed {
+                                    if state.address_page_offset + 10 < s.addresses.len() {
+                                        state.address_page_offset += 10;
+                                    }
+                                }
+                            }
+                            KeyCode::Up | KeyCode::PageUp => {
+                                state.address_page_offset = state.address_page_offset.saturating_sub(10);
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::Bip85Children => {
+                        // Pagination for BIP-85 heir keys (8 per page across 20 total)
+                        match key.code {
+                            KeyCode::Down | KeyCode::PageDown => {
+                                if state.heir_page_offset + 8 < state.bip85_children.len() {
+                                    state.heir_page_offset += 8;
+                                }
+                            }
+                            KeyCode::Up | KeyCode::PageUp => {
+                                state.heir_page_offset = state.heir_page_offset.saturating_sub(8);
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::EstateProvisioner => {
+                        if let KeyCode::Char('p' | 'P') = key.code {
+                            state.write_estate_vault();
                         }
                     }
                     ui::Page::SeedFix => {
@@ -283,37 +302,7 @@ fn run_event_loop(
                             _ => {}
                         }
                     }
-                    ui::Page::StorageHasher => {
-                        if let KeyCode::Char('h' | 'H') = key.code {
-                            state.run_storage_scan();
-                        }
-                    }
-                    ui::Page::DebugLog => {
-                        match key.code {
-                            KeyCode::Up => {
-                                state.debug_log_scroll = state.debug_log_scroll.saturating_sub(1);
-                            }
-                            KeyCode::Down => {
-                                state.debug_log_scroll = state.debug_log_scroll.saturating_add(1);
-                            }
-                            KeyCode::Char('k' | 'K') => {
-                                state.show_debug_qr = !state.show_debug_qr;
-                            }
-                            KeyCode::Char('r' | 'R') => {
-                                state.debug_log_lines = storage::read_amnesic_debug_logs();
-                            }
-                            _ => {}
-                        }
-                    }
-                    _ => {
-                        if let KeyCode::Char(digit @ '0'..='9') = key.code {
-                            let vec_name = format!("test{}", digit);
-                            if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
-                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                state.set_seed(seed, children);
-                            }
-                        }
-                    }
+                    _ => {}
                 }
             }
         }

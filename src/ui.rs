@@ -2,19 +2,16 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Paragraph, Tabs, Wrap},
+    widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
 use crate::crypto::{
-    decrypt_vault_json, has_repetitive_substrings, run_markov_audit, Bip85Child,
+    has_repetitive_substrings, run_markov_audit, Bip85Child,
     DecryptedVaultPayload, GeneratedSeed,
 };
 use crate::qr::render_qr_to_lines;
 use crate::seedfix::{search_wordlist, solve_twelfth_word, SeedFixCandidate};
-use crate::storage::{
-    find_storage_devices, read_amnesic_debug_logs, run_block_latency_scan, BlockStatus,
-    ScanResult,
-};
+use crate::storage::{locate_estate_partition, write_estate_partition};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -25,17 +22,16 @@ pub enum Page {
     FaucetQr,
     Addresses,
     Bip85Children,
+    EstateProvisioner,
     SeedFix,
     WordlistInspector,
     VaultUnlock,
-    StorageHasher,
-    DebugLog,
     DrillGuide,
     Provenance,
 }
 
 impl Page {
-    pub const ALL: [Page; 14] = [
+    pub const ALL: [Page; 13] = [
         Page::MasterSeed,
         Page::Passphrase,
         Page::Descriptor,
@@ -43,32 +39,34 @@ impl Page {
         Page::FaucetQr,
         Page::Addresses,
         Page::Bip85Children,
+        Page::EstateProvisioner,
         Page::SeedFix,
         Page::WordlistInspector,
         Page::VaultUnlock,
-        Page::StorageHasher,
-        Page::DebugLog,
         Page::DrillGuide,
         Page::Provenance,
     ];
 
     pub fn title(&self) -> &'static str {
         match self {
-            Page::MasterSeed => "1. Master Mnemonic",
-            Page::Passphrase => "2. Decoupled Passphrase",
-            Page::Descriptor => "3. Output Descriptor",
-            Page::VpubQr => "4. Watch-Only QR",
-            Page::FaucetQr => "5. Faucet QR",
-            Page::Addresses => "6. Receive Addresses",
-            Page::Bip85Children => "7. BIP-85 Heir Keys",
-            Page::SeedFix => "8. SeedFix Recovery",
-            Page::WordlistInspector => "9. Wordlist Search",
-            Page::VaultUnlock => "10. Vault Decrypt",
-            Page::StorageHasher => "11. Storage Latency",
-            Page::DebugLog => "12. System Diagnostic",
-            Page::DrillGuide => "13. Metal Punch Grid",
-            Page::Provenance => "14. Provenance & Audit",
+            Page::MasterSeed => "Tab 1. Master Mnemonic",
+            Page::Passphrase => "Tab 2. Decoupled Passphrase",
+            Page::Descriptor => "Tab 3. Output Descriptor",
+            Page::VpubQr => "Tab 4. Watch-Only QR",
+            Page::FaucetQr => "Tab 5. Faucet QR",
+            Page::Addresses => "Tab 6. Receive Addresses",
+            Page::Bip85Children => "Tab 7. BIP-85 Heir Keys",
+            Page::EstateProvisioner => "Tab 8. Partition 2 Estate Writer",
+            Page::SeedFix => "Tab 9. SeedFix Recovery",
+            Page::WordlistInspector => "Tab 10. Wordlist Search",
+            Page::VaultUnlock => "Tab 11. Vault Decrypt",
+            Page::DrillGuide => "Tab 12. Metal Punch Grid",
+            Page::Provenance => "Tab 13. Provenance & Spec",
         }
+    }
+
+    pub fn page_num(&self) -> usize {
+        Page::ALL.iter().position(|p| *p == *self).unwrap_or(0) + 1
     }
 
     pub fn next(&self) -> Self {
@@ -91,25 +89,20 @@ pub struct AppState {
     pub git_commit: String,
     pub entropy_input: String,
     pub is_entering_entropy: bool,
+    pub address_page_offset: usize,
+    pub heir_page_offset: usize,
+    pub estate_write_status: String,
     pub seedfix_input: String,
     pub seedfix_results: Vec<SeedFixCandidate>,
     pub wordlist_query: String,
     pub vault_passphrase_input: String,
     pub decrypted_vault: Option<DecryptedVaultPayload>,
     pub vault_status_msg: String,
-    pub storage_devices: Vec<String>,
-    pub storage_scan_result: Option<ScanResult>,
-    pub storage_status_msg: String,
-    pub debug_log_lines: Vec<String>,
-    pub debug_log_scroll: usize,
-    pub show_debug_qr: bool,
     pub status_message: String,
 }
 
 impl AppState {
     pub fn new(build_timestamp: String, git_commit: String) -> Self {
-        let devices = find_storage_devices();
-        let debug_lines = read_amnesic_debug_logs();
         Self {
             current_page: Page::MasterSeed,
             seed: None,
@@ -119,19 +112,16 @@ impl AppState {
             git_commit,
             entropy_input: String::new(),
             is_entering_entropy: false,
+            address_page_offset: 0,
+            heir_page_offset: 0,
+            estate_write_status: "Press [P] to provision Partition 2 (SUBZERO_EST).".into(),
             seedfix_input: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
             seedfix_results: Vec::new(),
             wordlist_query: String::new(),
             vault_passphrase_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
-            storage_devices: devices,
-            storage_scan_result: None,
-            storage_status_msg: "Press [H] to Scan Block Device Latency Map.".into(),
-            debug_log_lines: debug_lines,
-            debug_log_scroll: 0,
-            show_debug_qr: false,
-            status_message: "Press [C]oin, [D]ice, [R]ng, [Tab] Nav, [Q]uit".into(),
+            status_message: "Press [C]oins, [D]ice, [R]ng, [Tab] Nav, [Q]uit".into(),
         }
     }
 
@@ -142,6 +132,9 @@ impl AppState {
         self.entropy_input.clear();
         self.is_entering_entropy = false;
         self.decrypted_vault = None;
+        self.address_page_offset = 0;
+        self.heir_page_offset = 0;
+        self.estate_write_status = "Press [P] to provision Partition 2 (SUBZERO_EST).".into();
         self.current_page = Page::MasterSeed;
         self.status_message = "[✓] MEMORY WIPED: All private keys and entropy zeroized in RAM.".into();
     }
@@ -203,22 +196,39 @@ impl AppState {
         }
     }
 
-    pub fn run_storage_scan(&mut self) {
-        let dev = match self.storage_devices.first() {
-            Some(d) => d.clone(),
-            None => "/dev/sda".to_string(),
-        };
-        self.storage_status_msg = format!("Scanning 64MB direct I/O on {}...", dev);
-        match run_block_latency_scan(&dev) {
-            Ok(res) => {
-                self.storage_status_msg = format!(
-                    "[✓] Scanned 64MB on {} in {:.2}s ({:.1} MB/s) | SHA-256: {}...",
-                    res.device, res.total_elapsed_secs, res.average_speed_mbps, &res.sha256_digest[..16]
-                );
-                self.storage_scan_result = Some(res);
+    pub fn write_estate_vault(&mut self) {
+        let seed = match &self.seed {
+            Some(s) => s,
+            None => {
+                self.estate_write_status = "[!] Error: Generate master seed first before exporting vault.".into();
+                return;
             }
-            Err(e) => {
-                self.storage_status_msg = format!("[!] Block scan error: {}", e);
+        };
+        let pass = match &self.decoupled_passphrase {
+            Some(p) => &p.mnemonic,
+            None => {
+                self.estate_write_status = "[!] Error: Decoupled estate passphrase missing.".into();
+                return;
+            }
+        };
+
+        let payload = DecryptedVaultPayload {
+            version: "1.0.0".into(),
+            created_utc: "2026-09-04T05:00:00Z".into(),
+            master_root_mnemonic: seed.mnemonic.clone(),
+            descriptor: seed.descriptor.clone(),
+            heir_treasuries: self.bip85_children.clone(),
+        };
+
+        self.estate_write_status = "Writing encrypted vault to Partition 2 (SUBZERO_EST)...".into();
+        match write_estate_partition(&payload, pass, &self.build_timestamp) {
+            Ok(msg) => {
+                self.estate_write_status = format!("[✓] SUCCESS: {msg}");
+                self.status_message = "Partition 2 provisioned successfully with encrypted vault.".into();
+            }
+            Err(err) => {
+                self.estate_write_status = format!("[!] FAILED: {err}");
+                self.status_message = "Partition 2 write error.".into();
             }
         }
     }
@@ -230,7 +240,6 @@ impl AppState {
             return;
         }
 
-        // Test vectors shortcut or mock vault if no file on disk
         let mock_payload = DecryptedVaultPayload {
             version: "1.0.0".into(),
             created_utc: "2026-09-04T05:00:00Z".into(),
@@ -255,7 +264,7 @@ pub fn render_app(frame: &mut Frame, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3), // Header & Tabs
+            Constraint::Length(2), // Clean Header Status Line (no overflowing tabs)
             Constraint::Min(10),   // Content
             Constraint::Length(4), // Footer / Status Bar & Global Nav
         ])
@@ -267,34 +276,23 @@ pub fn render_app(frame: &mut Frame, state: &AppState) {
 }
 
 fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
-    let titles: Vec<Line> = Page::ALL
-        .iter()
-        .map(|p| {
-            let style = if *p == state.current_page {
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-            } else {
-                Style::default().fg(Color::Gray)
-            };
-            Line::from(Span::styled(p.title(), style))
-        })
-        .collect();
+    let fp_str = if let Some(ref s) = state.seed {
+        format!("[Master fp: {}]", s.fingerprint)
+    } else {
+        "[NO KEYS IN RAM]".to_string()
+    };
 
-    let tabs = Tabs::new(titles)
-        .block(
-            Block::default()
-                .borders(Borders::BOTTOM)
-                .title(if let Some(ref s) = state.seed {
-                    format!(" SUBZERO-RS // AIRGAPPED BITCOIN TESTNET4 [Master fp: {}] ", s.fingerprint)
-                } else {
-                    " SUBZERO-RS // AIRGAPPED BITCOIN TESTNET4 [NO KEYS IN RAM] ".to_string()
-                })
-                .title_alignment(Alignment::Left)
-                .style(Style::default().fg(Color::Cyan)),
-        )
-        .select(Page::ALL.iter().position(|p| *p == state.current_page).unwrap_or(0))
-        .highlight_style(Style::default().fg(Color::Yellow));
+    let line = Line::from(vec![
+        Span::styled(format!(" [{}/{}] ", state.current_page.page_num(), Page::ALL.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled(state.current_page.title(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::raw("  |  "),
+        Span::styled(fp_str, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw("  |  "),
+        Span::styled("SUBZERO-RS BITCOIN APPLIANCE", Style::default().fg(Color::DarkGray)),
+    ]);
 
-    frame.render_widget(tabs, area);
+    let block = Block::default().borders(Borders::BOTTOM).style(Style::default().fg(Color::Cyan));
+    frame.render_widget(Paragraph::new(line).block(block), area);
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
@@ -309,12 +307,12 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::raw(" Next  "),
         Span::styled("[Shift+Tab/←]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw(" Prev  "),
-        Span::styled("[H/Home]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Page 1  "),
-        Span::styled("[0-9]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Test Vectors  "),
+        Span::styled("[Home]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Tab 1  "),
         Span::styled("[R]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         Span::raw(" PRNG  "),
+        Span::styled("[C/D]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw(" Sample Coins/Dice  "),
         Span::styled("[W]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         Span::raw(" Wipe & Reset  "),
         Span::styled("[Q/ESC]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -357,11 +355,10 @@ fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
         Page::FaucetQr => render_faucet_qr(frame, area, state),
         Page::Addresses => render_addresses(frame, area, state),
         Page::Bip85Children => render_bip85(frame, area, state),
+        Page::EstateProvisioner => render_estate_provisioner(frame, area, state),
         Page::SeedFix => render_seedfix(frame, area, state),
         Page::WordlistInspector => render_wordlist_inspector(frame, area, state),
         Page::VaultUnlock => render_vault_unlock(frame, area, state),
-        Page::StorageHasher => render_storage_hasher(frame, area, state),
-        Page::DebugLog => render_debug_log(frame, area, state),
         Page::DrillGuide => render_drill_guide(frame, area, state),
         Page::Provenance => render_provenance(frame, area, state),
     }
@@ -404,7 +401,7 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  Advance to Page 2 for the Decoupled Estate Passphrase (BIP-85 Index 0).",
+            "  Advance to Tab 2 for the Decoupled Estate Passphrase (BIP-85 Index 0).",
             Style::default().fg(Color::DarkGray),
         )));
 
@@ -428,9 +425,9 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     } else if is_dice {
         "CASINO DICE ROLLS (1-6)"
     } else if raw.is_empty() {
-        "AWAITING INPUT (Coin 0/1 or Dice 1-6)"
+        "AWAITING INPUT (Coin 0/1, Dice 1-6, or 'test0'..'test9')"
     } else {
-        "MIXED / INVALID"
+        "TEST VECTOR OR ARBITRARY STREAM"
     };
 
     let bits = if is_bin {
@@ -438,7 +435,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     } else if is_dice {
         ((len as f64) * 2.58496).floor() as usize
     } else {
-        0
+        128
     };
 
     let markov = run_markov_audit(raw);
@@ -534,23 +531,22 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         lines.push(Line::from("    Direct Input:"));
         lines.push(Line::from("      Type '0' / '1' directly for live physical coin flip streaming (128 bits)."));
         lines.push(Line::from("      Type '1' - '6' directly for casino dice roll whitening (50 rolls)."));
+        lines.push(Line::from("      Type 'test0' .. 'test9' to load canonical SubZero Test Vectors."));
         lines.push(Line::from("      Type [Backspace] to delete characters."));
         lines.push(Line::from(""));
-        lines.push(Line::from("    Quick Emulations & Testing:"));
-        lines.push(Line::from("      [R]   - Populate 128-bit random binary from device PRNG (Testing Only) (New Dynamic Wallet)"));
-        lines.push(Line::from("      [C]   - Simulate 128 pseudo-random physical coin flips"));
-        lines.push(Line::from("      [D]   - Simulate 50 casino dice rolls"));
-        lines.push(Line::from("      [0-9] - Load Canonical SubZero Test Vectors (test0 .. test9)"));
+        lines.push(Line::from("    Quick Testing Shortcuts:"));
+        lines.push(Line::from("      [R] - Derive fresh dynamic testing wallet from device PRNG (Untrusted)"));
+        lines.push(Line::from("      [C] - Sample 128 coin flips | [D] - Sample 50 dice rolls"));
     } else {
         lines.push(Line::from(vec![
             Span::raw("    "),
-            Span::styled(raw, Style::default().fg(Color::LightRed)),
+            Span::styled(raw, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         ]));
     }
 
     lines.push(Line::from(""));
-    let is_ready = (is_bin && len >= 128) || (is_dice && len >= 50);
-    let is_valid = is_ready && markov.passed && !repeats;
+    let is_ready = (is_bin && len >= 128) || (is_dice && len >= 50) || raw.starts_with("test");
+    let is_valid = is_ready && (markov.passed || raw.starts_with("test")) && !repeats;
 
     if is_valid {
         lines.push(Line::from(Span::styled(
@@ -607,11 +603,11 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
             Line::from("  1. NEVER store this passphrase in the same physical location as your Master Seed or USB."),
             Line::from("  2. Store this in your password manager (Bitwarden), safe deposit box, or attorney escrow."),
             Line::from("  3. Because BIP-85 derivation is strictly ONE-WAY, holding this phrase alone exposes ZERO funds."),
-            Line::from("  4. Used to encrypt the estate vault package (vault.json) and decrypt offline in decrypt.html."),
+            Line::from("  4. Used to encrypt the estate vault package (vault.json) on Tab 8."),
         ];
         frame.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
     } else {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
 }
 
@@ -639,7 +635,7 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
         let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
         frame.render_widget(p, area);
     } else {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
 }
 
@@ -663,7 +659,7 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             }
         }
     } else {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
 }
 
@@ -696,34 +692,50 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             frame.render_widget(Paragraph::new("No addresses available.").block(block), area);
         }
     } else {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
 }
 
 fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 6. First 5 Receive Addresses (BIP-84 Native SegWit tb1q... [Testnet4]) ")
+        .title(" Tab 6. Receive Addresses (BIP-84 Native SegWit tb1q... [Testnet4]) ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
+        let total = seed.addresses.len();
+        let page_size = 10;
+        let start = state.address_page_offset;
+        let end = std::cmp::min(start + page_size, total);
+        let cur_page = (start / page_size) + 1;
+        let total_pages = (total + page_size - 1) / page_size;
+
         let mut lines = Vec::new();
         lines.push(Line::from(""));
-        for (i, addr) in seed.addresses.iter().enumerate() {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  m/84'/1'/0'/0/{:<2}: ", i), Style::default().fg(Color::Cyan)),
-                Span::styled(addr, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            ]));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  Showing Addresses #{}-#{} (Page {} of {}):", start, end.saturating_sub(1), cur_page, total_pages), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("    [Controls: UP/DOWN / PgUp/PgDn to Page]"),
+        ]));
+        lines.push(Line::from(""));
+
+        for idx in start..end {
+            if let Some(addr) = seed.addresses.get(idx) {
+                lines.push(Line::from(vec![
+                    Span::styled(format!("  m/84'/1'/0'/0/{:<2}: ", idx), Style::default().fg(Color::Cyan)),
+                    Span::styled(addr, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                ]));
+            }
         }
+
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  Advance to Page 5 to display a full-screen QR code for Address #0.",
+            "  Advance to Tab 5 to display a full-screen QR code for Address #0.",
             Style::default().fg(Color::DarkGray),
         )));
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
     } else {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
 }
 
@@ -734,19 +746,26 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
         .style(Style::default().fg(Color::White));
 
     if state.bip85_children.is_empty() {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     } else {
+        let total = state.bip85_children.len();
+        let page_size = 8;
+        let start = state.heir_page_offset;
+        let end = std::cmp::min(start + page_size, total);
+        let cur_page = (start / page_size) + 1;
+        let total_pages = (total + page_size - 1) / page_size;
+
         let mut lines = Vec::new();
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  BIP-85 Path: m/83696968'/39'/0'/12'/{index}' - Independent 12-word seeds derived from Master",
-            Style::default().fg(Color::DarkGray),
-        )));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  BIP-85 Heir Keys #{}-#{} (Page {} of {}):", start + 1, end, cur_page, total_pages), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("    [Controls: UP/DOWN / PgUp/PgDn to Page]"),
+        ]));
         lines.push(Line::from(""));
 
-        for child in &state.bip85_children {
+        for child in &state.bip85_children[start..end] {
             lines.push(Line::from(vec![
-                Span::styled(format!("  Vault #{} ", child.index), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(format!("  Vault #{:<2} ", child.index), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                 Span::styled(format!("({}) : ", child.path), Style::default().fg(Color::DarkGray)),
                 Span::styled(&child.mnemonic, Style::default().fg(Color::Yellow)),
             ]));
@@ -757,10 +776,58 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 }
 
+fn render_estate_provisioner(frame: &mut Frame, area: Rect, state: &AppState) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Tab 8. Estate Partition USB Provisioner (Partition 2 SUBZERO_EST) ")
+        .style(Style::default().fg(Color::White));
+
+    let part_detected = locate_estate_partition();
+    let status_color = if state.estate_write_status.starts_with("[✓]") {
+        Color::Green
+    } else if state.estate_write_status.starts_with("[!]") {
+        Color::LightRed
+    } else {
+        Color::Yellow
+    };
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  DUAL-PARTITION SOVEREIGN RECOVERY MEDIA PROVISIONER:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  Writes encrypted estate vault & offline browser tools directly to Partition 2."));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(vec![
+        Span::raw("  Detected Estate Partition: "),
+        Span::styled(part_detected.unwrap_or_else(|| "NONE DETECTED (Insert SubZero USB/SD Card)".into()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled(
+        format!("  Status: {}", state.estate_write_status),
+        Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled("  FILES WRITTEN TO PARTITION 2 (SUBZERO_EST):", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("    1. vault.json              - AES-256-GCM encrypted estate vault (Master + Descriptor + Heirs)"));
+    lines.push(Line::from("    2. vault_<TIMESTAMP>.json  - Immutable timestamped archive copy"));
+    lines.push(Line::from("    3. decrypt.html            - Offline standalone WebCrypto browser decryptor"));
+    lines.push(Line::from("    4. README.txt              - Clear step-by-step estate recovery instructions"));
+    lines.push(Line::from("    5. SHA256SUMS              - Cryptographic manifest of all files on partition"));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from(Span::styled("  SECURITY INVARIANT: Media cannot be decrypted without the Decoupled Estate Passphrase (Tab 2).", Style::default().fg(Color::DarkGray))));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  Controls: Press [P] to Provision Partition 2 Now", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+
+    frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
 fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 8. SeedFix Recovery Tool (Interactive Candidate Solver) ")
+        .title(" Tab 9. SeedFix Recovery Tool (Interactive Candidate Solver) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -800,10 +867,7 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         lines.push(Line::from(format!("  Awaiting 11 words (Entered: {}/11 words)...", words.len())));
         lines.push(Line::from(""));
-        lines.push(Line::from("  Controls:"));
-        lines.push(Line::from("    Type characters directly to append to input buffer."));
-        lines.push(Line::from("    [Backspace] to delete characters."));
-        lines.push(Line::from("    [Space] to separate words."));
+        lines.push(Line::from("  Controls: Type characters directly to append | [Backspace] to delete | [Space] to separate words"));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -812,7 +876,7 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 9. BIP-39 Canonical English Wordlist Inspector (2048 Words) ")
+        .title(" Tab 10. BIP-39 Canonical English Wordlist Inspector (2048 Words) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -831,7 +895,6 @@ fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
     )));
     lines.push(Line::from(""));
 
-    // Render matches in 4 columns of 9 words
     let cols = 4;
     let rows = 8;
     for r in 0..rows {
@@ -854,7 +917,7 @@ fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 10. Unlock & Decrypt Estate Vault (vault.json) ")
+        .title(" Tab 11. Unlock & Decrypt Estate Vault (vault.json) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -905,133 +968,10 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-fn render_storage_hasher(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Tab 11. Storage Media Health & Flash Latency Map (Read-Only) ")
-        .style(Style::default().fg(Color::White));
-
-    let mut lines = Vec::new();
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  DIRECT I/O FLASH READ HEALTH & BIT-ROT AUDIT:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from(vec![
-        Span::raw("  Detected Block Devices: "),
-        Span::styled(if state.storage_devices.is_empty() { "None detected (/dev/sda fallback)".into() } else { state.storage_devices.join(", ") }, Style::default().fg(Color::Yellow)),
-    ]));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(format!("  Status: {}", state.storage_status_msg), Style::default().fg(Color::Green))));
-    lines.push(Line::from(""));
-
-    lines.push(Line::from(Span::styled("  FLASH READ LATENCY MAP (64 x 1MB RAW BLOCKS):", Style::default().fg(Color::Yellow))));
-    lines.push(Line::from(""));
-
-    if let Some(ref scan) = state.storage_scan_result {
-        // Draw 64 blocks in 4 rows of 16
-        for r in 0..4 {
-            let mut spans = vec![Span::raw("    ")];
-            for c in 0..16 {
-                let idx = r * 16 + c;
-                if let Some(blk) = scan.blocks.get(idx) {
-                    let (symbol, style) = if blk.latency_ms < 25 {
-                        ("■ ", Style::default().fg(Color::Green))
-                    } else if blk.latency_ms < 75 {
-                        ("■ ", Style::default().fg(Color::Yellow))
-                    } else if blk.status == BlockStatus::Error {
-                        ("X ", Style::default().fg(Color::LightRed))
-                    } else {
-                        ("■ ", Style::default().fg(Color::Red))
-                    };
-                    spans.push(Span::styled(symbol, style));
-                } else {
-                    spans.push(Span::styled("· ", Style::default().fg(Color::DarkGray)));
-                }
-            }
-            lines.push(Line::from(spans));
-        }
-    } else {
-        for _ in 0..4 {
-            let spans = vec![
-                Span::raw("    "),
-                Span::styled("· · · · · · · · · · · · · · · ·", Style::default().fg(Color::DarkGray)),
-            ];
-            lines.push(Line::from(spans));
-        }
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from("  Legend: [GREEN] <25ms Optimal NAND | [YELLOW] 25-75ms Normal USB | [RED] >75ms Slow Bus | [X] Read Error"));
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  Controls: Press [S] to Run 64MB Direct I/O Read Scan", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-
-    frame.render_widget(Paragraph::new(lines).block(block), area);
-}
-
-fn render_debug_log(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title(" Tab 12. Amnesic System Diagnostics & Hardware Log ")
-        .style(Style::default().fg(Color::White));
-
-    if state.show_debug_qr {
-        let full_text = state.debug_log_lines.join("
-");
-        let payload = if full_text.len() > 1000 { &full_text[full_text.len() - 1000..] } else { &full_text };
-        match render_qr_to_lines(payload) {
-            Ok(qr_lines) => {
-                let mut combined = qr_lines;
-                combined.push(Line::from(""));
-                combined.push(Line::from(Span::styled("  [K] DIAGNOSTIC QR CODE: Scan with phone camera to export log over airgap (Press [K] to return to text)", Style::default().fg(Color::Yellow))));
-                frame.render_widget(Paragraph::new(combined).alignment(Alignment::Center).block(block), area);
-            }
-            Err(e) => {
-                frame.render_widget(Paragraph::new(format!("QR Render Error: {e}")).block(block), area);
-            }
-        }
-        return;
-    }
-
-    let mut lines = Vec::new();
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  VOLATILE RAM LOGS (/tmp/subzero_debug.log): ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("({} lines recorded)", state.debug_log_lines.len()), Style::default().fg(Color::DarkGray)),
-    ]));
-    lines.push(Line::from(""));
-
-    let visible_count = 14;
-    let max_scroll = state.debug_log_lines.len().saturating_sub(visible_count);
-    let scroll = std::cmp::min(state.debug_log_scroll, max_scroll);
-    let slice = state.debug_log_lines.iter().skip(scroll).take(visible_count);
-
-    for l in slice {
-        let style = if l.contains("ERROR") || l.contains("[!]") {
-            Style::default().fg(Color::LightRed)
-        } else if l.contains("[✓]") || l.contains("SUCCESS") {
-            Style::default().fg(Color::Green)
-        } else if l.starts_with("===") {
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::White)
-        };
-        lines.push(Line::from(vec![
-            Span::raw("    "),
-            Span::styled(l, style),
-        ]));
-    }
-
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  Controls: ", Style::default().fg(Color::Yellow)),
-        Span::raw("[UP/DOWN] = Scroll Log | [K] = Airgap Diagnostic QR Export | [R] = Reload"),
-    ]));
-
-    frame.render_widget(Paragraph::new(lines).block(block), area);
-}
-
 fn render_drill_guide(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 13. 24x4 Metal Punch / Cold Storage Guide ")
+        .title(" Tab 12. 24x4 Metal Punch / Cold Storage Guide ")
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -1051,14 +991,14 @@ fn render_drill_guide(frame: &mut Frame, area: Rect, state: &AppState) {
 
         frame.render_widget(Paragraph::new(lines).block(block), area);
     } else {
-        frame.render_widget(Paragraph::new("Generate a seed first.").block(block), area);
+        frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
 }
 
 fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 14. Appliance Build Provenance & Cryptographic Zero-Knowledge Spec ")
+        .title(" Tab 13. Appliance Build Provenance & Cryptographic Spec ")
         .style(Style::default().fg(Color::White));
 
     let lines = vec![
@@ -1083,7 +1023,6 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::raw("  Git Commit SHA:       "),
             Span::styled(&state.git_commit, Style::default().fg(Color::Yellow)),
         ]),
-
         Line::from(vec![
             Span::raw("  Memory Hygiene:       "),
             Span::styled("ZeroizeOnDrop on all entropy buffers & private keys", Style::default().fg(Color::Cyan)),
