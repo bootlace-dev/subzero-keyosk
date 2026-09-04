@@ -7,6 +7,12 @@ use sha2::{Digest, Sha256, Sha512};
 use std::collections::HashMap;
 use std::str::FromStr;
 use zeroize::{Zeroize, ZeroizeOnDrop};
+use aes_gcm::{
+    aead::{Aead, KeyInit},
+    Aes256Gcm, Nonce,
+};
+use base64::prelude::*;
+use serde::{Deserialize, Serialize};
 
 type HmacSha512 = Hmac<Sha512>;
 
@@ -26,6 +32,10 @@ pub enum CryptoError {
     Secp256k1Error(#[from] bitcoin::secp256k1::Error),
     #[error("HMAC key error")]
     HmacError,
+    #[error("Vault decryption error: {0}")]
+    DecryptionError(String),
+    #[error("Vault serialization error: {0}")]
+    SerializationError(String),
 }
 
 /// Secure container for master entropy with automatic memory zeroization on drop.
@@ -57,7 +67,7 @@ pub struct GeneratedSeed {
     pub entropy_type: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Bip85Child {
     pub label: String,
     pub index: u32,
@@ -70,6 +80,119 @@ pub struct MarkovResult {
     pub passed: bool,
     pub max_cond_prob: f64,
     pub details: String,
+}
+
+/// Encrypted vault JSON container matching Node.js `subzero-keyosk` schema
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptedVaultJson {
+    pub format: String,
+    pub cipher: String,
+    pub kdf: String,
+    pub iterations: u32,
+    pub salt: String,
+    pub iv: String,
+    pub ciphertext: String,
+}
+
+/// Decrypted payload structure inside `vault.json`
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecryptedVaultPayload {
+    pub version: String,
+    pub created_utc: String,
+    pub master_root_mnemonic: String,
+    pub descriptor: String,
+    pub heir_treasuries: Vec<Bip85Child>,
+}
+
+/// Encrypt an estate vault payload into WebCrypto-compatible AES-256-GCM + PBKDF2 JSON
+pub fn encrypt_vault_payload(
+    payload: &DecryptedVaultPayload,
+    passphrase_mnemonic: &str,
+) -> Result<String, CryptoError> {
+    use rand::RngCore;
+
+    let plaintext = serde_json::to_string_pretty(payload)
+        .map_err(|e| CryptoError::SerializationError(e.to_string()))?;
+
+    let mut salt = [0u8; 16];
+    let mut iv = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut salt);
+    rand::thread_rng().fill_bytes(&mut iv);
+
+    let normalized_pass = passphrase_mnemonic.trim().to_lowercase();
+    let mut derived_key = [0u8; 32];
+    pbkdf2::pbkdf2_hmac::<Sha256>(
+        normalized_pass.as_bytes(),
+        &salt,
+        600_000,
+        &mut derived_key,
+    );
+
+    let cipher = Aes256Gcm::new_from_slice(&derived_key)
+        .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+    let nonce = Nonce::from_slice(&iv);
+
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext.as_bytes())
+        .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+
+    let vault = EncryptedVaultJson {
+        format: "subzero-vault-v1".to_string(),
+        cipher: "AES-256-GCM".to_string(),
+        kdf: "PBKDF2-HMAC-SHA256".to_string(),
+        iterations: 600_000,
+        salt: BASE64_STANDARD.encode(salt),
+        iv: BASE64_STANDARD.encode(iv),
+        ciphertext: BASE64_STANDARD.encode(ciphertext),
+    };
+
+    serde_json::to_string_pretty(&vault)
+        .map_err(|e| CryptoError::SerializationError(e.to_string()))
+}
+
+/// Decrypt an estate vault JSON container using the 12-word Decoupled Estate Passphrase
+pub fn decrypt_vault_json(
+    vault_json_str: &str,
+    passphrase_mnemonic: &str,
+) -> Result<DecryptedVaultPayload, CryptoError> {
+    let vault: EncryptedVaultJson = serde_json::from_str(vault_json_str)
+        .map_err(|e| CryptoError::SerializationError(format!("Invalid vault JSON format: {e}")))?;
+
+    let salt = BASE64_STANDARD
+        .decode(&vault.salt)
+        .map_err(|e| CryptoError::DecryptionError(format!("Invalid base64 salt: {e}")))?;
+    let iv = BASE64_STANDARD
+        .decode(&vault.iv)
+        .map_err(|e| CryptoError::DecryptionError(format!("Invalid base64 iv: {e}")))?;
+    let ciphertext = BASE64_STANDARD
+        .decode(&vault.ciphertext)
+        .map_err(|e| CryptoError::DecryptionError(format!("Invalid base64 ciphertext: {e}")))?;
+
+    if iv.len() != 12 {
+        return Err(CryptoError::DecryptionError("IV must be 12 bytes for AES-GCM".into()));
+    }
+
+    let normalized_pass = passphrase_mnemonic.trim().to_lowercase();
+    let mut derived_key = [0u8; 32];
+    pbkdf2::pbkdf2_hmac::<Sha256>(
+        normalized_pass.as_bytes(),
+        &salt,
+        vault.iterations,
+        &mut derived_key,
+    );
+
+    let cipher = Aes256Gcm::new_from_slice(&derived_key)
+        .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+    let nonce = Nonce::from_slice(&iv);
+
+    let plaintext_bytes = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| CryptoError::DecryptionError("Authentication failed: incorrect passphrase or corrupt ciphertext.".into()))?;
+
+    let payload: DecryptedVaultPayload = serde_json::from_slice(&plaintext_bytes)
+        .map_err(|e| CryptoError::SerializationError(format!("Corrupt payload JSON: {e}")))?;
+
+    Ok(payload)
 }
 
 /// Run first-order Markov chain transition audit on physical entropy stream.
@@ -376,7 +499,7 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
         let path_str = "m/83696968'/39'/0'/12'/0'".to_string();
         let path = DerivationPath::from_str(&path_str)?;
         let derived = master_xprv.derive_priv(&secp, &path)?;
-        let mut hmac = HmacSha512::new_from_slice(b"bip-entropy-from-k").map_err(|_| CryptoError::HmacError)?;
+        let mut hmac: HmacSha512 = Mac::new_from_slice(b"bip-entropy-from-k").map_err(|_| CryptoError::HmacError)?;
         hmac.update(&derived.private_key.secret_bytes());
         let result = hmac.finalize().into_bytes();
         let child_entropy = &result[..16];
@@ -395,7 +518,7 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
         let path = DerivationPath::from_str(&path_str)?;
         let derived = master_xprv.derive_priv(&secp, &path)?;
 
-        let mut hmac = HmacSha512::new_from_slice(b"bip-entropy-from-k").map_err(|_| CryptoError::HmacError)?;
+        let mut hmac: HmacSha512 = Mac::new_from_slice(b"bip-entropy-from-k").map_err(|_| CryptoError::HmacError)?;
         hmac.update(&derived.private_key.secret_bytes());
         let result = hmac.finalize().into_bytes();
 

@@ -1,6 +1,7 @@
 mod crypto;
 mod qr;
 mod seedfix;
+mod storage;
 mod ui;
 
 use clap::{Parser, Subcommand};
@@ -42,6 +43,12 @@ enum Commands {
         #[arg(short, long, default_value_t = 5)]
         count: u32,
     },
+    /// Inspect or search canonical 2048-word BIP-39 English wordlist
+    Wordlist {
+        /// Search query prefix
+        #[arg(short, long, default_value = "")]
+        query: String,
+    },
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -58,7 +65,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
                 let eleven = word_list[0..11].join(" ");
                 let typo = word_list.get(11).copied();
-                let results = seedfix::solve_twelfth_word(&eleven, typo).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                let results = seedfix::solve_twelfth_word(&eleven, typo)
+                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
                 println!("Found {} valid checksum candidates:", results.len());
                 for (rank, candidate) in results.iter().take(10).enumerate() {
                     println!("  {:2}. Word 12: {:<12} Full: {}", rank + 1, candidate.twelfth_word, candidate.full_mnemonic);
@@ -70,6 +78,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let children = crypto::derive_bip85_children(&mnemonic, count)?;
                 for child in children {
                     println!("Vault #{}: [{}] -> {}", child.index, child.path, child.mnemonic);
+                }
+                return Ok(());
+            }
+            Commands::Wordlist { query } => {
+                println!("SubZero-RS Canonical BIP-39 English Wordlist Inspector");
+                let matches = seedfix::search_wordlist(&query);
+                println!("Matching words ({}/2048):", matches.len());
+                for m in matches {
+                    println!("  {}", m);
                 }
                 return Ok(());
             }
@@ -125,10 +142,14 @@ fn run_event_loop(
 
                 // Global exits
                 if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') || key.code == KeyCode::Esc {
+                    if state.current_page != ui::Page::MasterSeed && key.code == KeyCode::Esc {
+                        state.current_page = ui::Page::MasterSeed;
+                        continue;
+                    }
                     break;
                 }
 
-                // Global navigation (always available)
+                // Global Tab / Left / Right navigation
                 match key.code {
                     KeyCode::Tab | KeyCode::Right => {
                         state.current_page = state.current_page.next();
@@ -138,83 +159,153 @@ fn run_event_loop(
                         state.current_page = state.current_page.prev();
                         continue;
                     }
-                    KeyCode::Home | KeyCode::Char('h') | KeyCode::Char('H') => {
+                    KeyCode::Home => {
                         state.current_page = ui::Page::MasterSeed;
                         continue;
                     }
                     _ => {}
                 }
 
-                // If seed is not loaded, handle live physical entropy input
-                if state.seed.is_none() {
-                    match key.code {
-                        KeyCode::Char('0' | '1') => {
-                            if let KeyCode::Char(c) = key.code {
-                                state.push_entropy_char(c);
-                            }
-                        }
-                        KeyCode::Char('2'..='6') => {
-                            if let KeyCode::Char(c) = key.code {
-                                state.push_entropy_char(c);
-                            }
-                        }
-                        KeyCode::Backspace => {
-                            state.pop_entropy_char();
-                        }
-                        KeyCode::Enter => {
-                            if !state.entropy_input.is_empty() {
-                                match crypto::process_physical_entropy(&state.entropy_input) {
-                                    Ok(seed) => {
+                // Contextual Keypress Handlers based on Current Page
+                match state.current_page {
+                    ui::Page::MasterSeed => {
+                        if state.seed.is_none() {
+                            match key.code {
+                                KeyCode::Char('0' | '1') => {
+                                    if let KeyCode::Char(c) = key.code {
+                                        state.push_entropy_char(c);
+                                    }
+                                }
+                                KeyCode::Char('2'..='6') => {
+                                    if let KeyCode::Char(c) = key.code {
+                                        state.push_entropy_char(c);
+                                    }
+                                }
+                                KeyCode::Backspace => {
+                                    state.pop_entropy_char();
+                                }
+                                KeyCode::Enter => {
+                                    if !state.entropy_input.is_empty() {
+                                        match crypto::process_physical_entropy(&state.entropy_input) {
+                                            Ok(seed) => {
+                                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                                state.set_seed(seed, children);
+                                            }
+                                            Err(e) => {
+                                                state.status_message = format!("[BLOCKED] {}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                                KeyCode::Char('r') | KeyCode::Char('R') => {
+                                    state.entropy_input = crypto::generate_random_128bit_binary();
+                                    state.update_entropy_status();
+                                }
+                                KeyCode::Char('c') | KeyCode::Char('C') => {
+                                    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                                    if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
                                         let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
                                         state.set_seed(seed, children);
                                     }
-                                    Err(e) => {
-                                        state.status_message = format!("[BLOCKED] {}", e);
+                                }
+                                KeyCode::Char('d') | KeyCode::Char('D') => {
+                                    let dice_entropy = "42312461325416235142635142316524136251436251436251";
+                                    if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                        state.set_seed(seed, children);
                                     }
+                                }
+                                KeyCode::Char(digit @ '0'..='9') => {
+                                    let vec_name = format!("test{}", digit);
+                                    if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                        state.set_seed(seed, children);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        } else {
+                            if let KeyCode::Char(digit @ '0'..='9') = key.code {
+                                let vec_name = format!("test{}", digit);
+                                if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
+                                    state.set_seed(seed, children);
                                 }
                             }
                         }
-                        KeyCode::Char('r') | KeyCode::Char('R') => {
-                            // Populate 128 pseudo-random bits from device OS CSPRNG for convenient new wallet testing
-                            state.entropy_input = crypto::generate_random_128bit_binary();
-                            state.update_entropy_status();
-                        }
-                        KeyCode::Char('c') | KeyCode::Char('C') => {
-                            // Quick simulation of 128 pseudo-random coin flips passing Markov & repeat checks
-                            let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
-                            if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
-                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                state.set_seed(seed, children);
-                            }
-                        }
-                        KeyCode::Char('d') | KeyCode::Char('D') => {
-                            // Quick simulation of 50 casino dice rolls passing Markov & repeat checks
-                            let dice_entropy = "42312461325416235142635142316524136251436251436251";
-                            if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
-                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                state.set_seed(seed, children);
-                            }
-                        }
-                        KeyCode::Char(digit @ '0'..='9') => {
-                            let vec_name = format!("test{}", digit);
-                            if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
-                                let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
-                                state.set_seed(seed, children);
-                            }
-                        }
-                        _ => {}
                     }
-                } else {
-                    // Seed already loaded
-                    match key.code {
-                        KeyCode::Char(digit @ '0'..='9') => {
+                    ui::Page::SeedFix => {
+                        match key.code {
+                            KeyCode::Backspace => {
+                                state.seedfix_input.pop();
+                            }
+                            KeyCode::Char(c) => {
+                                if c.is_alphanumeric() || c == ' ' {
+                                    state.seedfix_input.push(c);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::WordlistInspector => {
+                        match key.code {
+                            KeyCode::Backspace => {
+                                state.wordlist_query.pop();
+                            }
+                            KeyCode::Char(c) => {
+                                if c.is_alphabetic() {
+                                    state.wordlist_query.push(c);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::VaultUnlock => {
+                        match key.code {
+                            KeyCode::Backspace => {
+                                state.vault_passphrase_input.pop();
+                            }
+                            KeyCode::Enter => {
+                                state.attempt_vault_decrypt();
+                            }
+                            KeyCode::Char(c) => {
+                                if c.is_alphanumeric() || c == ' ' {
+                                    state.vault_passphrase_input.push(c);
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::StorageHasher => {
+                        if let KeyCode::Char('h' | 'H') = key.code {
+                            state.run_storage_scan();
+                        }
+                    }
+                    ui::Page::DebugLog => {
+                        match key.code {
+                            KeyCode::Up => {
+                                state.debug_log_scroll = state.debug_log_scroll.saturating_sub(1);
+                            }
+                            KeyCode::Down => {
+                                state.debug_log_scroll = state.debug_log_scroll.saturating_add(1);
+                            }
+                            KeyCode::Char('k' | 'K') => {
+                                state.show_debug_qr = !state.show_debug_qr;
+                            }
+                            KeyCode::Char('r' | 'R') => {
+                                state.debug_log_lines = storage::read_amnesic_debug_logs();
+                            }
+                            _ => {}
+                        }
+                    }
+                    _ => {
+                        if let KeyCode::Char(digit @ '0'..='9') = key.code {
                             let vec_name = format!("test{}", digit);
                             if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
                                 let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
                                 state.set_seed(seed, children);
                             }
                         }
-                        _ => {}
                     }
                 }
             }

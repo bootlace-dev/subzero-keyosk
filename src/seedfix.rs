@@ -78,3 +78,23 @@ pub fn levenshtein_distance(s1: &str, s2: &str) -> usize {
 
     matrix[l1][l2]
 }
+
+/// Search the 2048 canonical English BIP-39 words by prefix or substring
+pub fn search_wordlist(query: &str) -> Vec<&'static str> {
+    let wordlist = Language::English.word_list();
+    let clean = query.trim().to_lowercase();
+    if clean.is_empty() {
+        return wordlist.iter().take(36).copied().collect();
+    }
+
+    let mut matches: Vec<&'static str> = wordlist
+        .iter()
+        .filter(|&&w| w.starts_with(&clean) || w.contains(&clean))
+        .take(36)
+        .copied()
+        .collect();
+
+    // Prioritize prefix matches over interior substring matches
+    matches.sort_by_key(|&w| if w.starts_with(&clean) { 0 } else { 1 });
+    matches
+}
