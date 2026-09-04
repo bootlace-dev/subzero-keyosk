@@ -15,6 +15,11 @@ import qrcode from 'qrcode-terminal';
 readline.emitKeypressEvents(process.stdin);
 if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
+declare const __BUILD_STAMP__: string;
+declare const __GIT_SHA__: string;
+const BUILD_STAMP_VAL = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'DEV';
+const GIT_SHA_VAL = typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'local';
+
 let currentBits = '';
 let isTestVector = false;
 let secretBuffer = '';
@@ -24,7 +29,7 @@ function renderUI() {
     process.stdout.write('\x1b[?25h');     // Ensure cursor visible on input screen
 
     console.log("==================================================");
-    console.log("    SUBZERO KEYOSK - TERMINAL UI (v0.0.1-rc1)     ");
+    console.log(`    SUBZERO KEYOSK - TUI [${BUILD_STAMP_VAL}-${GIT_SHA_VAL}]     `);
     console.log("==================================================\n");
     console.log("Type coin flips (0/1) or dice rolls (1-6) directly.");
     console.log("Type 'test' to populate sample entropy for testing.");
@@ -315,8 +320,8 @@ function generateKeys() {
             console.log("   zeroization & ANSI scrollback purge on exit.");
             console.log("\nSOURCE & BUILD METADATA:");
             console.log(" * Repo      : github.com/bootlace-dev/subzero-keyosk");
-            console.log(" * Release   : v0.0.1-rc1 (MIT Open Source License)");
-            console.log(" * Build UTC : 2026-08-21T00:00:00Z | Reproducible");
+            console.log(` * Release   : v0.2.0-testnet4 [${BUILD_STAMP_VAL}-${GIT_SHA_VAL}]`);
+            console.log(` * Build Stamp: ${BUILD_STAMP_VAL} // Git: ${GIT_SHA_VAL}`);
             console.log(" * Engine    : Alpine LTS 6.6 | @scure/bip39 | noble");
         } else if (currentView === 7) {
             console.log("==================================================");

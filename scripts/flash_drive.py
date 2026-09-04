@@ -154,9 +154,14 @@ def main():
         print(f"Fatal Error: Target image file not found: {img_path}")
         sys.exit(1)
 
+    mtime_str = time.strftime('%Y-%m-%d %H:%M:%SZ', time.gmtime(os.path.getmtime(img_path)))
+    file_size_mb = os.path.getsize(img_path) / (1024 * 1024)
+
     print("==========================================")
     print("      SUBZERO SD/USB FLASH ENGINE        ")
     print("==========================================")
+    print(f"Target Image: {img_path} ({file_size_mb:.1f} MB)")
+    print(f"Build Date  : {mtime_str}")
     
     print("\n[Step 1] Calculating source image checksum...")
     img_hash = calculate_sha256(img_path)

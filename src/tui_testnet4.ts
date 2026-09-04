@@ -66,6 +66,11 @@ try {
     logDebug(`setRawMode failed: ${e}`);
 }
 
+declare const __BUILD_STAMP__: string;
+declare const __GIT_SHA__: string;
+const BUILD_STAMP_VAL = typeof __BUILD_STAMP__ !== 'undefined' ? __BUILD_STAMP__ : 'DEV';
+const GIT_SHA_VAL = typeof __GIT_SHA__ !== 'undefined' ? __GIT_SHA__ : 'local';
+
 let currentBits = '';
 let isTestVector = false;
 let secretBuffer = '';
@@ -75,7 +80,7 @@ function renderUI() {
     process.stdout.write('\x1b[?25h');     // Ensure cursor visible on input screen
 
     console.log("==================================================");
-    console.log("   SUBZERO KEYOSK - TESTNET4 TDD EDITION (v0.1.0) ");
+    console.log(`   SUBZERO KEYOSK - TESTNET4 [${BUILD_STAMP_VAL}-${GIT_SHA_VAL}] `);
     console.log("         [ COIN TYPE 1' // tb1q ADDRESSES ]       ");
     console.log("==================================================\n");
     console.log("Type coin flips (0/1) or dice rolls (1-6) directly.");
@@ -347,10 +352,12 @@ function processEntropy() {
             console.log(" 2. Confirm address (0/0) matches Page 6 exactly.");
             console.log(" 3. Fund via testnet4 faucet (mempool.space/testnet4).");
             console.log(" 4. Press Q or ESC to zeroize all RAM and power off.");
+            console.log("\nBUILD & PROVENANCE:");
+            console.log(` * Build Stamp: ${BUILD_STAMP_VAL} // Git: ${GIT_SHA_VAL}`);
         }
 
         console.log("--------------------------------------------------");
-        console.log("Controls: [LEFT / RIGHT / SPACE] = Change Page | [Q / ESC] = Wipe & Exit");
+        console.log(`Controls: [SPACE/ARROWS] = Page | [Q/ESC] = Wipe | [${BUILD_STAMP_VAL}-${GIT_SHA_VAL}]`);
     }
 
     renderOutputView();

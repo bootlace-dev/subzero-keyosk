@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import * as fs from 'fs';
 import { execSync } from 'child_process';
 import * as esbuild from 'esbuild';
 
@@ -62,8 +63,14 @@ async function run() {
   }
   if (target === 'vault' || target === 'all') {
     await esbuild.build({ ...common, ...configs.vault });
-    execSync('cp src/templates/decrypt.html dist/decrypt.html');
+    let decryptHtml = fs.readFileSync('src/templates/decrypt.html', 'utf8');
+    decryptHtml = decryptHtml.replace(
+      '<span class="badge">OFFLINE AMNESIC RECOVERY</span>',
+      `<span class="badge">OFFLINE AMNESIC RECOVERY // BUILD: ${buildStamp}-${gitSha}</span>`
+    );
+    fs.writeFileSync('dist/decrypt.html', decryptHtml);
     console.log(`  dist/fb_vault.cjs [${buildStamp}-${gitSha}]`);
+    console.log(`  dist/decrypt.html [${buildStamp}-${gitSha}]`);
   }
 }
 

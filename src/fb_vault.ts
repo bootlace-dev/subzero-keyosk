@@ -157,6 +157,11 @@ async function main() {
         fb.drawRect(0, footY, fb.geometry.width, 40, COLOR_CARD);
         fb.drawRect(0, footY, fb.geometry.width, 1, COLOR_CARD_BORDER);
         fb.drawText(40, footY + 12, controls, 1, isWarn ? COLOR_WARN : COLOR_ACCENT);
+
+        // Right-aligned persistent build stamp on every screen for unambiguous screenshot attribution
+        const footStamp = `[${BUILD_STAMP_VAL}-${GIT_SHA_VAL}]`;
+        const stampX = fb.geometry.width - 40 - (footStamp.length * 8);
+        fb.drawText(stampX, footY + 12, footStamp, 1, COLOR_GOLD);
     }
 
     function renderMainMenu() {
@@ -925,7 +930,7 @@ seed words and cannot be decrypted.
 
     function renderSeedGenCarousel() {
         if (currentCarouselView === 0) {
-            renderHeader("[PAGE 1/8] MASTER ROOT SEED (12 WORDS)", "TRANSCRIBE TO PAPER/STEEL // CONFIDENTIAL", true);
+            renderHeader("[PAGE 1/9] MASTER ROOT SEED (12 WORDS)", "TRANSCRIBE TO PAPER/STEEL // CONFIDENTIAL", true);
             let y = 100;
             const cardW = Math.floor((fb.geometry.width - 100) / 2);
             for (let r = 0; r < 6; r++) {
@@ -1043,6 +1048,8 @@ seed words and cannot be decrypted.
             fb.drawText(40, y, ` * Product Name     : SubZero Sovereign Vault & Keyosk`, 1, COLOR_WHITE);
             y += 18;
             fb.drawText(40, y, ` * Core Version     : ${BUILD_VERSION} (${BUILD_TARGET})`, 1, COLOR_GOLD);
+            y += 18;
+            fb.drawText(40, y, ` * Build Metadata   : Timestamp ${BUILD_STAMP_VAL} // Git Commit ${GIT_SHA_VAL}`, 1, COLOR_GOLD);
             y += 18;
             fb.drawText(40, y, ` * Cryptography     : WebCrypto AES-256-GCM (PBKDF2 600,000 iters) + BIP-85 / BIP-84`, 1, COLOR_WHITE);
             y += 18;

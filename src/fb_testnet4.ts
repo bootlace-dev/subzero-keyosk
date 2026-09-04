@@ -95,6 +95,10 @@ async function main() {
         fb.drawRect(20, footY - 8, fb.geometry.width - 40, 36, alert ? { r: 40, g: 20, b: 25 } : { r: 16, g: 24, b: 40 });
         fb.drawRect(20, footY - 8, fb.geometry.width - 40, 1, alert ? COLOR_WARN : COLOR_CARD_BORDER);
         fb.drawTextCentered(footY, navText, 1, alert ? COLOR_WARN : COLOR_MUTED);
+
+        const footStamp = `[${BUILD_STAMP_VAL}-${GIT_SHA_VAL}]`;
+        const stampX = fb.geometry.width - 40 - (footStamp.length * 8);
+        fb.drawText(stampX, footY, footStamp, 1, COLOR_GOLD);
     }
 
     function checkTestVector(input: string): { isTest: boolean, label: string } {
