@@ -1,0 +1,42 @@
+[package]
+name = "subzero"
+version = "0.1.0"
+edition = "2021"
+authors = ["bootlace-dev <bootlace-dev@users.noreply.github.com>"]
+description = "Machine-First, Airgapped Bitcoin Cold Vault Appliance in Pure Rust"
+license = "Apache-2.0"
+
+[dependencies]
+# Bitcoin Core & BIP Suite Primitives
+bitcoin = { version = "0.32", features = ["rand", "serde"] }
+bip39 = { version = "2.1", features = ["rand"] }
+
+# Memory Hygiene & Anti-DRAM Remanence
+zeroize = { version = "1.8", features = ["derive", "zeroize_derive"] }
+
+# Terminal UI & Framebuffer-Free High-Density Console
+ratatui = { version = "0.28", features = ["crossterm"] }
+crossterm = { version = "0.28", features = ["event-stream"] }
+
+# QR Code Generation (Unicode half-blocks for terminal display)
+qrcode = { version = "0.14", default-features = false }
+
+# Structured Error Handling & Domain Modeling
+thiserror = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# CLI Configuration & Structured Observability
+clap = { version = "4.5", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# Cryptography primitives (HMAC, SHA2, AES-GCM for vault encryption)
+sha2 = "0.10"
+hmac = "0.12"
+aes-gcm = "0.10"
+rand = "0.8"
+hex = "0.4"
+
+[dev-dependencies]
+tempfile = "3.10"
