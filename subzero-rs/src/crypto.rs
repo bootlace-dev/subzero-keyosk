@@ -60,9 +60,51 @@ pub struct Bip85Child {
     pub mnemonic: String,
 }
 
+/// Canonical Test Vectors (test0 .. test9) from SubZero Testnet4 specification
+pub fn get_test_vector(id: u8) -> Result<(Vec<u8>, &'static str), CryptoError> {
+    match id {
+        0 => Ok((vec![0x00; 16], "TEST VECTOR 0 (BIP-39 BASELINE: ALL ZEROS 0x00)")),
+        1 => Ok((vec![0x55; 16], "TEST VECTOR 1 (ALTERNATING 0x55)")),
+        2 => Ok((vec![0xAA; 16], "TEST VECTOR 2 (ALTERNATING 0xAA)")),
+        3 => Ok((vec![0x7F; 16], "TEST VECTOR 3 (SIGNED BYTE BOUNDARY 0x7F)")),
+        4 => Ok((vec![0x80; 16], "TEST VECTOR 4 (HIGH-BIT BOUNDARY 0x80)")),
+        5 => Ok((vec![0xFF; 16], "TEST VECTOR 5 (ALL-ONES BOUNDARY 0xFF / ZOO)")),
+        6 => Ok((
+            vec![0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef,0x01,0x23,0x45,0x67,0x89,0xab,0xcd,0xef],
+            "TEST VECTOR 6 (INCREMENTAL NIBBLES 0x0123...)"
+        )),
+        7 => Ok((
+            vec![0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f],
+            "TEST VECTOR 7 (SEQUENTIAL BYTES 0x0001...)"
+        )),
+        8 => {
+            let hash = Sha256::digest(b"The Times 03/Jan/2009 Chancellor on brink of second bailout for banks");
+            Ok((hash[..16].to_vec(), "TEST VECTOR 8 (SATOSHI GENESIS LORE: TIMES 2009)"))
+        },
+        9 => {
+            let hash = Sha256::digest(b"Running bitcoin - Hal Finney 10 Jan 2009");
+            Ok((hash[..16].to_vec(), "TEST VECTOR 9 (HAL FINNEY LORE: RUNNING BITCOIN)"))
+        },
+        _ => Err(CryptoError::InvalidEntropyLength(0)),
+    }
+}
+
 /// Convert sanitized binary ("010101...") or dice ("164235...") input into 128-bit entropy bytes.
 pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str), CryptoError> {
     let clean: String = raw_input.chars().filter(|c| !c.is_whitespace() && *c != ',' && *c != '-').collect();
+    let lower = clean.to_lowercase();
+
+    // Check for test0..test9 keywords
+    if lower == "test" || lower == "test0" {
+        return get_test_vector(0);
+    }
+    if lower.starts_with("test") && lower.len() == 5 {
+        if let Some(digit) = lower.chars().nth(4).and_then(|c| c.to_digit(10)) {
+            if digit <= 9 {
+                return get_test_vector(digit as u8);
+            }
+        }
+    }
     
     // Binary Coin Flips (128 bits minimum for 12-word seed)
     if clean.chars().all(|c| c == '0' || c == '1') {

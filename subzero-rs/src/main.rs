@@ -149,11 +149,9 @@ fn run_event_loop(
                             state.set_seed(seed, children);
                         }
                     }
-                    KeyCode::Char('r') | KeyCode::Char('R') => {
-                        // Generate fresh TRNG seed
-                        let entropy = [42u8; 16]; // Deterministic test vector
-                        let hex = hex::encode(entropy);
-                        if let Ok(seed) = crypto::process_physical_entropy(&hex) {
+                    KeyCode::Char(digit @ '0'..='9') => {
+                        let vec_name = format!("test{}", digit);
+                        if let Ok(seed) = crypto::process_physical_entropy(&vec_name) {
                             let children = crypto::derive_bip85_children(&seed.mnemonic, 5).unwrap_or_default();
                             state.set_seed(seed, children);
                         }

@@ -230,10 +230,15 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
             Line::from("  No active seed loaded."),
             Line::from(""),
             Line::from("  Commands:"),
-            Line::from("    [C] - Enter Physical Coin Flips (128 bits: H/T or 0/1)"),
-            Line::from("    [D] - Enter Physical Casino Dice Rolls (50 rolls: 1-6)"),
-            Line::from("    [R] - Generate Cryptographic Dev Seed (System TRNG)"),
-            Line::from("    [Q] - Immediate Memory Wipe and Terminate"),
+            Line::from("    [C]   - Enter Physical Coin Flips (128 bits: H/T or 0/1)"),
+            Line::from("    [D]   - Enter Physical Casino Dice Rolls (50 rolls: 1-6)"),
+            Line::from("    [0-9] - Instant Test Vectors:"),
+            Line::from("            [0] All 0s (Abandon...About)  | [5] All 1s (Zoo...Wrong)"),
+            Line::from("            [1] Alt 0x55                  | [6] Nibbles 0x0123..."),
+            Line::from("            [2] Alt 0xAA                  | [7] Sequential 0x0001..."),
+            Line::from("            [3] Boundary 0x7F             | [8] Satoshi Times 2009"),
+            Line::from("            [4] Boundary 0x80             | [9] Hal Finney Running BTC"),
+            Line::from("    [Q]   - Immediate Memory Wipe and Terminate"),
         ];
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
