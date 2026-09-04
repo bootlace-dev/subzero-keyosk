@@ -110,7 +110,7 @@ pub fn render_app(frame: &mut Frame, state: &AppState) {
         .constraints([
             Constraint::Length(3), // Header & Tabs
             Constraint::Min(10),   // Content
-            Constraint::Length(3), // Footer / Status Bar
+            Constraint::Length(4), // Footer / Status Bar & Global Nav
         ])
         .split(frame.area());
 
@@ -147,6 +147,29 @@ fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
+    let sub_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(1), Constraint::Length(2)])
+        .split(area);
+
+    // Row 1: Global Navigation Guide on every page
+    let nav_spans = vec![
+        Span::styled(" NAV: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("[Tab/→]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Next Page  "),
+        Span::styled("[Shift+Tab/←]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Prev Page  "),
+        Span::styled("[H/Home]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Page 1 (Mnemonic)  "),
+        Span::styled("[0-9]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Test Vectors  "),
+        Span::styled("[Q/ESC]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        Span::raw(" Amnesic Wipe & Exit"),
+    ];
+    let nav_line = Line::from(nav_spans);
+    frame.render_widget(Paragraph::new(nav_line), sub_chunks[0]);
+
+    // Row 2: Status on Left, Persistent Build Stamp on Right
     let left_status = Span::styled(
         format!(" [{}] ", state.status_message),
         Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
@@ -160,7 +183,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     let footer_layout = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
-        .split(area);
+        .split(sub_chunks[1]);
 
     let left_para = Paragraph::new(Line::from(left_status))
         .block(Block::default().borders(Borders::TOP));

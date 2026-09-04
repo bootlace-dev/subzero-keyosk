@@ -86,8 +86,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut terminal = Terminal::new(backend)?;
 
     let mut state = ui::AppState::new(
-        option_env!("BUILD_TIMESTAMP").unwrap_or("2026-09-04T04:30:00Z").to_string(),
-        option_env!("GIT_COMMIT").unwrap_or("fe48812").to_string(),
+        env!("BUILD_TIMESTAMP").to_string(),
+        env!("GIT_COMMIT").to_string(),
     );
 
     // If CLI provided initial entropy, process it immediately
@@ -133,6 +133,10 @@ fn run_event_loop(
                     KeyCode::BackTab | KeyCode::Left => {
                         state.current_page = state.current_page.prev();
                     }
+                    KeyCode::Home | KeyCode::Char('h') | KeyCode::Char('H') => {
+                        state.current_page = ui::Page::MasterSeed;
+                    }
+                    KeyCode::Esc => break,
                     KeyCode::Char('c') | KeyCode::Char('C') => {
                         // Quick simulation of 128 coin flips for verification
                         let coin_entropy = "10101100111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011011110";
