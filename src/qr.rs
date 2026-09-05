@@ -4,31 +4,27 @@ use ratatui::style::{Color, Style};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QrMode {
-    BbqrAnimated,   // Multi-frame animated QR (small modules, works on legacy low-res screens)
-    FullBlockSpace, // 2 horizontal spaces with background color (0 font glyph padding seams)
-    CompactVpub,    // Plain account extended key (SLIP-0132 vpub...) with full-block spaces
+    BbqrAnimated,   // Multi-frame animated QR (rotating frames, universal fit on all screens)
+    FullBlockSpace, // Static full-block descriptor (single frame, fits 40+ row consoles)
 }
 
 impl QrMode {
-    pub const ALL: [QrMode; 3] = [
+    pub const ALL: [QrMode; 2] = [
         QrMode::BbqrAnimated,
         QrMode::FullBlockSpace,
-        QrMode::CompactVpub,
     ];
 
     pub fn title(&self) -> &'static str {
         match self {
             QrMode::BbqrAnimated => "Mode 1: BBQR Animated Descriptor (~2.5 Hz)",
-            QrMode::FullBlockSpace => "Mode 2: Full-Block Descriptor (Watch-Only)",
-            QrMode::CompactVpub => "Mode 3: BBQR Animated VPUB (Native SegWit BIP-84)",
+            QrMode::FullBlockSpace => "Mode 2: Static Full-Block Descriptor (Watch-Only)",
         }
     }
 
     pub fn description(&self) -> &'static str {
         match self {
-            QrMode::BbqrAnimated => "Splits descriptor into rotating full-block frames. Zero font seams.",
-            QrMode::FullBlockSpace => "Renders full descriptor as seamless terminal spaces. Zero inter-cell font seams.",
-            QrMode::CompactVpub => "Splits SLIP-0132 vpub into rotating full-block frames. Zero font seams, fits all consoles.",
+            QrMode::BbqrAnimated => "Splits descriptor into rotating full-block frames. Universal fit on all screens.",
+            QrMode::FullBlockSpace => "Renders full descriptor as seamless static terminal spaces. Requires >= 40 rows.",
         }
     }
 
