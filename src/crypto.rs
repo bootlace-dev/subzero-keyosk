@@ -62,7 +62,8 @@ pub struct GeneratedSeed {
     pub mnemonic: String,
     pub fingerprint: String,
     pub descriptor: String,
-    pub vpub: String,
+    pub vpub: String,          // Raw BIP-32 account extended public key (tpub...)
+    pub vpub_slip132: String, // SLIP-0132 Native SegWit BIP-84 account key (vpub...)
     pub addresses: Vec<String>,
     pub entropy_type: String,
 }
@@ -485,7 +486,15 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
     let account_path = DerivationPath::from_str("m/84'/1'/0'")?;
     let account_xprv = master_xprv.derive_priv(&secp, &account_path)?;
     let account_xpub = Xpub::from_priv(&secp, &account_xprv);
-    let vpub = account_xpub.to_string();
+    let vpub = account_xpub.to_string(); // raw BIP-32 tpub...
+
+    // SLIP-0132 VPUB for Native SegWit (vpub... version bytes 0x045f1cf6)
+    let mut raw_bytes = account_xpub.encode();
+    raw_bytes[0] = 0x04;
+    raw_bytes[1] = 0x5f;
+    raw_bytes[2] = 0x1c;
+    raw_bytes[3] = 0xf6;
+    let vpub_slip132 = bitcoin::base58::encode_check(&raw_bytes);
 
     // Derive first 50 tb1q Receive Addresses: m/84'/1'/0'/0/{0..49}
     let mut addresses = Vec::with_capacity(50);
@@ -510,6 +519,7 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
         fingerprint: master_fingerprint,
         descriptor,
         vpub,
+        vpub_slip132,
         addresses,
         entropy_type: mode.to_string(),
     })

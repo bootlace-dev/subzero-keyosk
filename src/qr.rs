@@ -7,33 +7,29 @@ use ratatui::style::{Color, Style};
 pub enum QrMode {
     BbqrAnimated,   // Multi-frame animated QR (small modules, works on legacy low-res screens)
     FullBlockSpace, // 2 horizontal spaces with background color (0 font glyph padding seams)
-    CompactTpub,    // Plain account extended key (tpub...) only (smaller matrix)
-    HalfBlockDense, // Unicode half-block Dense1x2
+    CompactVpub,    // Plain account extended key (SLIP-0132 vpub...) with full-block spaces
 }
 
 impl QrMode {
-    pub const ALL: [QrMode; 4] = [
+    pub const ALL: [QrMode; 3] = [
         QrMode::BbqrAnimated,
         QrMode::FullBlockSpace,
-        QrMode::CompactTpub,
-        QrMode::HalfBlockDense,
+        QrMode::CompactVpub,
     ];
 
     pub fn title(&self) -> &'static str {
         match self {
             QrMode::BbqrAnimated => "Mode 1: BBQR Animated Frames (~2.5 Hz)",
-            QrMode::FullBlockSpace => "Mode 2: Full-Block (Seamless Space Glyphs)",
-            QrMode::CompactTpub => "Mode 3: Compact TPUB Only (Static)",
-            QrMode::HalfBlockDense => "Mode 4: High-Density Half-Blocks (Dense1x2)",
+            QrMode::FullBlockSpace => "Mode 2: Full-Block Descriptor (Watch-Only)",
+            QrMode::CompactVpub => "Mode 3: Compact VPUB (Native SegWit BIP-84)",
         }
     }
 
     pub fn description(&self) -> &'static str {
         match self {
             QrMode::BbqrAnimated => "Splits descriptor into rotating frames. Immune to console font gaps on legacy screens.",
-            QrMode::FullBlockSpace => "Renders 1 module as 2 terminal spaces. Eliminates inter-cell font seams.",
-            QrMode::CompactTpub => "Exports raw account tpub (~111 chars) in a single compact, high-contrast QR.",
-            QrMode::HalfBlockDense => "Standard 1x2 half-block Unicode matrix. Requires edge-to-edge console font support.",
+            QrMode::FullBlockSpace => "Renders full descriptor as seamless terminal spaces. Zero inter-cell font seams.",
+            QrMode::CompactVpub => "Exports SLIP-0132 vpub key in a single high-contrast full-block QR (Blockstream Green / Electrum).",
         }
     }
 

@@ -680,12 +680,17 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
             Line::from(Span::styled(format!("    {}", chunk2), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from(""),
             Line::from(vec![
-                Span::styled("  Account Extended Public Key (TPUB / Testnet4):", Style::default().fg(Color::Cyan)),
+                Span::styled("  BIP-32 Account Public Key (tpub... / BIP-84 m/84'/1'/0'):", Style::default().fg(Color::Cyan)),
             ]),
             Line::from(Span::styled(format!("  {}", vpub1), Style::default().fg(Color::DarkGray))),
             Line::from(Span::styled(format!("    {}", vpub2), Style::default().fg(Color::DarkGray))),
             Line::from(""),
-            Line::from("  Compatible with: Sparrow, Bitcoin Core, Coldcard, BlueWallet, Jade"),
+            Line::from(vec![
+                Span::styled("  SLIP-0132 Native SegWit Key (vpub... for Blockstream Green & Electrum):", Style::default().fg(Color::Cyan)),
+            ]),
+            Line::from(Span::styled(format!("  {}", &seed.vpub_slip132), Style::default().fg(Color::Green))),
+            Line::from(""),
+            Line::from("  Compatible with: Sparrow, Bitcoin Core, Nunchuk, Keeper, Blockstream Green"),
             Line::from("  Contains NO private keys. Safe to export for watch-only balance tracking."),
             Line::from("  [!] TESTNET4 ONLY: Do NOT send real mainnet BTC to this descriptor!"),
         ];
@@ -704,7 +709,7 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if let Some(ref seed) = state.seed {
         let payload = match state.qr_mode {
-            QrMode::CompactTpub => seed.vpub.clone(),
+            QrMode::CompactVpub => seed.vpub_slip132.clone(),
             _ => seed.descriptor.clone(),
         };
 
@@ -715,8 +720,7 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                 render_full_block_qr(current_frame)
             }
             QrMode::FullBlockSpace => render_full_block_qr(&payload),
-            QrMode::CompactTpub => render_half_block_qr(&payload),
-            QrMode::HalfBlockDense => render_half_block_qr(&payload),
+            QrMode::CompactVpub => render_full_block_qr(&payload),
         };
 
         let mut lines = Vec::new();
@@ -1125,20 +1129,40 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
     let lines = vec![
         Line::from(""),
         Line::from(vec![
-            Span::raw("  Binary:               "),
-            Span::styled("subzero-rs (Pure Rust Bare-Metal Binary)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("  Appliance Engine:     "),
+            Span::styled("subzero-rs (Pure Rust Bare-Metal Self-Contained Binary)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![
             Span::raw("  Target Architecture:  "),
-            Span::styled("x86_64-unknown-linux-musl / Linux Framebuffer Terminal", Style::default().fg(Color::White)),
+            Span::styled("x86_64-unknown-linux-musl / Linux Framebuffer (tty1)", Style::default().fg(Color::White)),
+        ]),
+        Line::from(vec![
+            Span::raw("  OS Execution Model:   "),
+            Span::styled("Amnesic Alpine Linux 3.20 (SquashFS + RAM tmpfs, Zero-Persistence)", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
             Span::raw("  Protocol Scope:       "),
             Span::styled("Bitcoin Testnet4 ONLY (m/84'/1'/0', tb1q..., tpub...)", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![
+            Span::raw("  Optical Airgap Suite: "),
+            Span::styled("3-Mode Carousel: Mode 1 BBQR, Mode 2 Full-Block, Mode 3 Compact VPUB", Style::default().fg(Color::Yellow)),
+        ]),
+        Line::from(vec![
+            Span::raw("  Wallet Interop:       "),
+            Span::styled("Nunchuk, Keeper, Blockstream Green (SLIP-0132 Native SegWit), Sparrow", Style::default().fg(Color::Yellow)),
+        ]),
+        Line::from(vec![
+            Span::raw("  Physical USB Export:  "),
+            Span::styled("Auto-detects external USB drives; exports single-line descriptors & BMP QRs", Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
             Span::raw("  Core Cryptography:    "),
             Span::styled("rust-bitcoin 0.32, bip39 2.1, zeroize 1.8, sha2 0.10, aes-gcm 0.10", Style::default().fg(Color::Green)),
+        ]),
+        Line::from(vec![
+            Span::raw("  Dual-Partition Model: "),
+            Span::styled("Part 1: Read-Only EFI/SquashFS | Part 2: SUBZERO_EST Encrypted Vault", Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
             Span::raw("  Build Timestamp:      "),
@@ -1150,7 +1174,7 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
         ]),
         Line::from(vec![
             Span::raw("  Memory Hygiene:       "),
-            Span::styled("ZeroizeOnDrop on all entropy buffers & private keys", Style::default().fg(Color::Cyan)),
+            Span::styled("ZeroizeOnDrop on all entropy buffers, private keys, and master seeds", Style::default().fg(Color::Cyan)),
         ]),
     ];
 
