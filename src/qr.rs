@@ -29,7 +29,7 @@ impl QrMode {
         match self {
             QrMode::BbqrAnimated => "Splits descriptor into rotating frames. Immune to console font gaps on legacy screens.",
             QrMode::FullBlockSpace => "Renders full descriptor as seamless terminal spaces. Zero inter-cell font seams.",
-            QrMode::CompactVpub => "Exports SLIP-0132 vpub key in a single high-contrast full-block QR (Blockstream Green / Electrum).",
+            QrMode::CompactVpub => "Exports SLIP-0132 vpub key in high-density 1x2 half-blocks (21 rows, fitted to 80x24 consoles).",
         }
     }
 
@@ -160,6 +160,43 @@ pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
 
     // Bottom quiet zone
     lines.push(quiet_line);
+    Ok(lines)
+}
+
+/// Render compact 1x2 half-block QR (21 lines for vpub) with complete white quiet padding
+pub fn render_compact_half_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
+    let qr = QrCode::with_version(data, Version::Normal(4), EcLevel::L)
+        .or_else(|_| QrCode::new(data))
+        .map_err(|e| format!("Failed to generate QR: {}", e))?;
+
+    let rendered = qr.render::<Dense1x2>()
+        .quiet_zone(false)
+        .build();
+
+    let width = qr.width();
+    let quiet_h = 2; // 2 white modules padding horizontally
+    let total_w = width + quiet_h * 2;
+    let quiet_bar = Line::from(Span::styled(
+        " ".repeat(total_w),
+        Style::default().bg(Color::White),
+    ));
+
+    let quiet_pad = "  "; // 2 white columns
+    let mut lines: Vec<Line<'static>> = Vec::new();
+    lines.push(quiet_bar.clone()); // 1 top quiet row
+
+    for line in rendered.lines() {
+        lines.push(Line::from(vec![
+            Span::styled(quiet_pad, Style::default().fg(Color::Black).bg(Color::White)),
+            Span::styled(
+                line.to_string(),
+                Style::default().fg(Color::Black).bg(Color::White),
+            ),
+            Span::styled(quiet_pad, Style::default().fg(Color::Black).bg(Color::White)),
+        ]));
+    }
+
+    lines.push(quiet_bar); // 1 bottom quiet row
     Ok(lines)
 }
 

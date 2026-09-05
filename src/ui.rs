@@ -10,7 +10,7 @@ use crate::crypto::{
     DecryptedVaultPayload, GeneratedSeed,
 };
 use crate::qr::{
-    create_bbqr_frames, render_full_block_qr, QrMode,
+    create_bbqr_frames, render_compact_half_block_qr, render_full_block_qr, QrMode,
 };
 use crate::seedfix::{search_wordlist, solve_twelfth_word, SeedFixCandidate};
 use crate::storage::{
@@ -720,15 +720,17 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                 render_full_block_qr(current_frame)
             }
             QrMode::FullBlockSpace => render_full_block_qr(&payload),
-            QrMode::CompactVpub => render_full_block_qr(&payload),
+            QrMode::CompactVpub => render_compact_half_block_qr(&payload),
         };
 
         let mut lines = Vec::new();
-        lines.push(Line::from(vec![
-            Span::styled(format!("  [{}] ", state.qr_mode.title()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
-            Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
-        ]));
+        if state.qr_mode != QrMode::CompactVpub {
+            lines.push(Line::from(vec![
+                Span::styled(format!("  [{}] ", state.qr_mode.title()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
+                Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
+            ]));
+        }
 
         match qr_result {
             Ok(qr_lines) => {
