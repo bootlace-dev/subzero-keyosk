@@ -720,17 +720,19 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                 render_full_block_qr(current_frame)
             }
             QrMode::FullBlockSpace => render_full_block_qr(&payload),
-            QrMode::CompactVpub => render_compact_half_block_qr(&payload),
+            QrMode::CompactVpub => {
+                let frames = create_bbqr_frames(&payload, 2);
+                let current_frame = frames.get(state.bbqr_frame_index % frames.len()).unwrap();
+                render_full_block_qr(current_frame)
+            }
         };
 
         let mut lines = Vec::new();
-        if state.qr_mode != QrMode::CompactVpub {
-            lines.push(Line::from(vec![
-                Span::styled(format!("  [{}] ", state.qr_mode.title()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
-                Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
-            ]));
-        }
+        lines.push(Line::from(vec![
+            Span::styled(format!("  [{}] ", state.qr_mode.title()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
+            Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
+        ]));
 
         match qr_result {
             Ok(qr_lines) => {

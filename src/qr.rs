@@ -1,5 +1,4 @@
 use qrcode::{QrCode, Version, EcLevel, Color as QrColor};
-use qrcode::render::unicode::Dense1x2;
 use ratatui::text::{Line, Span};
 use ratatui::style::{Color, Style};
 
@@ -19,17 +18,17 @@ impl QrMode {
 
     pub fn title(&self) -> &'static str {
         match self {
-            QrMode::BbqrAnimated => "Mode 1: BBQR Animated Frames (~2.5 Hz)",
+            QrMode::BbqrAnimated => "Mode 1: BBQR Animated Descriptor (~2.5 Hz)",
             QrMode::FullBlockSpace => "Mode 2: Full-Block Descriptor (Watch-Only)",
-            QrMode::CompactVpub => "Mode 3: Compact VPUB (Native SegWit BIP-84)",
+            QrMode::CompactVpub => "Mode 3: BBQR Animated VPUB (Native SegWit BIP-84)",
         }
     }
 
     pub fn description(&self) -> &'static str {
         match self {
-            QrMode::BbqrAnimated => "Splits descriptor into rotating frames. Immune to console font gaps on legacy screens.",
+            QrMode::BbqrAnimated => "Splits descriptor into rotating full-block frames. Zero font seams.",
             QrMode::FullBlockSpace => "Renders full descriptor as seamless terminal spaces. Zero inter-cell font seams.",
-            QrMode::CompactVpub => "Exports SLIP-0132 vpub key in high-density 1x2 half-blocks (21 rows, fitted to 80x24 consoles).",
+            QrMode::CompactVpub => "Splits SLIP-0132 vpub into rotating full-block frames. Zero font seams, fits all consoles.",
         }
     }
 
@@ -163,62 +162,3 @@ pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
     Ok(lines)
 }
 
-/// Render compact 1x2 half-block QR (21 lines for vpub) with complete white quiet padding
-pub fn render_compact_half_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
-    let qr = QrCode::with_version(data, Version::Normal(4), EcLevel::L)
-        .or_else(|_| QrCode::new(data))
-        .map_err(|e| format!("Failed to generate QR: {}", e))?;
-
-    let rendered = qr.render::<Dense1x2>()
-        .quiet_zone(false)
-        .build();
-
-    let width = qr.width();
-    let quiet_h = 2; // 2 white modules padding horizontally
-    let total_w = width + quiet_h * 2;
-    let quiet_bar = Line::from(Span::styled(
-        " ".repeat(total_w),
-        Style::default().bg(Color::White),
-    ));
-
-    let quiet_pad = "  "; // 2 white columns
-    let mut lines: Vec<Line<'static>> = Vec::new();
-    lines.push(quiet_bar.clone()); // 1 top quiet row
-
-    for line in rendered.lines() {
-        lines.push(Line::from(vec![
-            Span::styled(quiet_pad, Style::default().fg(Color::Black).bg(Color::White)),
-            Span::styled(
-                line.to_string(),
-                Style::default().fg(Color::Black).bg(Color::White),
-            ),
-            Span::styled(quiet_pad, Style::default().fg(Color::Black).bg(Color::White)),
-        ]));
-    }
-
-    lines.push(quiet_bar); // 1 bottom quiet row
-    Ok(lines)
-}
-
-/// Render standard Dense1x2 half-block QR
-pub fn render_half_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
-    let qr = QrCode::with_version(data, Version::Normal(4), EcLevel::L)
-        .or_else(|_| QrCode::new(data))
-        .map_err(|e| format!("Failed to generate QR: {}", e))?;
-
-    let rendered = qr.render::<Dense1x2>()
-        .quiet_zone(true)
-        .build();
-
-    let lines: Vec<Line<'static>> = rendered
-        .lines()
-        .map(|line| {
-            Line::from(Span::styled(
-                line.to_string(),
-                Style::default().fg(Color::Black).bg(Color::White),
-            ))
-        })
-        .collect();
-
-    Ok(lines)
-}

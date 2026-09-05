@@ -135,7 +135,9 @@ fn run_event_loop(
 
     loop {
         // Advance BBQR frame animation (~350ms per frame) if active on VpubQr tab
-        if state.current_page == ui::Page::VpubQr && state.qr_mode == qr::QrMode::BbqrAnimated {
+        if state.current_page == ui::Page::VpubQr
+            && (state.qr_mode == qr::QrMode::BbqrAnimated || state.qr_mode == qr::QrMode::CompactVpub)
+        {
             if last_bbqr_tick.elapsed() >= Duration::from_millis(350) {
                 state.bbqr_frame_index = state.bbqr_frame_index.wrapping_add(1);
                 last_bbqr_tick = std::time::Instant::now();
