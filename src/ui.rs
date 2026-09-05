@@ -10,7 +10,7 @@ use crate::crypto::{
     DecryptedVaultPayload, GeneratedSeed,
 };
 use crate::qr::{
-    create_bbqr_frames, render_full_block_qr, render_half_block_qr, QrMode,
+    create_bbqr_frames, render_full_block_qr, QrMode,
 };
 use crate::seedfix::{search_wordlist, solve_twelfth_word, SeedFixCandidate};
 use crate::storage::{

@@ -169,7 +169,7 @@ pub fn export_descriptor_external_usb(
     fingerprint: &str,
     vpub: &str,
     addresses: &[String],
-    bip85_children: &[Bip85Child],
+    _bip85_children: &[Bip85Child],
 ) -> Result<String, String> {
     let drive = locate_external_export_drive()?;
     let mount_dir = "/media/subzero_export";
