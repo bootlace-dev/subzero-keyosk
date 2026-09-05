@@ -248,31 +248,31 @@ fn run_event_loop(
                         }
                     }
                     ui::Page::Addresses => {
-                        // Pagination for receive addresses (10 per page across 50 total)
+                        // Pagination for receive addresses (25 per page across 50 total)
                         match key.code {
                             KeyCode::Down | KeyCode::PageDown => {
                                 if let Some(ref s) = state.seed {
-                                    if state.address_page_offset + 10 < s.addresses.len() {
-                                        state.address_page_offset += 10;
+                                    if state.address_page_offset + 25 < s.addresses.len() {
+                                        state.address_page_offset += 25;
                                     }
                                 }
                             }
                             KeyCode::Up | KeyCode::PageUp => {
-                                state.address_page_offset = state.address_page_offset.saturating_sub(10);
+                                state.address_page_offset = state.address_page_offset.saturating_sub(25);
                             }
                             _ => {}
                         }
                     }
                     ui::Page::Bip85Children => {
-                        // Pagination for BIP-85 heir keys (4 per page across 20 total)
+                        // Pagination for BIP-85 heir keys (8 per page across 20 total)
                         match key.code {
                             KeyCode::Down | KeyCode::PageDown => {
-                                if state.heir_page_offset + 4 < state.bip85_children.len() {
-                                    state.heir_page_offset += 4;
+                                if state.heir_page_offset + 8 < state.bip85_children.len() {
+                                    state.heir_page_offset += 8;
                                 }
                             }
                             KeyCode::Up | KeyCode::PageUp => {
-                                state.heir_page_offset = state.heir_page_offset.saturating_sub(4);
+                                state.heir_page_offset = state.heir_page_offset.saturating_sub(8);
                             }
                             _ => {}
                         }

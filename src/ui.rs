@@ -445,29 +445,53 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
         }
         lines.push(Line::from(""));
 
+        lines.push(Line::from(vec![
+            Span::styled("  READING ORDER GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Read Column 1 (Word 01 -> 06) DOWN, then Column 2 (Word 07 -> 12) DOWN.", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<42}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+            Span::styled("COLUMN 2: (Words 07 through 12)", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+
         for i in 0..6 {
-            let left = format!("  {:2}. {:<15}", i + 1, words.get(i).unwrap_or(&""));
-            let right = format!("  {:2}. {:<15}", i + 7, words.get(i + 6).unwrap_or(&""));
+            let w1 = words.get(i).unwrap_or(&"");
+            let w2 = words.get(i + 6).unwrap_or(&"");
+            let p1 = if w1.len() >= 4 { &w1[..4] } else { w1 }.to_uppercase();
+            let p2 = if w2.len() >= 4 { &w2[..4] } else { w2 }.to_uppercase();
+
+            let left = format!("  Word #{:02}:  {:<12} [Punch: {:<4}]", i + 1, w1, p1);
+            let right = format!("    Word #{:02}:  {:<12} [Punch: {:<4}]", i + 7, w2, p2);
             lines.push(Line::from(vec![
                 Span::styled(left, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::styled(right, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ]));
         }
 
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::raw("  Master Fingerprint:   "),
             Span::styled(&seed.fingerprint, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("    (BIP-32 root key identifier)"),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  Entropy Mode:         "),
             Span::styled(&seed.entropy_type, Style::default().fg(Color::Green)),
+            Span::raw("   (Pure Physical Whitened Entropy)"),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  Protocol Network:     "),
-            Span::styled("Bitcoin Testnet4 (BIP-94, tb1q..., m/84'/1'/0')", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+            Span::styled("Bitcoin Testnet4", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+            Span::raw("       (BIP-94, tb1q..., m/84'/1'/0')"),
         ]));
         lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  [!] RECOVERY INVARIANT: Standard BIP-39 requires only the FIRST 4 LETTERS of each word.",
+            Style::default().fg(Color::DarkGray),
+        )));
         lines.push(Line::from(Span::styled(
             "  Advance to Tab 2 for the Decoupled Estate Passphrase (BIP-85 Index 0).",
             Style::default().fg(Color::DarkGray),
@@ -627,31 +651,60 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
         .style(Style::default().fg(Color::White));
 
     if let Some(ref pass) = state.decoupled_passphrase {
-        let lines = vec![
-            Line::from(""),
-            Line::from(Span::styled(
-                "  NON-COLOCATED ENCRYPTION KEY & ESTATE DEAD-MAN SWITCH",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from(vec![
-                Span::raw("  BIP-85 Derivation Path: "),
-                Span::styled(&pass.path, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            ]),
-            Line::from(""),
-            Line::from("  12-Word Decoupled Passphrase:"),
-            Line::from(Span::styled(
-                format!("  {}", pass.mnemonic),
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            )),
-            Line::from(""),
-            Line::from("  CRITICAL ANTI-COLOCATION PROTOCOL:"),
-            Line::from("  1. NEVER store this passphrase in the same physical location as your Master Seed or USB."),
-            Line::from("  2. Store this in your password manager (Bitwarden), safe deposit box, or attorney escrow."),
-            Line::from("  3. Because BIP-85 derivation is strictly ONE-WAY, holding this phrase alone exposes ZERO funds."),
-            Line::from("  4. Used to encrypt the estate vault package (vault.json) on Tab 8."),
-        ];
-        frame.render_widget(Paragraph::new(lines).block(block).wrap(Wrap { trim: false }), area);
+        let words: Vec<&str> = pass.mnemonic.split_whitespace().collect();
+        let mut lines = Vec::new();
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  [🛡️ NON-COLOCATED ENCRYPTION KEY & ESTATE DEAD-MAN SWITCH]",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::raw("  BIP-85 Derivation Path: "),
+            Span::styled(&pass.path, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("  (Deterministic one-way child derivation)"),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  READING ORDER GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Read Column 1 (Word 01 -> 06) DOWN, then Column 2 (Word 07 -> 12) DOWN.", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<42}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+            Span::styled("COLUMN 2: (Words 07 through 12)", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+
+        for i in 0..6 {
+            let w1 = words.get(i).unwrap_or(&"");
+            let w2 = words.get(i + 6).unwrap_or(&"");
+            let p1 = if w1.len() >= 4 { &w1[..4] } else { w1 }.to_uppercase();
+            let p2 = if w2.len() >= 4 { &w2[..4] } else { w2 }.to_uppercase();
+
+            let left = format!("  Word #{:02}:  {:<12} [Punch: {:<4}]", i + 1, w1, p1);
+            let right = format!("    Word #{:02}:  {:<12} [Punch: {:<4}]", i + 7, w2, p2);
+            lines.push(Line::from(vec![
+                Span::styled(left, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled(right, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            ]));
+        }
+
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  CRITICAL ANTI-COLOCATION PROTOCOL & DEAD-MAN ARCHITECTURE:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  1. NEVER store this passphrase in the same physical location as your Master Seed or Hardware."));
+        lines.push(Line::from("  2. Store this in your password manager (Bitwarden), attorney escrow, or safe deposit box."));
+        lines.push(Line::from("  3. One-Way Derivation Invariant: Holding this phrase alone exposes ZERO funds."));
+        lines.push(Line::from("  4. Used to encrypt the estate package (vault.json) on Tab 8."));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  TWO-LOCATION RECOVERY FORMULA:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("    [Location A: Master Seed on Steel] + [Location B: BIP-85 Passphrase] = FULL ACCESS"));
+        lines.push(Line::from("    (Either piece alone is cryptographically useless to a burglar, court, or rogue executor)"));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
     } else {
         frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
@@ -672,29 +725,43 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
         let vpub1 = if vpub.len() > 70 { &vpub[..70] } else { vpub };
         let vpub2 = if vpub.len() > 70 { &vpub[70..] } else { "" };
 
-        let lines = vec![
-            Line::from(""),
-            Line::from(Span::styled("  Watch-Only Descriptor with BIP-380 Checksum (Testnet4):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
-            Line::from(""),
-            Line::from(Span::styled(format!("  {}", chunk1), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
-            Line::from(Span::styled(format!("    {}", chunk2), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  BIP-32 Account Public Key (tpub... / BIP-84 m/84'/1'/0'):", Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(Span::styled(format!("  {}", vpub1), Style::default().fg(Color::DarkGray))),
-            Line::from(Span::styled(format!("    {}", vpub2), Style::default().fg(Color::DarkGray))),
-            Line::from(""),
-            Line::from(vec![
-                Span::styled("  SLIP-0132 Native SegWit Key (vpub... for Blockstream Green & Electrum):", Style::default().fg(Color::Cyan)),
-            ]),
-            Line::from(Span::styled(format!("  {}", &seed.vpub_slip132), Style::default().fg(Color::Green))),
-            Line::from(""),
-            Line::from("  Compatible with: Sparrow, Bitcoin Core, Nunchuk, Keeper, Blockstream Green"),
-            Line::from("  Contains NO private keys. Safe to export for watch-only balance tracking."),
-            Line::from("  [!] TESTNET4 ONLY: Do NOT send real mainnet BTC to this descriptor!"),
-        ];
-        let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+        let mut lines = Vec::new();
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  WATCH-ONLY OUTPUT DESCRIPTOR (BIP-380 / BIP-84):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(format!("  {}", chunk1), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        if !chunk2.is_empty() {
+            lines.push(Line::from(Span::styled(format!("    {}", chunk2), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  BIP-32 Account Public Key (tpub... / BIP-84 m/84'/1'/0'):", Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(Span::styled(format!("  {}", vpub1), Style::default().fg(Color::White))));
+        if !vpub2.is_empty() {
+            lines.push(Line::from(Span::styled(format!("    {}", vpub2), Style::default().fg(Color::White))));
+        }
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  SLIP-0132 Native SegWit Key (vpub... for Blockstream Green & Electrum):", Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(Span::styled(format!("  {}", &seed.vpub_slip132), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(""));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(Span::styled("  WALLET IMPORT PROTOCOL & COMPATIBILITY MATRIX:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  +-------------------+----------------------------+-----------------------------+"));
+        lines.push(Line::from("  | TARGET WALLET     | RECOMMENDED EXPORT MODE    | FORMAT ACCEPTED             |"));
+        lines.push(Line::from("  +-------------------+----------------------------+-----------------------------+"));
+        lines.push(Line::from("  | Nunchuk (Mobile)  | Tab 4, Mode 1 (BBQR)       | BIP-380 Output Descriptor   |"));
+        lines.push(Line::from("  | Sparrow (Desktop) | Tab 4, Mode 1 or Mode 2    | BIP-380 Output Descriptor   |"));
+        lines.push(Line::from("  | Bitcoin Keeper    | Tab 4, Mode 1 (BBQR)       | BIP-380 Output Descriptor   |"));
+        lines.push(Line::from("  | Blockstream Green | Tab 4, Mode 3 (Static VPUB)| SLIP-0132 Raw Extended Key  |"));
+        lines.push(Line::from("  | Electrum          | Tab 4, Mode 3 (Static VPUB)| SLIP-0132 Raw Extended Key  |"));
+        lines.push(Line::from("  | Bitcoin Core CLI  | USB File: descriptor.txt   | importdescriptors JSON      |"));
+        lines.push(Line::from("  +-------------------+----------------------------+-----------------------------+"));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  [✓] Zero Private Keys: Watch-only descriptors contain no signing entropy and are safe to export.", Style::default().fg(Color::Green))));
+
+        let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
     } else {
         frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
@@ -795,7 +862,7 @@ fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if let Some(ref seed) = state.seed {
         let total = seed.addresses.len();
-        let page_size = 10;
+        let page_size = 25;
         let start = state.address_page_offset;
         let end = std::cmp::min(start + page_size, total);
         let cur_page = (start / page_size) + 1;
@@ -842,7 +909,7 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if !state.bip85_children.is_empty() {
         let total = state.bip85_children.len();
-        let page_size = 4;
+        let page_size = 8;
         let start = state.heir_page_offset;
         let end = std::cmp::min(start + page_size, total);
         let cur_page = (start / page_size) + 1;
