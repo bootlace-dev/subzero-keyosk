@@ -190,24 +190,23 @@ pub fn export_descriptor_external_usb(
         return Err(format!("Failed to mount external USB {drive}. Ensure it is formatted (FAT32/exFAT)."));
     }
 
-    // 1. Strict raw descriptor (no comment lines, no headers, pure single-line text for Nunchuk / Green)
+    // 1. Strict raw descriptor (no comment lines, single-line text for Nunchuk & Keeper)
     let raw_descriptor_content = format!("{}\n", descriptor.trim());
     let desc_path = format!("{mount_dir}/subzero-testnet4-descriptor.txt");
     let _ = fs::write(&desc_path, raw_descriptor_content);
 
-    // 2. Coldcard standard export JSON (supported universally by Nunchuk, Green, Keeper, Sparrow)
-    let coldcard_json = format!(
-r#"{{
-  "xfp": "{}",
-  "p2wpkh": "{}",
-  "p2wpkh_deriv": "m/84'/1'/0'"
-}}
-"#,
-        fingerprint.to_uppercase(),
-        vpub
-    );
-    let cc_path = format!("{mount_dir}/subzero-coldcard-export.json");
-    let _ = fs::write(&cc_path, coldcard_json);
+    // 2. SLIP-0132 VPUB for Blockstream Green & Electrum (Testnet Native SegWit)
+    let mut vpub_str = vpub.to_string();
+    if let Ok(xpub) = bitcoin::bip32::Xpub::from_str(vpub) {
+        let mut raw = xpub.encode();
+        raw[0] = 0x04;
+        raw[1] = 0x5f;
+        raw[2] = 0x1c;
+        raw[3] = 0xf6;
+        vpub_str = bitcoin::base58::encode_check(&raw);
+    }
+    let vpub_path = format!("{mount_dir}/vpub_testnet4.txt");
+    let _ = fs::write(&vpub_path, format!("{}\n", vpub_str.trim()));
 
     // 3. Addresses manifest (first 50 receive addresses with indexing)
     let mut addr_lines = Vec::new();
@@ -221,28 +220,16 @@ r#"{{
     let addr_path = format!("{mount_dir}/addresses.txt");
     let _ = fs::write(&addr_path, addr_lines.join("\n") + "\n");
 
-    // 4. BIP-85 Hierarchy index
-    let mut bip85_lines = Vec::new();
-    bip85_lines.push("# SubZero BIP-85 Child Vault Inventory".to_string());
-    bip85_lines.push(format!("# Master Root Fingerprint: {}", fingerprint.to_uppercase()));
-    bip85_lines.push("# Note: Contains NO seed words or private keys.".to_string());
-    bip85_lines.push("".to_string());
-    for child in bip85_children {
-        bip85_lines.push(format!("[Vault #{:02}] Path: {:<30} Label: {}", child.index, child.path, child.label));
-    }
-    let bip85_path = format!("{mount_dir}/bip85_inventory.txt");
-    let _ = fs::write(&bip85_path, bip85_lines.join("\n") + "\n");
-
-    // 5. High-resolution BMP QR images for direct phone/app image scan
-    // 5a. Full Descriptor QR image
+    // 4. High-resolution BMP QR images for direct phone/app image scan
+    // 4a. Full Descriptor QR image
     if let Ok(bmp) = encode_qr_bmp(descriptor, 8, 4) {
         let _ = fs::write(format!("{mount_dir}/qr_descriptor.bmp"), bmp);
     }
-    // 5b. Account TPUB QR image
-    if let Ok(bmp) = encode_qr_bmp(vpub, 8, 4) {
-        let _ = fs::write(format!("{mount_dir}/qr_tpub.bmp"), bmp);
+    // 4b. Account VPUB QR image (for Blockstream Green Native SegWit import)
+    if let Ok(bmp) = encode_qr_bmp(&vpub_str, 8, 4) {
+        let _ = fs::write(format!("{mount_dir}/qr_vpub.bmp"), bmp);
     }
-    // 5c. Address #0 QR image
+    // 4c. Address #0 QR image
     if let Some(addr0) = addresses.first() {
         if let Ok(bmp) = encode_qr_bmp(addr0, 8, 4) {
             let _ = fs::write(format!("{mount_dir}/qr_address_0.bmp"), bmp);
@@ -252,5 +239,5 @@ r#"{{
     let _ = Command::new("sync").output();
     let _ = Command::new("umount").arg(mount_dir).output();
 
-    Ok(format!("Exported descriptor, coldcard JSON, addresses, & BMP QRs to USB ({drive})"))
+    Ok(format!("Exported airgap files to USB ({drive})"))
 }
