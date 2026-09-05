@@ -57,7 +57,7 @@ impl SecretEntropy {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Zeroize, ZeroizeOnDrop)]
 pub struct GeneratedSeed {
     pub mnemonic: String,
     pub fingerprint: String,
@@ -67,7 +67,7 @@ pub struct GeneratedSeed {
     pub entropy_type: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct Bip85Child {
     pub label: String,
     pub index: u32,
@@ -95,7 +95,7 @@ pub struct EncryptedVaultJson {
 }
 
 /// Decrypted payload structure inside `vault.json`
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Zeroize, ZeroizeOnDrop)]
 pub struct DecryptedVaultPayload {
     pub version: String,
     pub created_utc: String,
@@ -281,7 +281,7 @@ pub fn has_repetitive_substrings(input: &str, min_chunk: usize, max_chunk: usize
         return false;
     }
 
-    // Casino dice rolls (1-6) or general base: 3 consecutive repetitions of chunks size 3..6
+    // Standard dice rolls (1-6) or general base: 3 consecutive repetitions of chunks size 3..6
     for size in min_chunk..=max_chunk {
         if chars.len() < size * 3 {
             continue;
@@ -456,7 +456,7 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
             return Err(CryptoError::InvalidEntropyLength(clean.len()));
         }
         let hash = Sha256::digest(clean.as_bytes());
-        return Ok((hash[..16].to_vec(), "Casino Dice Rolls (50+ Rolls)"));
+        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (50+ Rolls)"));
     }
 
     // Hex string (16 bytes = 32 hex chars)

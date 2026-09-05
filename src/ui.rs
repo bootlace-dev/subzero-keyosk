@@ -23,9 +23,9 @@ pub enum Page {
     Addresses,
     Bip85Children,
     EstateProvisioner,
+    VaultUnlock,
     SeedFix,
     WordlistInspector,
-    VaultUnlock,
     DrillGuide,
     Provenance,
 }
@@ -40,9 +40,9 @@ impl Page {
         Page::Addresses,
         Page::Bip85Children,
         Page::EstateProvisioner,
+        Page::VaultUnlock,
         Page::SeedFix,
         Page::WordlistInspector,
-        Page::VaultUnlock,
         Page::DrillGuide,
         Page::Provenance,
     ];
@@ -57,9 +57,9 @@ impl Page {
             Page::Addresses => "Tab 6. Receive Addresses",
             Page::Bip85Children => "Tab 7. BIP-85 Heir Keys",
             Page::EstateProvisioner => "Tab 8. Partition 2 Estate Writer",
-            Page::SeedFix => "Tab 9. SeedFix Recovery",
-            Page::WordlistInspector => "Tab 10. Wordlist Search",
-            Page::VaultUnlock => "Tab 11. Vault Decrypt",
+            Page::VaultUnlock => "Tab 9. Unlock & Decrypt Estate Vault (vault.json)",
+            Page::SeedFix => "Tab 10. SeedFix Recovery Tool (Interactive Candidate Solver)",
+            Page::WordlistInspector => "Tab 11. BIP-39 Canonical English Wordlist Inspector (2048 Words)",
             Page::DrillGuide => "Tab 12. Metal Punch Grid",
             Page::Provenance => "Tab 13. Provenance & Spec",
         }
@@ -302,19 +302,19 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         .split(area);
 
     let nav_spans = vec![
-        Span::styled(" NAV: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("NAV: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled("[Tab/→]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Next  "),
+        Span::raw(" Next "),
         Span::styled("[Shift+Tab/←]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Prev  "),
+        Span::raw(" Prev "),
         Span::styled("[Home]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Tab 1  "),
+        Span::raw(" Tab 1 "),
         Span::styled("[R]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" PRNG  "),
+        Span::raw(" PRNG "),
         Span::styled("[C/D]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" Sample Coins/Dice  "),
+        Span::raw(" Sample "),
         Span::styled("[W]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-        Span::raw(" Wipe & Reset  "),
+        Span::raw(" Wipe "),
         Span::styled("[Q/ESC]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         Span::raw(" Exit"),
     ];
@@ -356,9 +356,9 @@ fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
         Page::Addresses => render_addresses(frame, area, state),
         Page::Bip85Children => render_bip85(frame, area, state),
         Page::EstateProvisioner => render_estate_provisioner(frame, area, state),
+        Page::VaultUnlock => render_vault_unlock(frame, area, state),
         Page::SeedFix => render_seedfix(frame, area, state),
         Page::WordlistInspector => render_wordlist_inspector(frame, area, state),
-        Page::VaultUnlock => render_vault_unlock(frame, area, state),
         Page::DrillGuide => render_drill_guide(frame, area, state),
         Page::Provenance => render_provenance(frame, area, state),
     }
@@ -423,7 +423,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     let mode_str = if is_bin {
         "BINARY COIN FLIPS (0/1)"
     } else if is_dice {
-        "CASINO DICE ROLLS (1-6)"
+        "STANDARD DICE ROLLS (1-6)"
     } else if raw.is_empty() {
         "AWAITING INPUT (Coin 0/1, Dice 1-6, or 'test0'..'test9')"
     } else {
@@ -530,7 +530,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         lines.push(Line::from(""));
         lines.push(Line::from("    Direct Input:"));
         lines.push(Line::from("      Type '0' / '1' directly for live physical coin flip streaming (128 bits)."));
-        lines.push(Line::from("      Type '1' - '6' directly for casino dice roll whitening (50 rolls)."));
+        lines.push(Line::from("      Type '1' - '6' directly for standard dice roll whitening (50 rolls)."));
         lines.push(Line::from("      Type 'test0' .. 'test9' to load canonical SubZero Test Vectors."));
         lines.push(Line::from("      Type [Backspace] to delete characters."));
         lines.push(Line::from(""));
@@ -620,17 +620,17 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
     if let Some(ref seed) = state.seed {
         let lines = vec![
             Line::from(""),
-            Line::from(Span::styled("  Watch-Only Descriptor with BIP-380 Checksum:", Style::default().fg(Color::Cyan))),
+            Line::from(Span::styled("  Watch-Only Descriptor with BIP-380 Checksum:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))),
             Line::from(""),
             Line::from(Span::styled(format!("  {}", seed.descriptor), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))),
             Line::from(""),
             Line::from(vec![
-                Span::raw("  Account TPUB: "),
-                Span::styled(&seed.vpub, Style::default().fg(Color::DarkGray)),
+                Span::styled("  Account Extended Key (TPUB):", Style::default().fg(Color::Cyan)),
             ]),
+            Line::from(Span::styled(format!("  {}", seed.vpub), Style::default().fg(Color::DarkGray))),
             Line::from(""),
-            Line::from("  Compatible with: Sparrow Wallet, Bitcoin Core, Coldcard, BlueWallet, Jade"),
-            Line::from("  Contains NO private keys. Can be safely exported over airgap via watch-only QR."),
+            Line::from("  Compatible with: Sparrow, Bitcoin Core, Coldcard, BlueWallet, Jade"),
+            Line::from("  Contains NO private keys. Can be safely exported via watch-only QR."),
         ];
         let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
         frame.render_widget(p, area);
@@ -649,10 +649,10 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
         match render_qr_to_lines(&seed.descriptor) {
             Ok(mut qr_lines) => {
                 qr_lines.push(Line::from(""));
-                qr_lines.push(Line::from(vec![
-                    Span::styled("  Watch-Only Descriptor: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                    Span::styled(&seed.descriptor, Style::default().fg(Color::Yellow)),
-                ]));
+                qr_lines.push(Line::from(Span::styled(
+                    "  [BIP-380 Watch-Only Output Descriptor]",
+                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+                )));
                 let p = Paragraph::new(qr_lines)
                     .alignment(Alignment::Center)
                     .block(block);
@@ -754,7 +754,7 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
         frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     } else {
         let total = state.bip85_children.len();
-        let page_size = 8;
+        let page_size = 4;
         let start = state.heir_page_offset;
         let end = std::cmp::min(start + page_size, total);
         let cur_page = (start / page_size) + 1;
@@ -764,16 +764,20 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled(format!("  BIP-85 Heir Keys #{}-#{} (Page {} of {}):", start + 1, end, cur_page, total_pages), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("    [Controls: UP/DOWN / PgUp/PgDn to Page]"),
+            Span::raw("   [UP/DOWN to Page]"),
         ]));
         lines.push(Line::from(""));
 
         for child in &state.bip85_children[start..end] {
             lines.push(Line::from(vec![
                 Span::styled(format!("  Vault #{:<2} ", child.index), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled(format!("({}) : ", child.path), Style::default().fg(Color::DarkGray)),
+                Span::styled(format!("({})", child.path), Style::default().fg(Color::DarkGray)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("    "),
                 Span::styled(&child.mnemonic, Style::default().fg(Color::Yellow)),
             ]));
+            lines.push(Line::from(""));
         }
 
         let p = Paragraph::new(lines).block(block);
@@ -832,7 +836,7 @@ fn render_estate_provisioner(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 9. SeedFix Recovery Tool (Interactive Candidate Solver) ")
+        .title(" Tab 10. SeedFix Recovery Tool (Interactive Candidate Solver) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -858,13 +862,16 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
                 Style::default().fg(Color::Green),
             )));
             lines.push(Line::from(""));
-            for (idx, cand) in cands.iter().take(7).enumerate() {
+            for (idx, cand) in cands.iter().take(5).enumerate() {
                 lines.push(Line::from(vec![
                     Span::styled(format!("    {:2}. Word 12: ", idx + 1), Style::default().fg(Color::Cyan)),
-                    Span::styled(format!("{:<12}", cand.twelfth_word.clone()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::raw(" (distance "),
-                    Span::styled(cand.distance.to_string(), Style::default().fg(Color::Green)),
-                    Span::raw(") -> Full: "),
+                    Span::styled(format!("{:<12}", cand.twelfth_word), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::raw(" (Levenshtein Distance: "),
+                    Span::styled(cand.distance.to_string(), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    Span::raw(")"),
+                ]));
+                lines.push(Line::from(vec![
+                    Span::raw("        Mnemonic: "),
                     Span::styled(cand.full_mnemonic.clone(), Style::default().fg(Color::DarkGray)),
                 ]));
             }
@@ -872,7 +879,7 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
     } else {
         lines.push(Line::from(format!("  Awaiting 11 words (Entered: {}/11 words)...", words.len())));
         lines.push(Line::from(""));
-        lines.push(Line::from("  Controls: Type characters directly to append | [Backspace] to delete | [Space] to separate words"));
+        lines.push(Line::from("  Controls: Type words directly | [Backspace] to delete | [Space] to separate"));
     }
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -881,7 +888,7 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 10. BIP-39 Canonical English Wordlist Inspector (2048 Words) ")
+        .title(" Tab 11. BIP-39 Canonical English Wordlist Inspector (2048 Words) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -922,7 +929,7 @@ fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 11. Unlock & Decrypt Estate Vault (vault.json) ")
+        .title(" Tab 9. Unlock & Decrypt Estate Vault (vault.json) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -933,7 +940,7 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
 
     lines.push(Line::from(vec![
         Span::styled("  12-Word Passphrase: ", Style::default().fg(Color::Yellow)),
-        Span::styled(if state.vault_passphrase_input.is_empty() { "[Type 12-word passphrase or 'test0'..'test9']" } else { &state.vault_passphrase_input }, Style::default().fg(Color::White)),
+        Span::styled(if state.vault_passphrase_input.is_empty() { "[Type 12 words or 'test0'..'test9']" } else { &state.vault_passphrase_input }, Style::default().fg(Color::White)),
         Span::styled(" _", Style::default().fg(Color::Cyan).add_modifier(Modifier::SLOW_BLINK)),
     ]));
     lines.push(Line::from(""));
@@ -950,17 +957,20 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if let Some(ref vault) = state.decrypted_vault {
         lines.push(Line::from(Span::styled("  [DECRYPTED ESTATE PAYLOAD RESTORED]:", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from(vec![
-            Span::raw("    Master Mnemonic: "),
-            Span::styled(&vault.master_root_mnemonic, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::raw("    Descriptor:      "),
-            Span::styled(&vault.descriptor, Style::default().fg(Color::Cyan)),
-        ]));
+        lines.push(Line::from(Span::styled("    Master Mnemonic:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(format!("      {}", vault.master_root_mnemonic), Style::default().fg(Color::Yellow))));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("    Output Descriptor:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(format!("      {}", vault.descriptor), Style::default().fg(Color::Cyan))));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("    Heir Treasuries:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
         for heir in &vault.heir_treasuries {
             lines.push(Line::from(vec![
-                Span::styled(format!("    {} ({}): ", heir.label, heir.path), Style::default().fg(Color::White)),
+                Span::styled(format!("      {} ", heir.label), Style::default().fg(Color::Cyan)),
+                Span::styled(format!("({})", heir.path), Style::default().fg(Color::DarkGray)),
+            ]));
+            lines.push(Line::from(vec![
+                Span::raw("        "),
                 Span::styled(&heir.mnemonic, Style::default().fg(Color::Yellow)),
             ]));
         }
@@ -970,7 +980,8 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from("    Press [ENTER] to attempt AES-256-GCM / PBKDF2 authentication."));
     }
 
-    frame.render_widget(Paragraph::new(lines).block(block), area);
+    let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    frame.render_widget(p, area);
 }
 
 fn render_drill_guide(frame: &mut Frame, area: Rect, state: &AppState) {

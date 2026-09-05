@@ -242,15 +242,15 @@ fn run_event_loop(
                         }
                     }
                     ui::Page::Bip85Children => {
-                        // Pagination for BIP-85 heir keys (8 per page across 20 total)
+                        // Pagination for BIP-85 heir keys (4 per page across 20 total)
                         match key.code {
                             KeyCode::Down | KeyCode::PageDown => {
-                                if state.heir_page_offset + 8 < state.bip85_children.len() {
-                                    state.heir_page_offset += 8;
+                                if state.heir_page_offset + 4 < state.bip85_children.len() {
+                                    state.heir_page_offset += 4;
                                 }
                             }
                             KeyCode::Up | KeyCode::PageUp => {
-                                state.heir_page_offset = state.heir_page_offset.saturating_sub(8);
+                                state.heir_page_offset = state.heir_page_offset.saturating_sub(4);
                             }
                             _ => {}
                         }
