@@ -6,18 +6,21 @@ use ratatui::style::{Color, Style};
 pub enum QrMode {
     BbqrAnimated,   // Multi-frame animated QR (rotating frames, universal fit on all screens)
     FullBlockSpace, // Static full-block descriptor (single frame, fits 40+ row consoles)
+    StaticVpub,     // Static full-block SLIP-0132 vpub (single frame for Electrum & Blockstream Green)
 }
 
 impl QrMode {
-    pub const ALL: [QrMode; 2] = [
+    pub const ALL: [QrMode; 3] = [
         QrMode::BbqrAnimated,
         QrMode::FullBlockSpace,
+        QrMode::StaticVpub,
     ];
 
     pub fn title(&self) -> &'static str {
         match self {
             QrMode::BbqrAnimated => "Mode 1: BBQR Animated Descriptor (~2.5 Hz)",
             QrMode::FullBlockSpace => "Mode 2: Static Full-Block Descriptor (Watch-Only)",
+            QrMode::StaticVpub => "Mode 3: Static Full-Block VPUB (Electrum / Green)",
         }
     }
 
@@ -25,6 +28,7 @@ impl QrMode {
         match self {
             QrMode::BbqrAnimated => "Splits descriptor into rotating full-block frames. Universal fit on all screens.",
             QrMode::FullBlockSpace => "Renders full descriptor as seamless static terminal spaces. Requires >= 40 rows.",
+            QrMode::StaticVpub => "Renders raw SLIP-0132 vpub as seamless static terminal spaces. Requires >= 35 rows.",
         }
     }
 

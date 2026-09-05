@@ -708,15 +708,14 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
-        let payload = &seed.descriptor;
-
         let qr_result = match state.qr_mode {
             QrMode::BbqrAnimated => {
-                let frames = create_bbqr_frames(payload, 3);
+                let frames = create_bbqr_frames(&seed.descriptor, 3);
                 let current_frame = frames.get(state.bbqr_frame_index % frames.len()).unwrap();
                 render_full_block_qr(current_frame)
             }
-            QrMode::FullBlockSpace => render_full_block_qr(payload),
+            QrMode::FullBlockSpace => render_full_block_qr(&seed.descriptor),
+            QrMode::StaticVpub => render_full_block_qr(&seed.vpub_slip132),
         };
 
         let mut lines = Vec::new();
