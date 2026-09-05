@@ -548,14 +548,25 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         Span::styled(format!(" (Max cond prob: {:.1}%)", markov.max_cond_prob * 100.0), Style::default().fg(Color::DarkGray)),
     ]));
 
-    let repeat_style = if repeats {
+    let repeat_style = if len < 16 {
+        Style::default().fg(Color::DarkGray)
+    } else if repeats {
         Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::Green)
     };
     lines.push(Line::from(vec![
         Span::raw("  Repetitive Pattern Block: "),
-        Span::styled(if repeats { "[FAIL - REPEATING CHUNKS DETECTED]" } else { "[PASS - NO REPEATS]" }, repeat_style),
+        Span::styled(
+            if len < 16 {
+                "Awaiting 16+ chars..."
+            } else if repeats {
+                "[FAIL - REPEATING CHUNKS DETECTED]"
+            } else {
+                "[PASS - NO REPEATS]"
+            },
+            repeat_style,
+        ),
     ]));
 
     lines.push(Line::from("  -----------------------------------------------------------------------"));
