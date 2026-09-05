@@ -56,6 +56,67 @@ pub fn create_bbqr_frames(payload: &str, min_parts: usize) -> Vec<String> {
     }
 }
 
+/// Render a QR code into standard Windows 1-bit monochrome BMP bytes (zero third-party dependencies)
+pub fn encode_qr_bmp(data: &str, scale: usize, quiet: usize) -> Result<Vec<u8>, String> {
+    let qr = QrCode::with_error_correction_level(data, EcLevel::L)
+        .or_else(|_| QrCode::new(data))
+        .map_err(|e| format!("QR encoding failed: {e}"))?;
+
+    let w = qr.width();
+    let img_w = (w + quiet * 2) * scale;
+    let img_h = img_w;
+
+    let row_bytes = ((img_w + 31) / 32) * 4;
+    let img_data_len = row_bytes * img_h;
+    let file_size = 54 + 8 + img_data_len;
+
+    let mut bmp = Vec::with_capacity(file_size);
+    // 1. BMP Header (14 bytes)
+    bmp.extend_from_slice(b"BM");
+    bmp.extend_from_slice(&(file_size as u32).to_le_bytes());
+    bmp.extend_from_slice(&[0u8; 4]);
+    bmp.extend_from_slice(&62u32.to_le_bytes());
+
+    // 2. DIB Header (40 bytes)
+    bmp.extend_from_slice(&40u32.to_le_bytes());
+    bmp.extend_from_slice(&(img_w as i32).to_le_bytes());
+    bmp.extend_from_slice(&(img_h as i32).to_le_bytes()); // Bottom-up storage
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&1u16.to_le_bytes());
+    bmp.extend_from_slice(&0u32.to_le_bytes());
+    bmp.extend_from_slice(&(img_data_len as u32).to_le_bytes());
+    bmp.extend_from_slice(&2835u32.to_le_bytes());
+    bmp.extend_from_slice(&2835u32.to_le_bytes());
+    bmp.extend_from_slice(&2u32.to_le_bytes());
+    bmp.extend_from_slice(&2u32.to_le_bytes());
+
+    // 3. Color palette (Index 0 = Black, Index 1 = White)
+    bmp.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
+    bmp.extend_from_slice(&[0xFF, 0xFF, 0xFF, 0x00]);
+
+    // 4. Pixel rows (bottom-up)
+    for py in (0..img_h).rev() {
+        let mut row = vec![0u8; row_bytes];
+        let qy = py / scale;
+        for px in 0..img_w {
+            let qx = px / scale;
+            let is_white = if qx < quiet || qy < quiet || qx >= w + quiet || qy >= w + quiet {
+                true
+            } else {
+                qr[(qx - quiet, qy - quiet)] == QrColor::Light
+            };
+            if is_white {
+                let byte_idx = px / 8;
+                let bit_idx = 7 - (px % 8);
+                row[byte_idx] |= 1 << bit_idx;
+            }
+        }
+        bmp.extend_from_slice(&row);
+    }
+
+    Ok(bmp)
+}
+
 /// Render full-block seamless QR using reverse-video space characters
 pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
     let qr = QrCode::with_version(data, Version::Normal(4), EcLevel::L)

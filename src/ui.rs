@@ -254,7 +254,13 @@ impl AppState {
         };
 
         self.external_export_status = "Scanning for external USB drive (not SubZero media)...".into();
-        match export_descriptor_external_usb(&seed.descriptor, &seed.fingerprint, &seed.vpub) {
+        match export_descriptor_external_usb(
+            &seed.descriptor,
+            &seed.fingerprint,
+            &seed.vpub,
+            &seed.addresses,
+            &self.bip85_children,
+        ) {
             Ok(msg) => {
                 self.external_export_status = format!("[✓] {msg}");
                 self.status_message = "Watch-only descriptor exported to separate USB.".into();

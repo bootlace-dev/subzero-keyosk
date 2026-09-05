@@ -159,8 +159,17 @@ pub fn locate_external_export_drive() -> Result<String, String> {
     Err("No external USB flash drive detected. Insert a separate blank USB drive and retry.".into())
 }
 
-/// Export watch-only descriptor to an external USB drive to preserve airgap anti-colocation
-pub fn export_descriptor_external_usb(descriptor: &str, fingerprint: &str, vpub: &str) -> Result<String, String> {
+use crate::qr::encode_qr_bmp;
+use crate::crypto::Bip85Child;
+
+/// Export watch-only descriptor, address manifest, BIP-85 hierarchy, and BMP QR images to an external USB drive
+pub fn export_descriptor_external_usb(
+    descriptor: &str,
+    fingerprint: &str,
+    vpub: &str,
+    addresses: &[String],
+    bip85_children: &[Bip85Child],
+) -> Result<String, String> {
     let drive = locate_external_export_drive()?;
     let mount_dir = "/media/subzero_export";
     let _ = fs::create_dir_all(mount_dir);
@@ -200,8 +209,48 @@ r#"{{
     let cc_path = format!("{mount_dir}/subzero-coldcard-export.json");
     let _ = fs::write(&cc_path, coldcard_json);
 
+    // 3. Addresses manifest (first 50 receive addresses with indexing)
+    let mut addr_lines = Vec::new();
+    addr_lines.push("# SubZero Testnet4 Native SegWit (P2WPKH) Receive Addresses".to_string());
+    addr_lines.push(format!("# Master Fingerprint: {}", fingerprint.to_uppercase()));
+    addr_lines.push("# Derivation: m/84'/1'/0'/0/k".to_string());
+    addr_lines.push("".to_string());
+    for (i, addr) in addresses.iter().enumerate() {
+        addr_lines.push(format!("{:04}  {}", i, addr));
+    }
+    let addr_path = format!("{mount_dir}/addresses.txt");
+    let _ = fs::write(&addr_path, addr_lines.join("\n") + "\n");
+
+    // 4. BIP-85 Hierarchy index
+    let mut bip85_lines = Vec::new();
+    bip85_lines.push("# SubZero BIP-85 Child Vault Inventory".to_string());
+    bip85_lines.push(format!("# Master Root Fingerprint: {}", fingerprint.to_uppercase()));
+    bip85_lines.push("# Note: Contains NO seed words or private keys.".to_string());
+    bip85_lines.push("".to_string());
+    for child in bip85_children {
+        bip85_lines.push(format!("[Vault #{:02}] Path: {:<30} Label: {}", child.index, child.path, child.label));
+    }
+    let bip85_path = format!("{mount_dir}/bip85_inventory.txt");
+    let _ = fs::write(&bip85_path, bip85_lines.join("\n") + "\n");
+
+    // 5. High-resolution BMP QR images for direct phone/app image scan
+    // 5a. Full Descriptor QR image
+    if let Ok(bmp) = encode_qr_bmp(descriptor, 8, 4) {
+        let _ = fs::write(format!("{mount_dir}/qr_descriptor.bmp"), bmp);
+    }
+    // 5b. Account TPUB QR image
+    if let Ok(bmp) = encode_qr_bmp(vpub, 8, 4) {
+        let _ = fs::write(format!("{mount_dir}/qr_tpub.bmp"), bmp);
+    }
+    // 5c. Address #0 QR image
+    if let Some(addr0) = addresses.first() {
+        if let Ok(bmp) = encode_qr_bmp(addr0, 8, 4) {
+            let _ = fs::write(format!("{mount_dir}/qr_address_0.bmp"), bmp);
+        }
+    }
+
     let _ = Command::new("sync").output();
     let _ = Command::new("umount").arg(mount_dir).output();
 
-    Ok(format!("Exported raw descriptor & Coldcard JSON to USB ({drive})"))
+    Ok(format!("Exported descriptor, coldcard JSON, addresses, & BMP QRs to USB ({drive})"))
 }
