@@ -130,3 +130,75 @@ seed words and cannot be decrypted.
 
     Ok(format!("Successfully wrote encrypted vault.json, README.txt & SHA256SUMS to {partition}"))
 }
+
+/// Find an external USB drive partition (distinct from SubZero boot/estate media)
+pub fn locate_external_export_drive() -> Result<String, String> {
+    let estate_part = locate_estate_partition().unwrap_or_default();
+    
+    // Check available partitions in /sys/class/block or standard device paths
+    // Look for sdc1, sdd1, sde1, sda1, sdb1 if not matching estate drive
+    let candidates = [
+        "/dev/sdc1", "/dev/sdd1", "/dev/sde1", "/dev/sdf1",
+        "/dev/sdc", "/dev/sdd", "/dev/sda1", "/dev/sdb1"
+    ];
+
+    for c in candidates {
+        if !c.is_empty() && std::path::Path::new(c).exists() {
+            // Ensure this is not part of the internal estate or boot device
+            if !estate_part.is_empty() {
+                let estate_disk = estate_part.trim_end_matches(char::is_numeric);
+                let cand_disk = c.trim_end_matches(char::is_numeric);
+                if estate_disk == cand_disk {
+                    continue; // Skip the SubZero boot/estate device!
+                }
+            }
+            return Ok(c.to_string());
+        }
+    }
+
+    Err("No external USB flash drive detected. Insert a separate blank USB drive and retry.".into())
+}
+
+/// Export watch-only descriptor to an external USB drive to preserve airgap anti-colocation
+pub fn export_descriptor_external_usb(descriptor: &str, fingerprint: &str) -> Result<String, String> {
+    let drive = locate_external_export_drive()?;
+    let mount_dir = "/media/subzero_export";
+    let _ = fs::create_dir_all(mount_dir);
+
+    // Unmount first if mounted
+    let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
+
+    let mount_status = Command::new("mount")
+        .args(["-o", "rw,sync", &drive, mount_dir])
+        .output();
+
+    let mounted = match mount_status {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    };
+
+    if !mounted {
+        return Err(format!("Failed to mount external USB {drive}. Ensure it is formatted (FAT32/exFAT)."));
+    }
+
+    let file_content = format!(
+r#"# SubZero Testnet4 Watch-Only Wallet Export
+# Master Fingerprint: {fingerprint}
+# Network: Testnet4 (tb1q...)
+# Generated: Amnesic Bare-Metal Environment
+
+{descriptor}
+"#
+    );
+
+    let target_path = format!("{mount_dir}/subzero-testnet4-descriptor.txt");
+    if let Err(e) = fs::write(&target_path, file_content) {
+        let _ = Command::new("umount").arg(mount_dir).output();
+        return Err(format!("Write error on {target_path}: {e}"));
+    }
+
+    let _ = Command::new("sync").output();
+    let _ = Command::new("umount").arg(mount_dir).output();
+
+    Ok(format!("Exported watch-only descriptor to external USB drive ({drive}) -> subzero-testnet4-descriptor.txt"))
+}

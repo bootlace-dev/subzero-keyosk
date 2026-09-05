@@ -9,12 +9,19 @@ fn main() {
         _ => "2026-09-04T05:00:00Z".to_string(),
     };
 
-    // 2. Dynamic Git Commit SHA
-    let git_commit = match Command::new("git").args(["rev-parse", "--short", "HEAD"]).output() {
-        Ok(output) if output.status.success() => {
-            String::from_utf8_lossy(&output.stdout).trim().to_string()
+    // 2. Dynamic Git Commit SHA (Checks env var first, then git with safe.directory override)
+    let git_commit = if let Ok(val) = std::env::var("SUBZERO_GIT_COMMIT") {
+        val
+    } else {
+        match Command::new("git")
+            .args(["-c", "safe.directory=*", "rev-parse", "--short", "HEAD"])
+            .output()
+        {
+            Ok(output) if output.status.success() => {
+                String::from_utf8_lossy(&output.stdout).trim().to_string()
+            }
+            _ => "musl-reproducible".to_string(),
         }
-        _ => "musl-reproducible".to_string(),
     };
 
     println!("cargo:rustc-env=BUILD_TIMESTAMP={}", timestamp);

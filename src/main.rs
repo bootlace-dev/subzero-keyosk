@@ -131,7 +131,17 @@ fn run_event_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     state: &mut ui::AppState,
 ) -> io::Result<()> {
+    let mut last_bbqr_tick = std::time::Instant::now();
+
     loop {
+        // Advance BBQR frame animation (~350ms per frame) if active on VpubQr tab
+        if state.current_page == ui::Page::VpubQr && state.qr_mode == qr::QrMode::BbqrAnimated {
+            if last_bbqr_tick.elapsed() >= Duration::from_millis(350) {
+                state.bbqr_frame_index = state.bbqr_frame_index.wrapping_add(1);
+                last_bbqr_tick = std::time::Instant::now();
+            }
+        }
+
         terminal.draw(|f| ui::render_app(f, state))?;
 
         if event::poll(Duration::from_millis(100))? {
@@ -221,6 +231,18 @@ fn run_event_loop(
                                 if state.seed.is_none() {
                                     state.push_entropy_char(c);
                                 }
+                            }
+                            _ => {}
+                        }
+                    }
+                    ui::Page::VpubQr => {
+                        match key.code {
+                            KeyCode::Char('m' | 'M') => {
+                                state.qr_mode = state.qr_mode.next();
+                                state.bbqr_frame_index = 0;
+                            }
+                            KeyCode::Char('e' | 'E') => {
+                                state.export_external_usb();
                             }
                             _ => {}
                         }
