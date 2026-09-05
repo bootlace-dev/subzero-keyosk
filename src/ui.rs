@@ -263,7 +263,7 @@ impl AppState {
         ) {
             Ok(msg) => {
                 self.external_export_status = format!("[✓] {msg}");
-                self.status_message = "Watch-only descriptor exported to separate USB.".into();
+                self.status_message = "Exported full public airgap suite (descriptor, addresses, BIP-85, BMP QRs) to USB.".into();
             }
             Err(err) => {
                 self.external_export_status = format!("[!] {err}");
