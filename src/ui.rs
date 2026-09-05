@@ -254,7 +254,7 @@ impl AppState {
         };
 
         self.external_export_status = "Scanning for external USB drive (not SubZero media)...".into();
-        match export_descriptor_external_usb(&seed.descriptor, &seed.fingerprint) {
+        match export_descriptor_external_usb(&seed.descriptor, &seed.fingerprint, &seed.vpub) {
             Ok(msg) => {
                 self.external_export_status = format!("[✓] {msg}");
                 self.status_message = "Watch-only descriptor exported to separate USB.".into();
@@ -709,22 +709,16 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                 render_full_block_qr(current_frame)
             }
             QrMode::FullBlockSpace => render_full_block_qr(&payload),
-            QrMode::CompactTpub => render_full_block_qr(&payload),
+            QrMode::CompactTpub => render_half_block_qr(&payload),
             QrMode::HalfBlockDense => render_half_block_qr(&payload),
         };
 
         let mut lines = Vec::new();
-        lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled("  Optical QR Mode: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(state.qr_mode.title(), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("   [Press 'M' to rotate mode]", Style::default().fg(Color::White)),
+            Span::styled(format!("  [{}] ", state.qr_mode.title()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
+            Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
         ]));
-        lines.push(Line::from(Span::styled(
-            format!("  Target: {}", state.qr_mode.description()),
-            Style::default().fg(Color::DarkGray),
-        )));
-        lines.push(Line::from(""));
 
         match qr_result {
             Ok(qr_lines) => {
@@ -737,15 +731,12 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             }
         }
 
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  AIRGAP USB EXPORT: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("[E] Write to External USB Drive (Separate from SubZero)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]));
-        lines.push(Line::from(Span::styled(
-            format!("  Status: {}", state.external_export_status),
-            Style::default().fg(Color::Green),
-        )));
+        if state.external_export_status.starts_with("[✓]") || state.external_export_status.starts_with("[!]") {
+            lines.push(Line::from(Span::styled(
+                format!("  USB Status: {}", state.external_export_status),
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            )));
+        }
 
         let p = Paragraph::new(lines).block(block).alignment(Alignment::Center);
         frame.render_widget(p, area);

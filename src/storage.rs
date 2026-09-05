@@ -160,7 +160,7 @@ pub fn locate_external_export_drive() -> Result<String, String> {
 }
 
 /// Export watch-only descriptor to an external USB drive to preserve airgap anti-colocation
-pub fn export_descriptor_external_usb(descriptor: &str, fingerprint: &str) -> Result<String, String> {
+pub fn export_descriptor_external_usb(descriptor: &str, fingerprint: &str, vpub: &str) -> Result<String, String> {
     let drive = locate_external_export_drive()?;
     let mount_dir = "/media/subzero_export";
     let _ = fs::create_dir_all(mount_dir);
@@ -181,24 +181,27 @@ pub fn export_descriptor_external_usb(descriptor: &str, fingerprint: &str) -> Re
         return Err(format!("Failed to mount external USB {drive}. Ensure it is formatted (FAT32/exFAT)."));
     }
 
-    let file_content = format!(
-r#"# SubZero Testnet4 Watch-Only Wallet Export
-# Master Fingerprint: {fingerprint}
-# Network: Testnet4 (tb1q...)
-# Generated: Amnesic Bare-Metal Environment
+    // 1. Strict raw descriptor (no comment lines, no headers, pure single-line text for Nunchuk / Green)
+    let raw_descriptor_content = format!("{}\n", descriptor.trim());
+    let desc_path = format!("{mount_dir}/subzero-testnet4-descriptor.txt");
+    let _ = fs::write(&desc_path, raw_descriptor_content);
 
-{descriptor}
-"#
+    // 2. Coldcard standard export JSON (supported universally by Nunchuk, Green, Keeper, Sparrow)
+    let coldcard_json = format!(
+r#"{{
+  "xfp": "{}",
+  "p2wpkh": "{}",
+  "p2wpkh_deriv": "m/84'/1'/0'"
+}}
+"#,
+        fingerprint.to_uppercase(),
+        vpub
     );
-
-    let target_path = format!("{mount_dir}/subzero-testnet4-descriptor.txt");
-    if let Err(e) = fs::write(&target_path, file_content) {
-        let _ = Command::new("umount").arg(mount_dir).output();
-        return Err(format!("Write error on {target_path}: {e}"));
-    }
+    let cc_path = format!("{mount_dir}/subzero-coldcard-export.json");
+    let _ = fs::write(&cc_path, coldcard_json);
 
     let _ = Command::new("sync").output();
     let _ = Command::new("umount").arg(mount_dir).output();
 
-    Ok(format!("Exported watch-only descriptor to external USB drive ({drive}) -> subzero-testnet4-descriptor.txt"))
+    Ok(format!("Exported raw descriptor & Coldcard JSON to USB ({drive})"))
 }
