@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::Read;
 use std::process::Command;
+use std::str::FromStr;
 use sha2::{Digest, Sha256};
 use crate::crypto::{DecryptedVaultPayload, encrypt_vault_payload};
 
