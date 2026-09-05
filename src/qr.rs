@@ -43,22 +43,17 @@ impl QrMode {
     }
 }
 
-/// Simple BBQR frame encoder: splits large payloads into `B$N$TOTAL$PART` frames
-pub fn create_bbqr_frames(payload: &str, max_chunk: usize) -> Vec<String> {
-    let bytes = payload.as_bytes();
-    let total_chunks = (bytes.len() + max_chunk - 1) / max_chunk;
-    if total_chunks <= 1 {
-        return vec![payload.to_string()];
-    }
+use bbqr::split::{Split, SplitOptions};
+use bbqr::file_type::FileType;
 
-    let mut frames = Vec::with_capacity(total_chunks);
-    for (i, chunk) in bytes.chunks(max_chunk).enumerate() {
-        let chunk_str = std::str::from_utf8(chunk).unwrap_or_default();
-        // Standard compact BBQR frame header: B$<idx>$<total>$<chunk>
-        let frame = format!("B${}${}${}", i + 1, total_chunks, chunk_str);
-        frames.push(frame);
+/// Official BBQr frame encoder (Coinkite / SatoshiPortal specification)
+pub fn create_bbqr_frames(payload: &str, min_parts: usize) -> Vec<String> {
+    let mut opts = SplitOptions::default();
+    opts.min_split_number = min_parts;
+    match Split::try_from_data(payload.as_bytes(), FileType::UnicodeText, opts) {
+        Ok(split) => split.parts,
+        Err(_) => vec![payload.to_string()],
     }
-    frames
 }
 
 /// Render full-block seamless QR using reverse-video space characters

@@ -20,6 +20,7 @@ crossterm = { version = "0.28", features = ["event-stream"] }
 
 # QR Code Generation (Unicode half-blocks for terminal display)
 qrcode = { version = "0.14", default-features = false }
+bbqr = "0.6"
 
 # Structured Error Handling & Domain Modeling
 thiserror = "1.0"

@@ -704,7 +704,7 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let qr_result = match state.qr_mode {
             QrMode::BbqrAnimated => {
-                let frames = create_bbqr_frames(&payload, 60);
+                let frames = create_bbqr_frames(&payload, 3);
                 let current_frame = frames.get(state.bbqr_frame_index % frames.len()).unwrap();
                 render_full_block_qr(current_frame)
             }
@@ -1017,26 +1017,33 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let words: Vec<&str> = state.seedfix_input.split_whitespace().collect();
     if words.len() >= 11 {
-        let prefix = &words[..11];
-        let target = words.get(11).cloned();
-        let candidates = solve_twelfth_word(prefix, target);
+        let prefix = words[..11].join(" ");
+        let target = words.get(11).copied();
+        let candidates_res = solve_twelfth_word(&prefix, target);
 
-        lines.push(Line::from(Span::styled(
-            format!("  Found {} Mathematically Valid Checksum Candidate(s):", candidates.len()),
-            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(""));
+        if let Ok(candidates) = candidates_res {
+            lines.push(Line::from(Span::styled(
+                format!("  Found {} Mathematically Valid Checksum Candidate(s):", candidates.len()),
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
 
-        for (idx, cand) in candidates.iter().take(6).enumerate() {
-            let dist_str = if cand.distance < 99 {
-                format!("(Levenshtein Distance: {})", cand.distance)
-            } else {
-                "(Valid Checksum)".to_string()
-            };
-            lines.push(Line::from(vec![
-                Span::styled(format!("    {:2}. {:<12} ", idx + 1, cand.word), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                Span::styled(dist_str, Style::default().fg(Color::DarkGray)),
-            ]));
+            for (idx, cand) in candidates.iter().take(6).enumerate() {
+                let dist_str = if cand.distance < 99 {
+                    format!("(Levenshtein Distance: {})", cand.distance)
+                } else {
+                    "(Valid Checksum)".to_string()
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("    {:2}. {:<12} ", idx + 1, cand.twelfth_word), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(dist_str, Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        } else if let Err(e) = candidates_res {
+            lines.push(Line::from(Span::styled(
+                format!("  Error: {}", e),
+                Style::default().fg(Color::Red),
+            )));
         }
     } else {
         lines.push(Line::from(Span::styled(
@@ -1075,8 +1082,8 @@ fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
 
     for chunk in matches.chunks(4).take(8) {
         let mut spans = vec![Span::raw("    ")];
-        for (w, idx) in chunk {
-            spans.push(Span::styled(format!("{:04}: {:<12} ", idx, w), Style::default().fg(Color::White)));
+        for w in chunk {
+            spans.push(Span::styled(format!("{:<14} ", w), Style::default().fg(Color::White)));
         }
         lines.push(Line::from(spans));
     }
