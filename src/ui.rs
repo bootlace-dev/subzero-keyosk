@@ -522,8 +522,15 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(""));
 
         lines.push(Line::from(vec![
-            Span::styled("  READING ORDER GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("Read Column 1 (Word 01 -> 06) DOWN, then Column 2 (Word 07 -> 12) DOWN.", Style::default().fg(Color::White)),
+            Span::styled("  12-WORD SEED PHRASE (HORIZONTAL READING ORDER):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]));
+        let full_phrase = words.iter().enumerate().map(|(idx, w)| format!("{}.{}", idx + 1, w)).collect::<Vec<_>>().join("  ");
+        lines.push(Line::from(Span::styled(format!("  {}", full_phrase), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(vec![
+            Span::styled("  METAL PUNCH / COLUMN GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("If punching steel plates, read Column 1 DOWN, then Column 2 DOWN.", Style::default().fg(Color::White)),
         ]));
         lines.push(Line::from("  --------------------------------------------------------------------------------"));
         lines.push(Line::from(vec![
@@ -832,8 +839,15 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled("  READING ORDER GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("Read Column 1 (Word 01 -> 06) DOWN, then Column 2 (Word 07 -> 12) DOWN.", Style::default().fg(Color::White)),
+            Span::styled("  12-WORD PASSPHRASE (HORIZONTAL READING ORDER):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]));
+        let full_pass_phrase = words.iter().enumerate().map(|(idx, w)| format!("{}.{}", idx + 1, w)).collect::<Vec<_>>().join("  ");
+        lines.push(Line::from(Span::styled(format!("  {}", full_pass_phrase), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(vec![
+            Span::styled("  METAL PUNCH / COLUMN GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("If punching steel plates, read Column 1 DOWN, then Column 2 DOWN.", Style::default().fg(Color::White)),
         ]));
         lines.push(Line::from("  --------------------------------------------------------------------------------"));
         lines.push(Line::from(vec![
@@ -883,28 +897,17 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if let Some(ref seed) = state.seed {
         let desc = &seed.descriptor;
-        let chunk1 = if desc.len() > 70 { &desc[..70] } else { desc };
-        let chunk2 = if desc.len() > 70 { &desc[70..] } else { "" };
-
         let vpub = &seed.vpub;
-        let vpub1 = if vpub.len() > 70 { &vpub[..70] } else { vpub };
-        let vpub2 = if vpub.len() > 70 { &vpub[70..] } else { "" };
 
         let mut lines = Vec::new();
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("  WATCH-ONLY OUTPUT DESCRIPTOR (BIP-380 / BIP-84):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from(Span::styled(format!("  {}", chunk1), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-        if !chunk2.is_empty() {
-            lines.push(Line::from(Span::styled(format!("    {}", chunk2), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-        }
+        lines.push(Line::from(Span::styled(format!("  {}", desc), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  BIP-32 Account Public Key (tpub... / BIP-84 m/84'/1'/0'):", Style::default().fg(Color::Cyan)),
         ]));
-        lines.push(Line::from(Span::styled(format!("  {}", vpub1), Style::default().fg(Color::White))));
-        if !vpub2.is_empty() {
-            lines.push(Line::from(Span::styled(format!("    {}", vpub2), Style::default().fg(Color::White))));
-        }
+        lines.push(Line::from(Span::styled(format!("  {}", vpub), Style::default().fg(Color::White))));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  SLIP-0132 Native SegWit Key (vpub... for Blockstream Green & Electrum):", Style::default().fg(Color::Cyan)),
@@ -956,6 +959,17 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
             Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
         ]));
+
+        let payload_preview = match state.qr_mode {
+            QrMode::BbqrAnimated => format!("BBQR Animated Descriptor (Frame {}): {}", (state.bbqr_frame_index % 3) + 1, &seed.descriptor),
+            QrMode::FullBlockSpace => format!("Full Descriptor: {}", &seed.descriptor),
+            QrMode::StaticVpub => format!("Static SLIP-0132 Key: {}", &seed.vpub_slip132),
+        };
+        lines.push(Line::from(vec![
+            Span::styled("  [QR Payload Content]: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(payload_preview, Style::default().fg(Color::Yellow)),
+        ]));
+        lines.push(Line::from(""));
 
         match qr_result {
             Ok(qr_lines) => {
@@ -1117,18 +1131,12 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 
         for i in start..end {
             if let Some(child) = state.bip85_children.get(i) {
-                let words: Vec<&str> = child.mnemonic.split_whitespace().collect();
-                let w1 = words[..6].join(" ");
-                let w2 = words[6..].join(" ");
-
                 lines.push(Line::from(vec![
-                    Span::styled(format!("  Child Index #{:02}: ", child.index), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{:<22}", child.label), Style::default().fg(Color::White)),
-                    Span::styled(format!("Path: {}", child.path), Style::default().fg(Color::DarkGray)),
+                    Span::styled(format!("  Child #{:02}: ", child.index), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    Span::styled(format!("{:<20} ", child.label), Style::default().fg(Color::White)),
+                    Span::styled(format!("[{}] ", child.path), Style::default().fg(Color::DarkGray)),
+                    Span::styled(&child.mnemonic, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 ]));
-                lines.push(Line::from(Span::styled(format!("    1-6:  {}", w1), Style::default().fg(Color::Green))));
-                lines.push(Line::from(Span::styled(format!("    7-12: {}", w2), Style::default().fg(Color::Green))));
-                lines.push(Line::from(""));
             }
         }
         lines.push(Line::from(""));
