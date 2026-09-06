@@ -492,8 +492,8 @@ fn render_role_select(frame: &mut Frame, area: Rect, state: &AppState) {
 
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  QUICK NAVIGATION HINT:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  You can always press [Tab] or [→] to cycle forward through all tabs, or press [Home]"));
-    lines.push(Line::from("  to return to this welcome screen. To power off at any time, press [Q] or [ESC]."));
+    lines.push(Line::from("  You can always press [Tab] or [→] to cycle forward through all tabs, or press [Home] or [ESC]"));
+    lines.push(Line::from("  to return to this welcome screen. To power off at any time, press [Q]."));
 
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
@@ -666,7 +666,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     } else if is_dice {
         "STANDARD DICE ROLLS (1-6)"
     } else if raw.is_empty() {
-        "AWAITING INPUT (Coin 0/1, Dice 1-6, or 'test0'..'test9')"
+        "AWAITING INPUT (Coin 0/1, Dice 1-6, [T] Test Vector, or [C/D/K])"
     } else {
         "TEST VECTOR OR ARBITRARY STREAM"
     };
@@ -1005,24 +1005,12 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             match render_full_block_qr(addr) {
                 Ok(qr_lines) => {
                     let mut combined = qr_lines;
-                    combined.push(Line::from(""));
                     combined.push(Line::from(vec![
-                        Span::styled(format!("  Target Testnet4 Address #0: {}", addr), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled("Address #0: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::raw(" | "),
+                        Span::styled("Scan with Bitcoin wallet or online Testnet4 faucet.", Style::default().fg(Color::White)),
                     ]));
-                    combined.push(Line::from(Span::styled(
-                        "  [!] Send ONLY Testnet4 faucet coins to this address.",
-                        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-                    )));
-                    combined.push(Line::from(""));
-                    combined.push(Line::from(vec![
-                        Span::styled("  WHAT IS THIS? ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        Span::styled("This is your first receive address (Address #0, path m/84'/1'/0'/0/0).", Style::default().fg(Color::White)),
-                    ]));
-                    combined.push(Line::from(vec![
-                        Span::styled("  HOW TO RECEIVE COINS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::styled("Scan this QR code with any Bitcoin wallet or online Testnet4 faucet to send test funds here.", Style::default().fg(Color::White)),
-                    ]));
-                    combined.push(Line::from("  Testnet4 coins are practice coins with zero financial value. Use them to verify your wallet before mainnet."));
                     let p = Paragraph::new(combined)
                         .alignment(Alignment::Center)
                         .block(block);
