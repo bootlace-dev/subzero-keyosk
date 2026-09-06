@@ -19,6 +19,7 @@ use crate::storage::{
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
+    RoleSelect,
     MasterSeed,
     Passphrase,
     Descriptor,
@@ -35,7 +36,8 @@ pub enum Page {
 }
 
 impl Page {
-    pub const ALL: [Page; 13] = [
+    pub const ALL: [Page; 14] = [
+        Page::RoleSelect,
         Page::MasterSeed,
         Page::Passphrase,
         Page::Descriptor,
@@ -53,6 +55,7 @@ impl Page {
 
     pub fn title(&self) -> &'static str {
         match self {
+            Page::RoleSelect => "Tab 0. Welcome / Operator Role Selection",
             Page::MasterSeed => "Tab 1. Master Mnemonic",
             Page::Passphrase => "Tab 2. Decoupled Passphrase",
             Page::Descriptor => "Tab 3. Output Descriptor",
@@ -70,7 +73,7 @@ impl Page {
     }
 
     pub fn page_num(&self) -> usize {
-        Page::ALL.iter().position(|p| *p == *self).unwrap_or(0) + 1
+        Page::ALL.iter().position(|p| *p == *self).unwrap_or(0)
     }
 
     pub fn next(&self) -> Self {
@@ -111,7 +114,7 @@ pub struct AppState {
 impl AppState {
     pub fn new(build_timestamp: String, git_commit: String) -> Self {
         Self {
-            current_page: Page::MasterSeed,
+            current_page: Page::RoleSelect,
             seed: None,
             decoupled_passphrase: None,
             bip85_children: Vec::new(),
@@ -128,7 +131,7 @@ impl AppState {
             vault_passphrase_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
-            status_message: "Press [C]oins, [D]ice, [R]ng, [Tab] Nav, [Q]uit".into(),
+            status_message: "Press [1] Benefactor Setup, [2] Heir Recovery, [3] Tools, [Tab] Nav".into(),
             qr_mode: QrMode::BbqrAnimated,
             bbqr_frame_index: 0,
             external_export_status: "Press [E] to export descriptor to separate USB drive.".into(),
@@ -410,6 +413,7 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
 
 fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
     match state.current_page {
+        Page::RoleSelect => render_role_select(frame, area, state),
         Page::MasterSeed => render_master_seed(frame, area, state),
         Page::Passphrase => render_passphrase(frame, area, state),
         Page::Descriptor => render_descriptor(frame, area, state),
@@ -424,6 +428,64 @@ fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
         Page::DrillGuide => render_drill_guide(frame, area, state),
         Page::Provenance => render_provenance(frame, area, state),
     }
+}
+
+fn render_role_select(frame: &mut Frame, area: Rect, state: &AppState) {
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Tab 0. Welcome to SubZero Keyosk — Select Your Operator Role ")
+        .style(Style::default().fg(Color::Cyan));
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  SOVEREIGN BITCOIN COLD STORAGE & ESTATE RECOVERY APPLIANCE",
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from("  Running 100% in volatile temporary memory (RAM). Zero internet access. Zero hard drive writes."));
+    lines.push(Line::from(""));
+    lines.push(Line::from("  Please select your role to jump directly to your workflow:"));
+    lines.push(Line::from(""));
+
+    // Option 1: Benefactor
+    lines.push(Line::from(vec![
+        Span::styled("  [1] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled("I AM THE BENEFACTOR (VAULT CREATOR)", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from("      • Purpose: I am setting up cold storage, creating private keys on steel,"));
+    lines.push(Line::from("        and preparing an encrypted estate recovery package for my heirs."));
+    lines.push(Line::from("      • Next Step: Jump to Tab 1 to flip coins or roll dice for master key creation."));
+    lines.push(Line::from("      • Action: Press key [1] or press [ENTER]"));
+    lines.push(Line::from(""));
+
+    // Option 2: Heir
+    lines.push(Line::from(vec![
+        Span::styled("  [2] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("I AM AN HEIR OR EXECUTOR (ESTATE RECOVERY)", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from("      • Purpose: I received this laptop/media and a 12-word Passphrase from my"));
+    lines.push(Line::from("        parent or benefactor, and I need to unlock and recover our family funds."));
+    lines.push(Line::from("      • Next Step: Jump directly to Tab 9 (Vault Unlock) to type the 12-word passphrase."));
+    lines.push(Line::from("      • Action: Press key [2]"));
+    lines.push(Line::from(""));
+
+    // Option 3: Tools
+    lines.push(Line::from(vec![
+        Span::styled("  [3] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("EMERGENCY TOOLS & SEED REPAIR (SEEDFIX / WORDLIST)", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from("      • Purpose: I have a damaged or misspelled 12th seed word, or I need to inspect"));
+    lines.push(Line::from("        the BIP-39 canonical English dictionary and 4-letter punch codes."));
+    lines.push(Line::from("      • Action: Press key [3] to open SeedFix (Tab 10)"));
+    lines.push(Line::from(""));
+
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  QUICK NAVIGATION HINT:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  You can always press [Tab] or [→] to cycle forward through all tabs, or press [Home]"));
+    lines.push(Line::from("  to return to this welcome screen. To power off at any time, press [Q] or [ESC]."));
+
+    let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    frame.render_widget(p, area);
 }
 
 fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
@@ -940,10 +1002,17 @@ fn render_addresses(frame: &mut Frame, area: Rect, state: &AppState) {
         }
 
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  Advance to Tab 5 to display a high-contrast QR code for Address #0.",
-            Style::default().fg(Color::DarkGray),
-        )));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(Span::styled("  PURPOSE & ADDRESS INTEGRITY (GAP LIMIT & REUSE ADVISORY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  1. Wallet Cross-Check: This list is for cross-checking: 'Is my phone in the right wallet?'"));
+        lines.push(Line::from("     Verify that the first address displayed on your phone matches Address #0 above."));
+        lines.push(Line::from("  2. Do NOT manually pick random addresses from this list for deposits:"));
+        lines.push(Line::from("     - Address Reuse: Reusing addresses degrades financial privacy on-chain."));
+        lines.push(Line::from("     - Gap Limits: If you skip ahead (e.g. deposit to #15 while #1-#14 are empty), standard"));
+        lines.push(Line::from("       wallets may fail to detect your balance (20-address derivation gap limit)."));
+        lines.push(Line::from("  3. Best Practice: Always allow your paired phone wallet (Nunchuk/Sparrow) to generate"));
+        lines.push(Line::from("     fresh receive addresses automatically as needed."));
+
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
     } else {
@@ -989,6 +1058,15 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
                 lines.push(Line::from(""));
             }
         }
+        lines.push(Line::from(""));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(Span::styled("  ROLE & PURPOSE: OPTIONAL BIP-85 SUB-TREASURIES:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  1. Primary vs Optional Model: You do NOT need to distribute funds to separate heir wallets."));
+        lines.push(Line::from("     The primary out-of-the-box SubZero mechanism is Tab 8 & 9 (the unified encrypted vault)."));
+        lines.push(Line::from("  2. Optional Sub-Accounts: These child seeds are mathematically derived from your master seed."));
+        lines.push(Line::from("     You can use them for hot wallets, children's allowances, business branches, or specific"));
+        lines.push(Line::from("     trust allocations without revealing your master keys or other sub-accounts."));
+        lines.push(Line::from("  3. Security Invariant: Giving someone a child seed gives them NO access to your master funds."));
 
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
@@ -1108,9 +1186,12 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
 
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
-    lines.push(Line::from(Span::styled("  HOW VAULT UNLOCK WORKS:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  - This tool reads vault.json and decrypts it strictly in the laptop's temporary RAM."));
-    lines.push(Line::from("  - Nothing is written to any internal hard drive. When you reboot, all decrypted keys vanish."));
+    lines.push(Line::from(Span::styled("  OPERATOR GUIDANCE (IF YOU ARE AN HEIR OR EXECUTOR):", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  1. Welcome: This tab is your recovery workstation. Insert the SubZero media into this laptop."));
+    lines.push(Line::from("  2. Enter Passphrase: Type the 12 words provided in your estate letter or safe deposit box."));
+    lines.push(Line::from("  3. Press [ENTER]: The vault unlocks in amnesic memory, showing the master seed & descriptors."));
+    lines.push(Line::from("  4. Zero Footprint: Nothing is ever saved to disk. When you turn off this laptop, all"));
+    lines.push(Line::from("     decrypted keys vanish completely from RAM."));
 
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
@@ -1344,6 +1425,10 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
         Line::from(vec![
             Span::raw("  Entropy Invariant:    "),
             Span::styled("Zero Hardware PRNG: 100% Deterministic keys & vault encryption from coins/dice", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]),
+        Line::from(vec![
+            Span::raw("  OS Hardware Shield:   "),
+            Span::styled("/dev/random & /dev/urandom physically unlinked from filesystem before launch", Style::default().fg(Color::Green)),
         ]),
     ];
 

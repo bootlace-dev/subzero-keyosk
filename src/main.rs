@@ -152,8 +152,8 @@ fn run_event_loop(
 
                 // Global exits
                 if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') || key.code == KeyCode::Esc {
-                    if state.current_page != ui::Page::MasterSeed && key.code == KeyCode::Esc {
-                        state.current_page = ui::Page::MasterSeed;
+                    if state.current_page != ui::Page::RoleSelect && key.code == KeyCode::Esc {
+                        state.current_page = ui::Page::RoleSelect;
                         continue;
                     }
                     break;
@@ -170,7 +170,7 @@ fn run_event_loop(
                         continue;
                     }
                     KeyCode::Home => {
-                        state.current_page = ui::Page::MasterSeed;
+                        state.current_page = ui::Page::RoleSelect;
                         continue;
                     }
                     KeyCode::Char('w') | KeyCode::Char('W') => {
@@ -185,6 +185,20 @@ fn run_event_loop(
 
                 // Contextual Page Handlers
                 match state.current_page {
+                    ui::Page::RoleSelect => {
+                        match key.code {
+                            KeyCode::Char('1') | KeyCode::Enter => {
+                                state.current_page = ui::Page::MasterSeed;
+                            }
+                            KeyCode::Char('2') => {
+                                state.current_page = ui::Page::VaultUnlock;
+                            }
+                            KeyCode::Char('3') => {
+                                state.current_page = ui::Page::SeedFix;
+                            }
+                            _ => {}
+                        }
+                    }
                     ui::Page::MasterSeed => {
                         match key.code {
                             KeyCode::Char('r') | KeyCode::Char('R') => {
