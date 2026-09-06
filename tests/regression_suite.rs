@@ -16,7 +16,7 @@ fn test_headless_tui_render_all_14_tabs_no_panics() {
     terminal.draw(|f| render_app(f, &state)).expect("Failed drawing Tab 0");
 
     // 2. Generate a valid master seed via 128 coin flips
-    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let coin_entropy = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed = process_physical_entropy(coin_entropy).expect("Valid coin entropy failed");
     let children = derive_bip85_children(&seed.mnemonic, 20).expect("BIP-85 derivation failed");
     state.set_seed(seed, children);
@@ -112,7 +112,7 @@ fn test_seedfix_levenshtein_checksum_exhaustion() {
 fn test_amnesic_wipe_hygiene() {
     let mut state = AppState::new("2026-09-05".to_string(), "b1de214".to_string());
     
-    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let coin_entropy = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed = process_physical_entropy(coin_entropy).unwrap();
     let children = derive_bip85_children(&seed.mnemonic, 20).unwrap();
     state.set_seed(seed, children);

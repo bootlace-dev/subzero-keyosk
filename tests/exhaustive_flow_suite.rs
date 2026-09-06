@@ -19,7 +19,7 @@ fn assert_render_all_resolutions(state: &AppState) {
         for y in 0..h {
             let mut line_str = String::with_capacity(w as usize);
             for x in 0..w {
-                let cell = buffer.get(x, y);
+                let cell = &buffer[(x, y)];
                 line_str.push_str(cell.symbol());
             }
             let trimmed = line_str.trim_end();
@@ -91,8 +91,8 @@ fn test_exhaustive_entropy_input_methods_and_screen_rendering() {
         assert!(state.seed.is_none());
     }
 
-    // 2. Test 52 dice rolls input
-    let dice_input = "4231246132541623514263514231652413625143625143625132";
+    // 2. Test 60 dice rolls input
+    let dice_input = "423124613254162351426351423165241362514362514362513245163254";
     let seed_dice = process_physical_entropy(dice_input).expect("Dice entropy failed");
     let children_dice = derive_bip85_children(&seed_dice.mnemonic, 20).expect("Dice children failed");
     state.set_seed(seed_dice, children_dice);
@@ -103,7 +103,7 @@ fn test_exhaustive_entropy_input_methods_and_screen_rendering() {
     state.wipe_memory();
 
     // 3. Test 128 coin flips input
-    let coin_input = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let coin_input = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed_coin = process_physical_entropy(coin_input).expect("Coin entropy failed");
     let children_coin = derive_bip85_children(&seed_coin.mnemonic, 20).expect("Coin children failed");
     state.set_seed(seed_coin, children_coin);
@@ -117,7 +117,7 @@ fn test_exhaustive_entropy_input_methods_and_screen_rendering() {
 #[test]
 fn test_exhaustive_qr_modes_and_bbqr_frame_animations() {
     let mut state = AppState::new("2026-09-05 21:00:00Z".to_string(), "b1de214".to_string());
-    let coin_input = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let coin_input = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed = process_physical_entropy(coin_input).unwrap();
     let children = derive_bip85_children(&seed.mnemonic, 20).unwrap();
     state.set_seed(seed, children);
@@ -137,7 +137,7 @@ fn test_exhaustive_qr_modes_and_bbqr_frame_animations() {
 #[test]
 fn test_exhaustive_pagination_boundaries() {
     let mut state = AppState::new("2026-09-05 21:00:00Z".to_string(), "b1de214".to_string());
-    let coin_input = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let coin_input = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed = process_physical_entropy(coin_input).unwrap();
     let children = derive_bip85_children(&seed.mnemonic, 20).unwrap();
     state.set_seed(seed, children);
@@ -210,7 +210,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
     let mut state = AppState::new("2026-09-05 21:00:00Z".to_string(), "4d8b5dc".to_string());
     
     // Test with the standard 12-word seed
-    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let coin_entropy = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed = process_physical_entropy(coin_entropy).unwrap();
     let children = derive_bip85_children(&seed.mnemonic, 20).unwrap();
     state.set_seed(seed, children);
@@ -237,8 +237,8 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
         (Page::Passphrase, &[
             "12-WORD PASSPHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):",
             "METAL PUNCH / COLUMN GUIDANCE:",
-            "CRITICAL ANTI-COLOCATION PROTOCOL",
-            "TWO-LOCATION RECOVERY FORMULA:",
+            "DECOUPLED ESTATE PASSING ARCHITECTURE:",
+            "ESTATE RECOVERY ARCHITECTURE:",
         ]),
         (Page::Descriptor, &[
             "WATCH-ONLY OUTPUT DESCRIPTOR (BIP-380 / BIP-84):",
@@ -303,7 +303,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
         let mut full_screen_text = String::new();
         for y in 0..40 {
             for x in 0..120 {
-                full_screen_text.push_str(buffer.get(x, y).symbol());
+                full_screen_text.push_str(buffer[(x, y)].symbol());
             }
             full_screen_text.push('\n');
         }
@@ -355,7 +355,7 @@ fn test_longest_bip39_words_phrase_on_heir_keys_tab() {
     for y in 0..40 {
         let mut line_str = String::new();
         for x in 0..120 {
-            line_str.push_str(buffer.get(x, y).symbol());
+            line_str.push_str(buffer[(x, y)].symbol());
         }
         let trimmed = line_str.trim_end();
         assert!(

@@ -13,6 +13,7 @@ use crossterm::{
 use ratatui::{backend::CrosstermBackend, Terminal};
 use std::io::{self, stdout};
 use std::time::Duration;
+use zeroize::Zeroize;
 
 #[derive(Parser, Debug)]
 #[command(name = "subzero-rs")]
@@ -168,7 +169,7 @@ fn run_event_loop(
                     state.is_harvesting_jitter = false;
                     for s in &mut state.jitter_samples {
                         s.0 = '\0';
-                        s.1 = 0;
+                        s.1.zeroize();
                     }
                     state.jitter_samples.clear();
                     state.last_jitter_instant = None;
@@ -176,8 +177,20 @@ fn run_event_loop(
                     continue;
                 }
 
+                // If test vector selection modal was open, Esc cancels test vector selection instead of exiting page
+                if key.code == KeyCode::Esc && state.is_selecting_test_vector {
+                    state.is_selecting_test_vector = false;
+                    state.status_message = "Test vector selection canceled.".into();
+                    continue;
+                }
+
                 // Global exits: Two-stroke confirmation required for [Q] to prevent accidental memory purge
-                if (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q')) && !state.is_harvesting_jitter {
+                // Note: Disabled when user is typing text (VaultUnlock, SeedFix, WordlistInspector)
+                let is_typing_page = state.current_page == ui::Page::VaultUnlock
+                    || state.current_page == ui::Page::SeedFix
+                    || state.current_page == ui::Page::WordlistInspector;
+
+                if (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q')) && !state.is_harvesting_jitter && !is_typing_page {
                     if let Some(t) = state.pending_exit_instant {
                         if t.elapsed() < Duration::from_secs(3) {
                             break;
@@ -192,6 +205,13 @@ fn run_event_loop(
 
                 // Global Home/Esc: Returns directly to Tab 0 (RoleSelect)
                 if key.code == KeyCode::Esc || key.code == KeyCode::Home {
+                    state.vault_passphrase_input.zeroize();
+                    state.vault_passphrase_input.clear();
+                    state.seedfix_input.zeroize();
+                    state.seedfix_input.clear();
+                    state.wordlist_query.clear();
+                    state.is_entering_entropy = false;
+                    state.is_selecting_test_vector = false;
                     state.current_page = ui::Page::RoleSelect;
                     continue;
                 }
@@ -211,12 +231,14 @@ fn run_event_loop(
                         continue;
                     }
                     KeyCode::Char('w') | KeyCode::Char('W') => {
-                        // Global Wipe & Reset (disabled inside active typing inputs and jitter harvest)
-                        if !state.is_harvesting_jitter
-                            && state.current_page != ui::Page::SeedFix
-                            && state.current_page != ui::Page::WordlistInspector
-                            && state.current_page != ui::Page::VaultUnlock
-                        {
+                        // Global Wipe & Reset (allowed in VaultUnlock if decrypted, disabled inside active typing inputs and jitter harvest)
+                        let allow_wipe = if state.current_page == ui::Page::VaultUnlock {
+                            state.decrypted_vault.is_some()
+                        } else {
+                            state.current_page != ui::Page::SeedFix
+                                && state.current_page != ui::Page::WordlistInspector
+                        };
+                        if !state.is_harvesting_jitter && allow_wipe {
                             state.wipe_memory();
                             continue;
                         }
@@ -255,13 +277,24 @@ fn run_event_loop(
                                 if state.jitter_samples.len() >= 32 {
                                     // Harvest completed: hash jitter samples to 128 binary bits and transition directly to seed display
                                     let bits = crypto::harvest_keystroke_jitter_to_binary(&state.jitter_samples);
-                                    let seed = crypto::process_physical_entropy(&bits).expect("Jitter bits failed");
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                    state.set_seed(seed, children);
-                                    state.is_harvesting_jitter = false;
+                                    for s in &mut state.jitter_samples {
+                                        s.0 = '\0';
+                                        s.1.zeroize();
+                                    }
                                     state.jitter_samples.clear();
                                     state.last_jitter_instant = None;
-                                    state.status_message = "[HUMAN JITTER HARVESTED] 12-word seed generated from keystroke timing deltas. [W] Wipe".into();
+                                    state.is_harvesting_jitter = false;
+
+                                    match crypto::process_physical_entropy(&bits) {
+                                        Ok(seed) => {
+                                            let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                            state.set_seed(seed, children);
+                                            state.status_message = "[HUMAN JITTER HARVESTED] 12-word seed generated from keystroke timing deltas. [W] Wipe".into();
+                                        }
+                                        Err(e) => {
+                                            state.status_message = format!("[JITTER FAILED] {}. Try again.", e);
+                                        }
+                                    }
                                 }
                             }
                         } else if state.is_selecting_test_vector {

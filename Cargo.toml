@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 # Bitcoin Core & BIP Suite Primitives
 bitcoin = { version = "0.32", features = ["rand", "serde"] }
-bip39 = { version = "2.1", features = ["rand"] }
+bip39 = { version = "2.1", features = ["rand", "zeroize"] }
 
 # Memory Hygiene & Anti-DRAM Remanence
 zeroize = { version = "1.8", features = ["derive", "zeroize_derive"] }
@@ -35,7 +35,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Cryptography primitives (HMAC, SHA2, AES-GCM for vault encryption)
 sha2 = "0.10"
 hmac = "0.12"
-aes-gcm = "0.10"
+aes-gcm = { version = "0.10", features = ["zeroize"] }
 rand = "0.8"
 hex = "0.4"
 pbkdf2 = "0.12"

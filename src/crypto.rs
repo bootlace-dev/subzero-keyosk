@@ -114,29 +114,23 @@ pub fn encrypt_vault_payload(
     payload: &DecryptedVaultPayload,
     passphrase_mnemonic: &str,
 ) -> Result<String, CryptoError> {
-    let plaintext = serde_json::to_string_pretty(payload)
-        .map_err(|e| CryptoError::SerializationError(e.to_string()))?;
+    let plaintext = zeroize::Zeroizing::new(serde_json::to_string_pretty(payload)
+        .map_err(|e| CryptoError::SerializationError(e.to_string()))?);
 
-    // Pure Physical Entropy Invariant:
-    // Do NOT call rand::thread_rng() or /dev/urandom.
-    // Derive AES-256-GCM IV (12 bytes) and PBKDF2 Salt (16 bytes) deterministically from
-    // HMAC-SHA256 over master_root_mnemonic keyed by domain separation tags.
-    let mut hmac_salt: Hmac<Sha256> = Mac::new_from_slice(b"subzero:vault:pbkdf2:salt:v1")
-        .map_err(|_| CryptoError::HmacError)?;
-    hmac_salt.update(payload.master_root_mnemonic.trim().as_bytes());
-    let salt_hash = hmac_salt.finalize().into_bytes();
+    // Generate cryptographically random 16-byte salt and 12-byte IV (nonce).
+    // This eliminates deterministic verification oracles and prevents AES-GCM nonce reuse.
+    use rand::RngCore;
     let mut salt = [0u8; 16];
-    salt.copy_from_slice(&salt_hash[..16]);
-
-    let mut hmac_iv: Hmac<Sha256> = Mac::new_from_slice(b"subzero:vault:aes-gcm:iv:v1")
-        .map_err(|_| CryptoError::HmacError)?;
-    hmac_iv.update(payload.master_root_mnemonic.trim().as_bytes());
-    hmac_iv.update(passphrase_mnemonic.trim().as_bytes());
-    let iv_hash = hmac_iv.finalize().into_bytes();
     let mut iv = [0u8; 12];
-    iv.copy_from_slice(&iv_hash[..12]);
+    rand::thread_rng().fill_bytes(&mut salt);
+    rand::thread_rng().fill_bytes(&mut iv);
 
-    let normalized_pass = passphrase_mnemonic.trim().to_lowercase();
+    let normalized_pass: String = passphrase_mnemonic
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+
     let mut derived_key = [0u8; 32];
     pbkdf2::pbkdf2_hmac::<Sha256>(
         normalized_pass.as_bytes(),
@@ -190,7 +184,12 @@ pub fn decrypt_vault_json(
         return Err(CryptoError::DecryptionError("IV must be 12 bytes for AES-GCM".into()));
     }
 
-    let normalized_pass = passphrase_mnemonic.trim().to_lowercase();
+    let normalized_pass: String = passphrase_mnemonic
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+
     let mut derived_key = [0u8; 32];
     pbkdf2::pbkdf2_hmac::<Sha256>(
         normalized_pass.as_bytes(),
@@ -204,13 +203,12 @@ pub fn decrypt_vault_json(
     let cipher = cipher_res.map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
     let nonce = Nonce::from_slice(&iv);
 
-    let mut plaintext_bytes = cipher
+    let plaintext_bytes = zeroize::Zeroizing::new(cipher
         .decrypt(nonce, ciphertext.as_ref())
-        .map_err(|_| CryptoError::DecryptionError("Authentication failed: incorrect passphrase or corrupt ciphertext.".into()))?;
+        .map_err(|_| CryptoError::DecryptionError("Authentication failed: incorrect passphrase or corrupt ciphertext.".into()))?);
 
     let payload: DecryptedVaultPayload = serde_json::from_slice(&plaintext_bytes)
         .map_err(|e| CryptoError::SerializationError(format!("Corrupt payload JSON: {e}")))?;
-    plaintext_bytes.zeroize();
 
     Ok(payload)
 }
@@ -252,9 +250,10 @@ pub fn run_markov_audit(input: &str) -> MarkovResult {
     }
 
     let mut max_cond_prob = 0.0f64;
+    let min_obs = if is_dice { 3.0 } else { 2.0 };
     for (prev, next_map) in &counts {
         let total = totals[prev] as f64;
-        if total < 2.0 {
+        if total < min_obs {
             continue;
         }
         for (_next, &cnt) in next_map {
@@ -368,6 +367,14 @@ pub fn has_repetitive_substrings(input: &str, min_chunk: usize, max_chunk: usize
                 }
             }
         }
+        // Block large repeated blocks (e.g., 16..=64 bits repeated >= 2 times)
+        for size in 16..=(chars.len() / 2) {
+            for i in 0..=chars.len() - (size * 2) {
+                if chars[i..i + size] == chars[i + size..i + (2 * size)] {
+                    return true;
+                }
+            }
+        }
         return false;
     }
 
@@ -391,6 +398,16 @@ pub fn has_repetitive_substrings(input: &str, min_chunk: usize, max_chunk: usize
             }
         }
     }
+
+    // Block structured period patterns for dice/general (chunks size 8..=len/2 repeated >= 2 times)
+    for size in 8..=(chars.len() / 2) {
+        for i in 0..=chars.len() - (size * 2) {
+            if chars[i..i + size] == chars[i + size..i + (2 * size)] {
+                return true;
+            }
+        }
+    }
+
     false
 }
 
@@ -551,13 +568,13 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
         return Ok((bytes, "Physical Coin Flips (128-bit Bin)"));
     }
 
-    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing, 52 rolls minimum for >= 134 bits)
+    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing, 60 rolls minimum for >= 139 bits min-entropy)
     if clean.chars().all(|c| ('1'..='6').contains(&c)) {
-        if clean.len() < 52 {
+        if clean.len() < 60 {
             return Err(CryptoError::InvalidEntropyLength(clean.len()));
         }
         let hash = Sha256::digest(clean.as_bytes());
-        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (52+ Rolls)"));
+        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (60+ Rolls)"));
     }
 
     // Hex string (16 bytes = 32 hex chars)
@@ -596,12 +613,12 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
     raw_bytes[3] = 0xf6;
     let vpub_slip132 = bitcoin::base58::encode_check(&raw_bytes);
 
-    // Derive first 50 tb1q Receive Addresses: m/84'/1'/0'/0/{0..49}
+    // Derive first 50 tb1q Receive Addresses using account_xpub public derivation (zero private child keys on stack)
+    let recv_branch = account_xpub.derive_pub(&secp, &DerivationPath::from_str("0")?)?;
     let mut addresses = Vec::with_capacity(50);
     for idx in 0..50 {
-        let recv_path = DerivationPath::from_str(&format!("m/84'/1'/0'/0/{}", idx))?;
-        let key = master_xprv.derive_priv(&secp, &recv_path)?;
-        let compressed_pk = CompressedPublicKey(key.to_keypair(&secp).public_key());
+        let child_key = recv_branch.derive_pub(&secp, &DerivationPath::from_str(&format!("{}", idx))?)?;
+        let compressed_pk = CompressedPublicKey(child_key.public_key);
         let addr = Address::p2wpkh(&compressed_pk, KnownHrp::Testnets);
         addresses.push(addr.to_string());
     }

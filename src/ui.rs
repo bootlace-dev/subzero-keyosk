@@ -149,7 +149,15 @@ impl AppState {
             pending_exit_instant: None,
         }
     }
+}
 
+impl Drop for AppState {
+    fn drop(&mut self) {
+        self.wipe_memory();
+    }
+}
+
+impl AppState {
     pub fn wipe_memory(&mut self) {
         self.seed = None;
         self.decoupled_passphrase = None;
@@ -230,12 +238,12 @@ impl AppState {
             let markov = run_markov_audit(&self.entropy_input);
             let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
             let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
-            if len >= 52 && markov.passed && chi2_pass && !repeats {
-                self.status_message = "Dice entropy threshold valid (52 rolls)! Press [ENTER] to derive keys.".into();
-            } else if len >= 52 {
-                self.status_message = "[BLOCKED] 52 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
+            if len >= 60 && markov.passed && chi2_pass && !repeats {
+                self.status_message = "Dice entropy threshold valid (60 rolls)! Press [ENTER] to derive keys.".into();
+            } else if len >= 60 {
+                self.status_message = "[BLOCKED] 60 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
             } else {
-                self.status_message = format!("Collecting dice rolls: {}/52 rolls...", len);
+                self.status_message = format!("Collecting dice rolls: {}/60 rolls...", len);
             }
         } else {
             self.status_message = "Mixed entropy input detected. Use only 0/1 or 1-6.".into();
@@ -328,16 +336,9 @@ impl AppState {
         if let Some(id) = test_vec_id {
             if let Ok(seed) = process_physical_entropy(&format!("test{}", id)) {
                 let mut children = derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                let _passphrase = if !children.is_empty() && children[0].index == 0 {
-                    children.remove(0)
-                } else {
-                    Bip85Child {
-                        label: "Estate Passphrase".into(),
-                        index: 0,
-                        path: "m/83696968'/39'/0'/12'/0'".into(),
-                        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into(),
-                    }
-                };
+                if !children.is_empty() && children[0].index == 0 {
+                    children.remove(0);
+                }
 
                 let test_payload = DecryptedVaultPayload {
                     version: "1.0.0".into(),
@@ -353,37 +354,21 @@ impl AppState {
         }
 
         // 2. Attempt real decryption against Partition 2 (SUBZERO_EST) if vault.json exists
-        if let Ok(vault_json_str) = read_estate_partition() {
-            match decrypt_vault_json(&vault_json_str, input) {
-                Ok(payload) => {
-                    self.decrypted_vault = Some(payload);
-                    self.vault_status_msg = "[✓] VAULT DECRYPTED FROM PARTITION 2: Master root keys restored in amnesic RAM.".into();
-                    return;
-                }
-                Err(e) => {
-                    self.vault_status_msg = format!("[!] Partition 2 authentication failed: {}", e);
-                    return;
+        match read_estate_partition() {
+            Ok(vault_json_str) => {
+                match decrypt_vault_json(&vault_json_str, input) {
+                    Ok(payload) => {
+                        self.decrypted_vault = Some(payload);
+                        self.vault_status_msg = "[✓] VAULT DECRYPTED FROM PARTITION 2: Master root keys restored in amnesic RAM.".into();
+                    }
+                    Err(e) => {
+                        self.vault_status_msg = format!("[!] Authentication failed: {}", e);
+                    }
                 }
             }
-        }
-
-        // 3. Fallback mock / standalone verification for 12-word passphrases or test keywords
-        let mock_payload = DecryptedVaultPayload {
-            version: "1.0.0".into(),
-            created_utc: "2026-09-04T05:00:00Z".into(),
-            master_root_mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into(),
-            descriptor: "wpkh([73c5da0a/84'/1'/0']tpubDC5FSnSJYD4.../<0;1>/*)#67u2v4a3".into(),
-            heir_treasuries: vec![
-                Bip85Child { label: "Heir #1 Cold Treasury".into(), index: 1, path: "m/83696968'/39'/0'/12'/1'".into(), mnemonic: "sing slogan bar group gauge sphere rescue fossil loyal vital model desert".into() },
-                Bip85Child { label: "Heir #2 Cold Treasury".into(), index: 2, path: "m/83696968'/39'/0'/12'/2'".into(), mnemonic: "comfort onion auto dizzy upgrade mutual banner announce section poet point pudding".into() },
-            ],
-        };
-
-        if input.contains("prosper") || input.split_whitespace().count() == 12 {
-            self.decrypted_vault = Some(mock_payload);
-            self.vault_status_msg = "[✓] VAULT DECRYPTED SUCCESSFULLY: Master root keys restored in amnesic RAM.".into();
-        } else {
-            self.vault_status_msg = "[!] Authentication failed: invalid 12-word estate passphrase.".into();
+            Err(e) => {
+                self.vault_status_msg = format!("[!] Partition 2 error: {}. Insert estate USB/SD card.", e);
+            }
         }
     }
 
@@ -859,7 +844,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
             let mut spans = vec![Span::raw("    ")];
             for col in 0..10 {
                 let idx = row * 10 + col;
-                if idx < 52 {
+                if idx < 60 {
                     if idx < chars.len() {
                         spans.push(Span::styled(format!("{} ", chars[idx]), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
                     } else {
@@ -870,9 +855,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
                     }
                 }
             }
-            if row < 5 || (row == 5 && chars.len() > 50) || (row == 5 && 52 > 50) {
-                lines.push(Line::from(spans));
-            }
+            lines.push(Line::from(spans));
         }
     } else {
         lines.push(Line::from(Span::styled(
@@ -882,14 +865,14 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     }
 
     lines.push(Line::from(""));
-    if (is_bin && len >= 128 && markov.passed && chi2_pass && !repeats) || (is_dice && len >= 52 && markov.passed && chi2_pass && !repeats) {
+    if (is_bin && len >= 128 && markov.passed && chi2_pass && !repeats) || (is_dice && len >= 60 && markov.passed && chi2_pass && !repeats) {
         lines.push(Line::from(Span::styled(
             "  [CRITERIA MET] Press [ENTER] to derive master keys and BIP-85 suite.",
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )));
     } else if !raw.is_empty() {
         let needed = if is_dice {
-            format!("{} rolls", 52usize.saturating_sub(len))
+            format!("{} rolls", 60usize.saturating_sub(len))
         } else {
             format!("{} bits", 128usize.saturating_sub(len))
         };
@@ -902,15 +885,15 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  HOW THIS WORKS (PURE PHYSICAL ENTROPY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 52+ times."));
+    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 60+ times."));
     lines.push(Line::from("  2. Zero Hardware PRNG: Your private keys come 100% from physical chance, not a computer chip."));
     lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions, Chi-squared uniformity, and blocks repeats."));
-    lines.push(Line::from("  4. Dice Hashing: 52+ dice rolls are hashed with SHA-256 to eliminate physical die bias."));
+    lines.push(Line::from("  4. Dice Hashing: 60+ dice rolls are hashed with SHA-256 to eliminate physical die bias."));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
     lines.push(Line::from("  - Press [T] to select a deterministic test vector (0=All-Zeros, 8=Genesis Lore, 9=Hal Finney)."));
     lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
-    lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
+    lines.push(Line::from("  - Press [D] to load 60 real dice rolls into the buffer for instant review."));
     lines.push(Line::from("  - Press [K] to harvest human keystroke timing jitter (unique test seed, zero PRNG)."));
     lines.push(Line::from("  - Press [W] at any time to wipe and clear all input buffers."));
 
@@ -983,15 +966,15 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
 
         lines.push(Line::from("  --------------------------------------------------------------------------------"));
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("  CRITICAL ANTI-COLOCATION PROTOCOL & DEAD-MAN ARCHITECTURE:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from("  1. NEVER store this passphrase in the same physical location as your Master Seed or Hardware."));
-        lines.push(Line::from("  2. Store this in your password manager (Bitwarden), attorney escrow, or safe deposit box."));
-        lines.push(Line::from("  3. One-Way Derivation Invariant: Holding this phrase alone exposes ZERO funds."));
-        lines.push(Line::from("  4. Used to encrypt the estate package (vault.json) on Tab 8."));
+        lines.push(Line::from(Span::styled("  DECOUPLED ESTATE PASSING ARCHITECTURE:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  1. Location A (Master Seed on Steel): Direct spending control of your master root cold wallet."));
+        lines.push(Line::from("  2. Location B (This Decoupled Passphrase): Encrypts Partition 2 estate vault (vault.json)."));
+        lines.push(Line::from("  3. Heirs need Location B + Partition 2 to decrypt individual heir treasuries on Tab 9."));
+        lines.push(Line::from("  4. Never co-locate Location B with the physical SubZero appliance or SD card."));
         lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("  TWO-LOCATION RECOVERY FORMULA:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from("    [Location A: Master Seed on Steel] + [Location B: BIP-85 Passphrase] = FULL ACCESS"));
-        lines.push(Line::from("    (Either piece alone is cryptographically useless to a burglar, court, or rogue executor)"));
+        lines.push(Line::from(Span::styled("  ESTATE RECOVERY ARCHITECTURE:", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("    [Partition 2: Encrypted vault.json] + [Location B: Passphrase] = HEIR TREASURIES"));
+        lines.push(Line::from("    (Location B alone or Partition 2 alone is cryptographically useless without the other)"));
 
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);

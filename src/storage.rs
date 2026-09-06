@@ -92,6 +92,15 @@ pub fn write_estate_partition(
         }
     }
 
+    struct MountGuard<'a>(&'a str);
+    impl<'a> Drop for MountGuard<'a> {
+        fn drop(&mut self) {
+            let _ = Command::new("sync").output();
+            let _ = Command::new("umount").arg(self.0).output();
+        }
+    }
+    let _guard = MountGuard(mount_dir);
+
     // 1. Encrypt vault payload
     let encrypted_vault = encrypt_vault_payload(payload, passphrase_mnemonic)
         .map_err(|e| format!("Encryption error: {e}"))?;
@@ -104,7 +113,11 @@ pub fn write_estate_partition(
     let archive_path = format!("{mount_dir}/vault_{build_stamp}.json");
     let _ = fs::write(&archive_path, &encrypted_vault);
 
-    // 3. Write README.txt
+    // 3. Write offline decrypt.html browser recovery app
+    let decrypt_html_path = format!("{mount_dir}/decrypt.html");
+    let _ = fs::write(&decrypt_html_path, include_str!("../assets/decrypt.html"));
+
+    // 4. Write README.txt
     let readme_content = format!(
 r#"SUBZERO KEYOSK SOVEREIGN INHERITANCE RECOVERY APPLIANCE
 =================================================================
@@ -133,7 +146,7 @@ seed words and cannot be decrypted.
     let readme_path = format!("{mount_dir}/README.txt");
     let _ = fs::write(&readme_path, readme_content);
 
-    // 4. Generate SHA256SUMS
+    // 5. Generate SHA256SUMS
     let mut manifest_lines = Vec::new();
     let files_to_hash = ["vault.json", &format!("vault_{build_stamp}.json"), "README.txt", "decrypt.html"];
     for fname in files_to_hash {
@@ -152,11 +165,7 @@ seed words and cannot be decrypted.
     let sums_path = format!("{mount_dir}/SHA256SUMS");
     let _ = fs::write(&sums_path, manifest_lines.join("\n") + "\n");
 
-    // Sync buffers and unmount cleanly
-    let _ = Command::new("sync").output();
-    let _ = Command::new("umount").arg(mount_dir).output();
-
-    Ok(format!("Successfully wrote encrypted vault.json, README.txt & SHA256SUMS to {partition}"))
+    Ok(format!("Successfully wrote encrypted vault.json, decrypt.html, README.txt & SHA256SUMS to {partition}"))
 }
 
 /// Read encrypted vault.json from Partition 2 (SUBZERO_EST) if present
@@ -200,11 +209,10 @@ pub fn read_estate_partition() -> Result<String, String> {
 pub fn locate_external_export_drive() -> Result<String, String> {
     let estate_part = locate_estate_partition().unwrap_or_default();
     
-    // Check available partitions in /sys/class/block or standard device paths
-    // Look for sdc1, sdd1, sde1, sda1, sdb1 if not matching estate drive
+    // Candidates for separate external USB drives (strictly excluding internal sda)
     let candidates = [
         "/dev/sdc1", "/dev/sdd1", "/dev/sde1", "/dev/sdf1",
-        "/dev/sdc", "/dev/sdd", "/dev/sda1", "/dev/sdb1"
+        "/dev/sdc", "/dev/sdd", "/dev/sde", "/dev/sdb1", "/dev/sdb"
     ];
 
     for c in candidates {
@@ -215,6 +223,15 @@ pub fn locate_external_export_drive() -> Result<String, String> {
                 let cand_disk = c.trim_end_matches(char::is_numeric);
                 if estate_disk == cand_disk {
                     continue; // Skip the SubZero boot/estate device!
+                }
+            }
+            // Strict Removable Media Verification: reject non-removable internal drives
+            let dev_name = c.strip_prefix("/dev/").unwrap_or(c);
+            let disk_name = dev_name.trim_end_matches(char::is_numeric);
+            let rem_path = format!("/sys/block/{disk_name}/removable");
+            if let Ok(rem_str) = fs::read_to_string(&rem_path) {
+                if rem_str.trim() != "1" {
+                    continue; // Skip internal non-removable drive!
                 }
             }
             return Ok(c.to_string());
@@ -243,7 +260,7 @@ pub fn export_descriptor_external_usb(
     let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
 
     let mount_status = Command::new("mount")
-        .args(["-o", "rw,sync", &drive, mount_dir])
+        .args(["-o", "rw,sync,umask=077", &drive, mount_dir])
         .output();
 
     let mounted = match mount_status {

@@ -4,7 +4,7 @@ use subzero::seedfix::solve_twelfth_word;
 #[test]
 fn test_coin_entropy_to_bip39_testnet4() {
     // 128-bit realistic binary entropy passing Markov and repetition tests
-    let binary_str = "10100110110010111010100101101001010110100110100101101001010110100110110010111010100101101001010110100110100101101001010110100110";
+    let binary_str = "00100000100000001011001110010010111010101100001000111101101000011101000111001011101001111001000001011110011011010100100100110011";
     let seed = process_physical_entropy(binary_str).expect("Failed to process coin entropy");
 
     assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
@@ -20,8 +20,8 @@ fn test_coin_entropy_to_bip39_testnet4() {
 
 #[test]
 fn test_dice_entropy_to_bip39_testnet4() {
-    // 52 realistic dice rolls passing Markov, Chi-squared, and repetition tests
-    let dice_str = "4231246132524362552232326634162135553315453163225413";
+    // 60 realistic dice rolls passing Markov, Chi-squared, and repetition tests
+    let dice_str = "423124613254162351426351423165241362514362514362513245163254";
     let seed = process_physical_entropy(dice_str).expect("Failed to process dice entropy");
 
     assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
@@ -43,12 +43,12 @@ fn test_entropy_quality_hard_block() {
         _ => panic!("Expected MarkovAuditFailed, got {:?}", err),
     }
 
-    // Short dice rolls (50 rolls < 52) MUST fail length check
-    let short_dice = "42312461325243625522323266341621355533154531632254";
-    let err_short = process_physical_entropy(short_dice).expect_err("Should have failed <52 rolls");
+    // Short dice rolls (56 rolls < 60) MUST fail length check
+    let short_dice = "42312461325243625522323266341621355533154531632254132415";
+    let err_short = process_physical_entropy(short_dice).expect_err("Should have failed <60 rolls");
     match err_short {
-        CryptoError::InvalidEntropyLength(50) => {},
-        _ => panic!("Expected InvalidEntropyLength(50), got {:?}", err_short),
+        CryptoError::InvalidEntropyLength(56) => {},
+        _ => panic!("Expected InvalidEntropyLength(56), got {:?}", err_short),
     }
 
     // Severely skewed frequency (84 ones and 44 zeros) passing Markov but failing Chi-squared audit
@@ -109,15 +109,18 @@ fn test_deterministic_vault_encryption_roundtrip() {
 
     let passphrase = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
     
-    // Encrypt twice - must be 100% deterministic (identical ciphertext, salt, and iv derived from physical entropy)
-    let encrypted1 = encrypt_vault_payload(&payload, passphrase).expect("Encryption failed");
-    let encrypted2 = encrypt_vault_payload(&payload, passphrase).expect("Encryption failed");
-    assert_eq!(encrypted1, encrypted2, "Vault encryption must be deterministic from physical root entropy");
+    // Encrypt twice - randomized 16-byte salt and 12-byte IV guarantee unique ciphertexts
+    let encrypted1 = encrypt_vault_payload(&payload, passphrase).expect("Encryption 1 failed");
+    let encrypted2 = encrypt_vault_payload(&payload, passphrase).expect("Encryption 2 failed");
+    assert_ne!(encrypted1, encrypted2, "Vault encryption must use randomized salt and IV to prevent nonce reuse");
 
-    // Decrypt and verify payload matches original
-    let decrypted = decrypt_vault_json(&encrypted1, passphrase).expect("Decryption failed");
-    assert_eq!(decrypted.master_root_mnemonic, payload.master_root_mnemonic);
-    assert_eq!(decrypted.descriptor, payload.descriptor);
+    // Decrypt both and verify payloads match original
+    let decrypted1 = decrypt_vault_json(&encrypted1, passphrase).expect("Decryption 1 failed");
+    let decrypted2 = decrypt_vault_json(&encrypted2, passphrase).expect("Decryption 2 failed");
+    assert_eq!(decrypted1.master_root_mnemonic, payload.master_root_mnemonic);
+    assert_eq!(decrypted1.descriptor, payload.descriptor);
+    assert_eq!(decrypted2.master_root_mnemonic, payload.master_root_mnemonic);
+    assert_eq!(decrypted2.descriptor, payload.descriptor);
 }
 
 #[test]
