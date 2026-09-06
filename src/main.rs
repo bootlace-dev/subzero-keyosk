@@ -254,7 +254,7 @@ fn run_event_loop(
                                         let seed = crypto::process_physical_entropy(&format!("test{}", digit)).unwrap();
                                         let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
                                         state.set_seed(seed, children);
-                                        state.status_message = format!("[{}] Loaded. Inspect tabs or press [W] to wipe.", label);
+                                        state.status_message = format!("[{}] Loaded. [W] Wipe", label);
                                     }
                                 }
                                 KeyCode::Esc => {

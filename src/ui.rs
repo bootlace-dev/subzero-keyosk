@@ -136,7 +136,7 @@ impl AppState {
             vault_passphrase_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
-            status_message: "Press [1] Benefactor Setup, [2] Heir Recovery, [3] Tools, [Tab] Nav".into(),
+            status_message: "[1] Benefactor  [2] Heir  [3] Tools  [Tab] Nav".into(),
             qr_mode: QrMode::BbqrAnimated,
             bbqr_frame_index: 0,
             external_export_status: "Press [E] to export descriptor to separate USB drive.".into(),
@@ -405,13 +405,13 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
     );
 
     let right_info = Span::styled(
-        format!("BUILD: {} ({}) | TESTNET4 AMNESIC RAM ", state.build_timestamp, state.git_commit),
+        format!("BUILD: {} ({}) | TESTNET4 ", state.build_timestamp, state.git_commit),
         Style::default().fg(Color::DarkGray),
     );
 
     let footer_layout = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .constraints([Constraint::Percentage(65), Constraint::Percentage(35)])
         .split(sub_chunks[1]);
 
     let left_para = Paragraph::new(Line::from(left_status))

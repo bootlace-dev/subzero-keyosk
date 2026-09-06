@@ -52,6 +52,17 @@ fn assert_render_all_resolutions(state: &AppState) {
                 }
             }
         }
+
+        // Active truncation detection: Verify status message is completely displayed without truncation
+        if !state.status_message.is_empty() {
+            let cleaned_screen: String = full_screen.chars().filter(|c| !c.is_whitespace()).collect();
+            let cleaned_status: String = state.status_message.chars().filter(|c| !c.is_whitespace()).collect();
+            assert!(
+                cleaned_screen.contains(&cleaned_status),
+                "Status message was truncated at resolution {}x{}! Message: '{}'\nRendered screen:\n{}",
+                w, h, state.status_message, full_screen
+            );
+        }
     }
 }
 
