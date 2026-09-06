@@ -162,7 +162,6 @@ impl AppState {
         self.heir_page_offset = 0;
         self.estate_write_status = "Press [P] to provision Partition 2 (SUBZERO_EST).".into();
         self.external_export_status = "Press [E] to export descriptor to separate USB drive.".into();
-        self.current_page = Page::MasterSeed;
         self.wipe_confirmation_instant = Some(std::time::Instant::now());
         self.status_message = "[✓] MEMORY WIPED: All private keys and entropy zeroized in RAM.".into();
     }

@@ -130,6 +130,6 @@ fn test_amnesic_wipe_hygiene() {
     assert!(state.bip85_children.is_empty());
     assert!(state.entropy_input.is_empty());
     assert!(!state.is_harvesting_jitter);
-    assert_eq!(state.current_page, Page::MasterSeed);
+    assert_eq!(state.current_page, Page::RoleSelect);
     assert!(state.status_message.contains("MEMORY WIPED"));
 }

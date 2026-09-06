@@ -108,6 +108,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Startup Memory Hygiene Invariant:
     // Execute proactive pre-display zeroization of all data structures.
     state.wipe_memory();
+    state.wipe_confirmation_instant = None;
     state.status_message = "[✓] PROACTIVE PRE-BOOT SCRUB: RAM zeroized prior to display initialization.".into();
 
     // If CLI provided initial entropy, process it immediately
