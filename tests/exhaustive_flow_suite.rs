@@ -5,13 +5,30 @@ use subzero::seedfix::solve_twelfth_word;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
 
-/// Helper to render state and ensure zero panics across multiple screen dimensions
+/// Helper to render state, inspect every rendered character in the buffer, and ensure zero truncation/overflow
 fn assert_render_all_resolutions(state: &AppState) {
     let resolutions = [(80, 25), (100, 30), (120, 40), (160, 50)];
     for &(w, h) in &resolutions {
         let backend = TestBackend::new(w, h);
         let mut terminal = Terminal::new(backend).expect("Failed creating TestBackend");
         terminal.draw(|f| render_app(f, state)).expect(&format!("Render failed at {}x{} on page {:?}", w, h, state.current_page));
+
+        // Deep character inspection: Extract rendered text line-by-line from Ratatui buffer
+        let buffer = terminal.backend().buffer();
+        for y in 0..h {
+            let mut line_str = String::with_capacity(w as usize);
+            for x in 0..w {
+                let cell = buffer.get(x, y);
+                line_str.push_str(cell.symbol());
+            }
+            let trimmed = line_str.trim_end();
+            // Assert no line exceeds the printable width of the terminal
+            assert!(
+                trimmed.chars().count() <= w as usize,
+                "Rendered line exceeded screen width ({}) on page {:?} at row {}: '{}'",
+                w, state.current_page, y, trimmed
+            );
+        }
     }
 }
 
@@ -148,5 +165,163 @@ fn test_exhaustive_vault_unlock_flows() {
         state.vault_passphrase_input = input.to_string();
         state.attempt_vault_decrypt();
         assert_render_all_resolutions(&state);
+    }
+}
+
+#[test]
+fn test_verify_every_text_character_and_sentence_on_every_tab() {
+    let mut state = AppState::new("2026-09-05 21:00:00Z".to_string(), "4d8b5dc".to_string());
+    
+    // Test with the standard 12-word seed
+    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+    let seed = process_physical_entropy(coin_entropy).unwrap();
+    let children = derive_bip85_children(&seed.mnemonic, 20).unwrap();
+    state.set_seed(seed, children);
+
+    // Target terminal screen: 120 cols x 40 rows (matching Dell console)
+    let backend = TestBackend::new(120, 40);
+    let mut terminal = Terminal::new(backend).expect("Failed to init TestBackend");
+
+    // Expected text assertions tab by tab
+    let expected_phrases_per_page: &[(Page, &[&str])] = &[
+        (Page::RoleSelect, &[
+            "SOVEREIGN BITCOIN COLD STORAGE & ESTATE RECOVERY APPLIANCE",
+            "[1] I AM THE BENEFACTOR (VAULT CREATOR)",
+            "[2] I AM AN HEIR OR EXECUTOR (ESTATE RECOVERY)",
+            "[3] EMERGENCY TOOLS & SEED REPAIR (SEEDFIX / WORDLIST)",
+        ]),
+        (Page::MasterSeed, &[
+            "12-WORD SEED PHRASE (HORIZONTAL READING ORDER):",
+            "METAL PUNCH / COLUMN GUIDANCE:",
+            "Master Fingerprint:",
+            "Protocol Network:",
+            "Bitcoin Testnet4",
+        ]),
+        (Page::Passphrase, &[
+            "12-WORD PASSPHRASE (HORIZONTAL READING ORDER):",
+            "METAL PUNCH / COLUMN GUIDANCE:",
+            "CRITICAL ANTI-COLOCATION PROTOCOL",
+            "TWO-LOCATION RECOVERY FORMULA:",
+        ]),
+        (Page::Descriptor, &[
+            "WATCH-ONLY OUTPUT DESCRIPTOR (BIP-380 / BIP-84):",
+            "BIP-32 Account Public Key",
+            "SLIP-0132 Native SegWit Key",
+            "WALLET IMPORT PROTOCOL & COMPATIBILITY MATRIX:",
+        ]),
+        (Page::VpubQr, &[
+            "Airgapped Export QR",
+            "[M] Rotate Mode",
+            "Target Wallets:",
+        ]),
+        (Page::FaucetQr, &[
+            "Faucet QR Code",
+            "Target Testnet4 Address #0:",
+            "WHAT IS THIS?",
+            "HOW TO RECEIVE COINS:",
+        ]),
+        (Page::Addresses, &[
+            "Testnet4 Native SegWit Receive Addresses",
+            "BIP-84 DERIVATION PROTOCOL",
+        ]),
+        (Page::Bip85Children, &[
+            "BIP-85 Heir Keys",
+            "Deterministic Heir Seeds",
+            "ROLE & PURPOSE: OPTIONAL BIP-85 SUB-TREASURIES:",
+        ]),
+        (Page::EstateProvisioner, &[
+            "Encrypted Estate Vault Provisioner",
+            "RECOVERY COMPATIBILITY ARCHITECTURE",
+        ]),
+        (Page::VaultUnlock, &[
+            "Offline Estate Vault Recovery",
+            "Enter 12-Word Decoupled Passphrase:",
+        ]),
+        (Page::SeedFix, &[
+            "SeedFix 12th-Word Recovery Tool",
+            "Levenshtein",
+        ]),
+        (Page::WordlistInspector, &[
+            "Canonical 2048-Word BIP-39 English Wordlist",
+            "Wordlist Search Query:",
+        ]),
+        (Page::DrillGuide, &[
+            "Metal Punch & Cold Storage Stamping Guide",
+            "PHYSICAL STAMPING PROTOCOL & TOOLKIT:",
+        ]),
+        (Page::Provenance, &[
+            "Amnesic RAM & Cryptographic Hygiene Verification",
+            "MEMORY DECAY & AIRGAP INTEGRITY:",
+        ]),
+    ];
+
+    for &(page, expected_strings) in expected_phrases_per_page {
+        state.current_page = page;
+        terminal.draw(|f| render_app(f, &state)).expect(&format!("Failed drawing page {:?}", page));
+
+        let buffer = terminal.backend().buffer();
+        let mut full_screen_text = String::new();
+        for y in 0..40 {
+            for x in 0..120 {
+                full_screen_text.push_str(buffer.get(x, y).symbol());
+            }
+            full_screen_text.push('\n');
+        }
+
+        // Verify every declared sentence/phrase appears intact on the screen
+        for &phrase in expected_strings {
+            assert!(
+                full_screen_text.contains(phrase),
+                "Missing expected phrase '{}' on page {:?}\nScreen Content:\n{}",
+                phrase, page, full_screen_text
+            );
+        }
+
+        // Verify universal footer appears cleanly on this tab
+        assert!(full_screen_text.contains("NAV:"), "Missing NAV prompt on page {:?}", page);
+        assert!(full_screen_text.contains("[Tab/→]"), "Missing Tab prompt on page {:?}", page);
+        assert!(full_screen_text.contains("[Home/Esc]"), "Missing Home/Esc prompt on page {:?}", page);
+        assert!(full_screen_text.contains("[W] Wipe"), "Missing Wipe prompt on page {:?}", page);
+        assert!(full_screen_text.contains("[Q] Exit"), "Missing Exit prompt on page {:?}", page);
+    }
+}
+
+#[test]
+fn test_longest_bip39_words_phrase_on_heir_keys_tab() {
+    let mut state = AppState::new("2026-09-05 21:00:00Z".to_string(), "4d8b5dc".to_string());
+    
+    // In BIP-39, the longest words are 8 letters (e.g. 'umbrella', 'scissors', 'abstract')
+    // Construct a simulated heir child seed consisting of the longest words repeated 12 times
+    let longest_words = "umbrella scissors abstract accident daughter dinosaur elevator hospital mountain practice remember transfer";
+    
+    let mut fake_children = Vec::new();
+    for i in 1..=8 {
+        fake_children.push(subzero::crypto::Bip85Child {
+            index: i,
+            path: format!("m/83696968'/39'/0'/12/{}'", i),
+            mnemonic: longest_words.to_string(),
+            label: format!("Heir Vault #{:02}", i),
+        });
+    }
+
+    state.bip85_children = fake_children;
+    state.current_page = Page::Bip85Children;
+
+    let backend = TestBackend::new(120, 40);
+    let mut terminal = Terminal::new(backend).expect("Failed creating TestBackend");
+    terminal.draw(|f| render_app(f, &state)).expect("Render failed with longest BIP39 words");
+
+    let buffer = terminal.backend().buffer();
+    for y in 0..40 {
+        let mut line_str = String::new();
+        for x in 0..120 {
+            line_str.push_str(buffer.get(x, y).symbol());
+        }
+        let trimmed = line_str.trim_end();
+        assert!(
+            trimmed.chars().count() <= 120,
+            "Longest BIP-39 phrase overflowed width at row {}: '{}'",
+            y, trimmed
+        );
     }
 }

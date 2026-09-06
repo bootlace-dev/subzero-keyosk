@@ -159,13 +159,15 @@ fn run_event_loop(
                     continue;
                 }
 
-                // Global exits
-                if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') || key.code == KeyCode::Esc {
-                    if state.current_page != ui::Page::RoleSelect && key.code == KeyCode::Esc {
-                        state.current_page = ui::Page::RoleSelect;
-                        continue;
-                    }
+                // Global exits: Only [Q] exits the appliance
+                if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') {
                     break;
+                }
+
+                // Global Home/Esc: Returns directly to Tab 0 (RoleSelect)
+                if key.code == KeyCode::Esc || key.code == KeyCode::Home {
+                    state.current_page = ui::Page::RoleSelect;
+                    continue;
                 }
 
                 // Global Navigation & Memory Wipe
@@ -230,8 +232,34 @@ fn run_event_loop(
                                     state.status_message = "[HUMAN JITTER HARVESTED] 128 binary coin flips generated from keystroke timing deltas. Review & press [ENTER].".into();
                                 }
                             }
+                        } else if state.is_selecting_test_vector {
+                            match key.code {
+                                KeyCode::Char(c) if ('0'..='9').contains(&c) => {
+                                    let digit = c.to_digit(10).unwrap() as u8;
+                                    state.is_selecting_test_vector = false;
+                                    if let Ok((_bytes, label)) = crypto::get_test_vector(digit) {
+                                        let seed = crypto::process_physical_entropy(&format!("test{}", digit)).unwrap();
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                        state.set_seed(seed, children);
+                                        state.status_message = format!("[{}] Loaded. Inspect tabs or press [W] to wipe.", label);
+                                    }
+                                }
+                                KeyCode::Esc => {
+                                    state.is_selecting_test_vector = false;
+                                    state.status_message = "Test vector selection canceled.".into();
+                                }
+                                _ => {
+                                    state.status_message = "Select test vector 0-9, or press [Esc] to cancel.".into();
+                                }
+                            }
                         } else {
                             match key.code {
+                                KeyCode::Char('t') | KeyCode::Char('T') => {
+                                    if state.seed.is_none() {
+                                        state.is_selecting_test_vector = true;
+                                        state.status_message = "SELECT TEST VECTOR: Press [0-9] (e.g. 0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney) or [Esc] to cancel:".into();
+                                    }
+                                }
                                 KeyCode::Char('k') | KeyCode::Char('K') => {
                                     if state.seed.is_none() {
                                         state.is_harvesting_jitter = true;

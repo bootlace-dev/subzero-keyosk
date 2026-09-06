@@ -37,4 +37,6 @@ fn main() {
     println!("cargo:rerun-if-env-changed=SUBZERO_GIT_COMMIT");
     println!("cargo:rerun-if-changed=src/");
     println!("cargo:rerun-if-changed=Cargo.toml");
+    println!("cargo:rerun-if-changed=.git/HEAD");
+    println!("cargo:rerun-if-changed=.git/refs/");
 }

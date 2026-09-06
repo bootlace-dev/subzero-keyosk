@@ -112,6 +112,7 @@ pub struct AppState {
     pub is_harvesting_jitter: bool,
     pub jitter_samples: Vec<(char, u64)>,
     pub last_jitter_instant: Option<std::time::Instant>,
+    pub is_selecting_test_vector: bool,
 }
 
 impl AppState {
@@ -141,6 +142,7 @@ impl AppState {
             is_harvesting_jitter: false,
             jitter_samples: Vec::new(),
             last_jitter_instant: None,
+            is_selecting_test_vector: false,
         }
     }
 
@@ -381,15 +383,15 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::raw(" Next "),
         Span::styled("[Shift+Tab/←]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw(" Prev "),
-        Span::styled("[Home]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(" Tab 1 "),
-        Span::styled("[R]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" PRNG "),
+        Span::styled("[Home/Esc]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::raw(" Tab 0 "),
         Span::styled("[C/D]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" Sample "),
+        Span::raw(" Coins/Dice "),
+        Span::styled("[T]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" Test "),
         Span::styled("[W]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         Span::raw(" Wipe "),
-        Span::styled("[Q/ESC]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        Span::styled("[Q]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         Span::raw(" Exit"),
     ];
     let nav_line = Line::from(nav_spans);
@@ -510,12 +512,12 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(""));
         if state.is_test_entropy() {
             lines.push(Line::from(Span::styled(
-                "  [⚠️ CONVENIENCE TEST SEED — PREDICTABLE / MOCK ENTROPY — NEVER FUND ON MAINNET]",
+                "  [! TEST SEED — PREDICTABLE / MOCK ENTROPY — NEVER FUND ON MAINNET]",
                 Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "  [🛡️ GENUINE PHYSICAL ENTROPY (SHA-256 HASHED) — PROVISIONED FOR TESTNET4 ONLY]",
+                "  [✓ PHYSICAL ENTROPY (SHA-256 HASHED) — FOR TESTNET4 USE ONLY]",
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
             )));
         }
@@ -807,6 +809,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from("  4. Dice Hashing: 50+ dice rolls are hashed with SHA-256 to remove physical die bias."));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  - Press [T] to select a deterministic test vector (0=All-Zeros, 8=Genesis Lore, 9=Hal Finney)."));
     lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
     lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
     lines.push(Line::from("  - Press [K] to harvest human keystroke timing jitter (unique test seed, zero PRNG)."));
@@ -828,7 +831,7 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            "  [🛡️ NON-COLOCATED ENCRYPTION KEY & ESTATE DEAD-MAN SWITCH]",
+            "  [NON-COLOCATED ENCRYPTION KEY & ESTATE DEAD-MAN SWITCH]",
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(""));
@@ -937,9 +940,15 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
+    let subtitle = match state.qr_mode {
+        QrMode::BbqrAnimated => format!(" [BBQR Frame {}/3] | [M] Rotate Mode | [E] USB ", (state.bbqr_frame_index % 3) + 1),
+        QrMode::FullBlockSpace => " [Full Descriptor] | [M] Rotate Mode | [E] USB ".to_string(),
+        QrMode::StaticVpub => " [Static VPUB] | [M] Rotate Mode | [E] USB ".to_string(),
+    };
+
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" Tab 4. Airgapped Export QR [{}] [TESTNET4 ONLY] ", state.qr_mode.title()))
+        .title(format!(" Tab 4. Airgapped Export QR{} [TESTNET4 ONLY] ", subtitle))
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -954,22 +963,6 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
         };
 
         let mut lines = Vec::new();
-        lines.push(Line::from(vec![
-            Span::styled(format!("  [{}] ", state.qr_mode.title()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(" [Press 'M' to rotate mode] ", Style::default().fg(Color::Cyan)),
-            Span::styled(" | [E] Export to External USB", Style::default().fg(Color::White)),
-        ]));
-
-        let payload_preview = match state.qr_mode {
-            QrMode::BbqrAnimated => format!("BBQR Animated Descriptor (Frame {}): {}", (state.bbqr_frame_index % 3) + 1, &seed.descriptor),
-            QrMode::FullBlockSpace => format!("Full Descriptor: {}", &seed.descriptor),
-            QrMode::StaticVpub => format!("Static SLIP-0132 Key: {}", &seed.vpub_slip132),
-        };
-        lines.push(Line::from(vec![
-            Span::styled("  [QR Payload Content]: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled(payload_preview, Style::default().fg(Color::Yellow)),
-        ]));
-        lines.push(Line::from(""));
 
         match qr_result {
             Ok(qr_lines) => {
@@ -987,17 +980,12 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                 format!("  USB Status: {}", state.external_export_status),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )));
+        } else {
+            lines.push(Line::from(vec![
+                Span::styled("Target Wallets: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("Mode 1: Nunchuk/Keeper (BBQR) | Mode 2: Sparrow | Mode 3: Blockstream Green (VPUB)", Style::default().fg(Color::White)),
+            ]));
         }
-
-        lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  PHONE APP INSTRUCTIONS: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("In Nunchuk or Keeper, tap 'Add Wallet' -> 'Air-gapped / Watch-Only' -> 'Scan QR'.", Style::default().fg(Color::White)),
-        ]));
-        lines.push(Line::from(vec![
-            Span::styled("  BLOCKSTREAM GREEN USERS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("Press 'M' to switch to Mode 3 (Static VPUB), then in Green tap '+' -> 'Watch-Only' -> 'Scan Key'.", Style::default().fg(Color::White)),
-        ]));
 
         let p = Paragraph::new(lines).block(block).alignment(Alignment::Center);
         frame.render_widget(p, area);
@@ -1131,10 +1119,9 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 
         for i in start..end {
             if let Some(child) = state.bip85_children.get(i) {
+                let prefix = format!("  #{:02} {:<16} ", child.index, child.label);
                 lines.push(Line::from(vec![
-                    Span::styled(format!("  Child #{:02}: ", child.index), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    Span::styled(format!("{:<20} ", child.label), Style::default().fg(Color::White)),
-                    Span::styled(format!("[{}] ", child.path), Style::default().fg(Color::DarkGray)),
+                    Span::styled(prefix, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled(&child.mnemonic, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 ]));
             }
