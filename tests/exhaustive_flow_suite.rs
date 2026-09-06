@@ -189,7 +189,10 @@ fn test_exhaustive_vault_unlock_flows() {
     let inputs = [
         "",
         "test",
+        "t0",
+        "t5",
         "test0",
+        "test5",
         "wrong phrase",
         "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about",
         "prosper voice ladder drill rich sugar direct shrug cycle fossil visual hollow",

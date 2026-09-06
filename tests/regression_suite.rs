@@ -129,6 +129,8 @@ fn test_amnesic_wipe_hygiene() {
     assert!(state.decoupled_passphrase.is_none());
     assert!(state.bip85_children.is_empty());
     assert!(state.entropy_input.is_empty());
+    assert!(state.vault_passphrase_input.is_empty());
+    assert!(state.decrypted_vault.is_none());
     assert!(!state.is_harvesting_jitter);
     assert_eq!(state.current_page, Page::RoleSelect);
     assert!(state.status_message.contains("MEMORY WIPED"));

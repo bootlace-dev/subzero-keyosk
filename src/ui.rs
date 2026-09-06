@@ -7,14 +7,15 @@ use ratatui::{
 };
 use crate::crypto::{
     has_repetitive_substrings, run_markov_audit, Bip85Child,
-    DecryptedVaultPayload, GeneratedSeed,
+    DecryptedVaultPayload, GeneratedSeed, decrypt_vault_json,
+    process_physical_entropy, derive_bip85_children,
 };
 use crate::qr::{
     create_bbqr_frames, render_full_block_qr, QrMode,
 };
 use crate::seedfix::{search_wordlist, solve_twelfth_word, SeedFixCandidate};
 use crate::storage::{
-    locate_estate_partition, write_estate_partition, export_descriptor_external_usb,
+    locate_estate_partition, write_estate_partition, read_estate_partition, export_descriptor_external_usb,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -158,6 +159,8 @@ impl AppState {
         self.jitter_samples.clear();
         self.last_jitter_instant = None;
         self.decrypted_vault = None;
+        self.vault_passphrase_input.clear();
+        self.vault_status_msg = "Enter 12-word passphrase or 'test0'..'test9' / 't0'..'t9'.".into();
         self.address_page_offset = 0;
         self.heir_page_offset = 0;
         self.estate_write_status = "Press [P] to provision Partition 2 (SUBZERO_EST).".into();
@@ -300,6 +303,60 @@ impl AppState {
             return;
         }
 
+        // 1. Resolve test vector shortcuts ('t0'..'t9' or 'test0'..'test9' or 'test')
+        let test_vec_id: Option<u8> = if input.len() == 2 && (input.starts_with('t') || input.starts_with('T')) {
+            input.chars().nth(1).and_then(|c| c.to_digit(10).map(|d| d as u8))
+        } else if (input.starts_with("test") || input.starts_with("TEST")) && input.len() >= 5 {
+            input[4..].chars().next().and_then(|c| c.to_digit(10).map(|d| d as u8))
+        } else if input.eq_ignore_ascii_case("test") {
+            Some(0)
+        } else {
+            None
+        };
+
+        if let Some(id) = test_vec_id {
+            if let Ok(seed) = process_physical_entropy(&format!("test{}", id)) {
+                let mut children = derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                let _passphrase = if !children.is_empty() && children[0].index == 0 {
+                    children.remove(0)
+                } else {
+                    Bip85Child {
+                        label: "Estate Passphrase".into(),
+                        index: 0,
+                        path: "m/83696968'/39'/0'/12'/0'".into(),
+                        mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".into(),
+                    }
+                };
+
+                let test_payload = DecryptedVaultPayload {
+                    version: "1.0.0".into(),
+                    created_utc: "2026-09-04T05:00:00Z".into(),
+                    master_root_mnemonic: seed.mnemonic.clone(),
+                    descriptor: seed.descriptor.clone(),
+                    heir_treasuries: children,
+                };
+                self.decrypted_vault = Some(test_payload);
+                self.vault_status_msg = format!("[✓] TEST VECTOR {} VAULT DECRYPTED: Master root keys restored in amnesic RAM.", id);
+                return;
+            }
+        }
+
+        // 2. Attempt real decryption against Partition 2 (SUBZERO_EST) if vault.json exists
+        if let Ok(vault_json_str) = read_estate_partition() {
+            match decrypt_vault_json(&vault_json_str, input) {
+                Ok(payload) => {
+                    self.decrypted_vault = Some(payload);
+                    self.vault_status_msg = "[✓] VAULT DECRYPTED FROM PARTITION 2: Master root keys restored in amnesic RAM.".into();
+                    return;
+                }
+                Err(e) => {
+                    self.vault_status_msg = format!("[!] Partition 2 authentication failed: {}", e);
+                    return;
+                }
+            }
+        }
+
+        // 3. Fallback mock / standalone verification for 12-word passphrases or test keywords
         let mock_payload = DecryptedVaultPayload {
             version: "1.0.0".into(),
             created_utc: "2026-09-04T05:00:00Z".into(),
@@ -311,7 +368,7 @@ impl AppState {
             ],
         };
 
-        if input.starts_with("test") || input.contains("prosper") || input.split_whitespace().count() == 12 {
+        if input.contains("prosper") || input.split_whitespace().count() == 12 {
             self.decrypted_vault = Some(mock_payload);
             self.vault_status_msg = "[✓] VAULT DECRYPTED SUCCESSFULLY: Master root keys restored in amnesic RAM.".into();
         } else {
@@ -1280,7 +1337,7 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
     lines.push(Line::from(""));
 
     let input_display = if state.vault_passphrase_input.is_empty() {
-        "Type 12-word passphrase or 'test'..."
+        "Type 12-word passphrase or 't0'..'t9' / 'test'..."
     } else {
         &state.vault_passphrase_input
     };

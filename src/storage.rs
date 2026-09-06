@@ -132,6 +132,43 @@ seed words and cannot be decrypted.
     Ok(format!("Successfully wrote encrypted vault.json, README.txt & SHA256SUMS to {partition}"))
 }
 
+/// Read encrypted vault.json from Partition 2 (SUBZERO_EST) if present
+pub fn read_estate_partition() -> Result<String, String> {
+    let partition = locate_estate_partition()
+        .ok_or_else(|| "Partition 2 (SUBZERO_EST) not found. Insert SubZero USB/SD card.".to_string())?;
+
+    let mount_dir = "/media/subzero_est";
+    let _ = fs::create_dir_all(mount_dir);
+
+    // Unmount first in case of stale state
+    let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
+
+    let mount_status = Command::new("mount")
+        .args(["-t", "vfat", "-o", "ro", &partition, mount_dir])
+        .output();
+
+    let mounted = match mount_status {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    };
+
+    if !mounted {
+        let fallback = Command::new("mount")
+            .args(["-o", "ro", &partition, mount_dir])
+            .output();
+        if !fallback.map(|o| o.status.success()).unwrap_or(false) {
+            return Err(format!("Failed to mount {partition} to {mount_dir}."));
+        }
+    }
+
+    let vault_path = format!("{mount_dir}/vault.json");
+    let content = fs::read_to_string(&vault_path)
+        .map_err(|e| format!("Failed to read {vault_path}: {e}"));
+
+    let _ = Command::new("umount").arg(mount_dir).output();
+    content
+}
+
 /// Find an external USB drive partition (distinct from SubZero boot/estate media)
 pub fn locate_external_export_drive() -> Result<String, String> {
     let estate_part = locate_estate_partition().unwrap_or_default();
