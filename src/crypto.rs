@@ -117,13 +117,24 @@ pub fn encrypt_vault_payload(
     let plaintext = zeroize::Zeroizing::new(serde_json::to_string_pretty(payload)
         .map_err(|e| CryptoError::SerializationError(e.to_string()))?);
 
-    // Generate cryptographically random 16-byte salt and 12-byte IV (nonce).
-    // This eliminates deterministic verification oracles and prevents AES-GCM nonce reuse.
-    use rand::RngCore;
+    // Pure Physical Entropy Invariant:
+    // Do NOT call rand::thread_rng() or /dev/urandom.
+    // Derive AES-256-GCM IV (12 bytes) and PBKDF2 Salt (16 bytes) deterministically from
+    // HMAC-SHA256 over master_root_mnemonic keyed by domain separation tags.
+    let mut hmac_salt: Hmac<Sha256> = Mac::new_from_slice(b"subzero:vault:pbkdf2:salt:v1")
+        .map_err(|_| CryptoError::HmacError)?;
+    hmac_salt.update(payload.master_root_mnemonic.trim().as_bytes());
+    let salt_hash = hmac_salt.finalize().into_bytes();
     let mut salt = [0u8; 16];
+    salt.copy_from_slice(&salt_hash[..16]);
+
+    let mut hmac_iv: Hmac<Sha256> = Mac::new_from_slice(b"subzero:vault:aes-gcm:iv:v1")
+        .map_err(|_| CryptoError::HmacError)?;
+    hmac_iv.update(payload.master_root_mnemonic.trim().as_bytes());
+    hmac_iv.update(passphrase_mnemonic.trim().as_bytes());
+    let iv_hash = hmac_iv.finalize().into_bytes();
     let mut iv = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut salt);
-    rand::thread_rng().fill_bytes(&mut iv);
+    iv.copy_from_slice(&iv_hash[..12]);
 
     let normalized_pass: String = passphrase_mnemonic
         .split_whitespace()

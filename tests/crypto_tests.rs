@@ -109,18 +109,15 @@ fn test_deterministic_vault_encryption_roundtrip() {
 
     let passphrase = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
     
-    // Encrypt twice - randomized 16-byte salt and 12-byte IV guarantee unique ciphertexts
-    let encrypted1 = encrypt_vault_payload(&payload, passphrase).expect("Encryption 1 failed");
-    let encrypted2 = encrypt_vault_payload(&payload, passphrase).expect("Encryption 2 failed");
-    assert_ne!(encrypted1, encrypted2, "Vault encryption must use randomized salt and IV to prevent nonce reuse");
+    // Encrypt twice - must be 100% deterministic (identical ciphertext, salt, and iv derived from physical root entropy)
+    let encrypted1 = encrypt_vault_payload(&payload, passphrase).expect("Encryption failed");
+    let encrypted2 = encrypt_vault_payload(&payload, passphrase).expect("Encryption failed");
+    assert_eq!(encrypted1, encrypted2, "Vault encryption must be deterministic from physical root entropy");
 
-    // Decrypt both and verify payloads match original
-    let decrypted1 = decrypt_vault_json(&encrypted1, passphrase).expect("Decryption 1 failed");
-    let decrypted2 = decrypt_vault_json(&encrypted2, passphrase).expect("Decryption 2 failed");
-    assert_eq!(decrypted1.master_root_mnemonic, payload.master_root_mnemonic);
-    assert_eq!(decrypted1.descriptor, payload.descriptor);
-    assert_eq!(decrypted2.master_root_mnemonic, payload.master_root_mnemonic);
-    assert_eq!(decrypted2.descriptor, payload.descriptor);
+    // Decrypt and verify payload matches original
+    let decrypted = decrypt_vault_json(&encrypted1, passphrase).expect("Decryption failed");
+    assert_eq!(decrypted.master_root_mnemonic, payload.master_root_mnemonic);
+    assert_eq!(decrypted.descriptor, payload.descriptor);
 }
 
 #[test]

@@ -9,7 +9,7 @@ license = "Apache-2.0"
 [dependencies]
 # Bitcoin Core & BIP Suite Primitives
 bitcoin = { version = "0.32", features = ["rand", "serde"] }
-bip39 = { version = "2.1", features = ["rand", "zeroize"] }
+bip39 = { version = "2.1", features = ["zeroize"] }
 
 # Memory Hygiene & Anti-DRAM Remanence
 zeroize = { version = "1.8", features = ["derive", "zeroize_derive"] }
