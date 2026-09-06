@@ -172,8 +172,8 @@ fn run_event_loop(
                     continue;
                 }
 
-                // Global exits: Only [Q] exits the appliance
-                if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') {
+                // Global exits: Only [Q] exits the appliance (disabled during active jitter harvesting)
+                if (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q')) && !state.is_harvesting_jitter {
                     break;
                 }
 
@@ -198,8 +198,12 @@ fn run_event_loop(
                         continue;
                     }
                     KeyCode::Char('w') | KeyCode::Char('W') => {
-                        // Global Wipe & Reset (disabled inside active typing inputs)
-                        if state.current_page != ui::Page::SeedFix && state.current_page != ui::Page::WordlistInspector && state.current_page != ui::Page::VaultUnlock {
+                        // Global Wipe & Reset (disabled inside active typing inputs and jitter harvest)
+                        if !state.is_harvesting_jitter
+                            && state.current_page != ui::Page::SeedFix
+                            && state.current_page != ui::Page::WordlistInspector
+                            && state.current_page != ui::Page::VaultUnlock
+                        {
                             state.wipe_memory();
                             continue;
                         }
@@ -236,13 +240,15 @@ fn run_event_loop(
                                 state.jitter_samples.push((c, delta_nanos));
 
                                 if state.jitter_samples.len() >= 32 {
-                                    // Harvest completed: hash jitter samples to 128 binary bits
+                                    // Harvest completed: hash jitter samples to 128 binary bits and transition directly to seed display
                                     let bits = crypto::harvest_keystroke_jitter_to_binary(&state.jitter_samples);
-                                    state.set_entropy_input(&bits);
+                                    let seed = crypto::process_physical_entropy(&bits).expect("Jitter bits failed");
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                    state.set_seed(seed, children);
                                     state.is_harvesting_jitter = false;
                                     state.jitter_samples.clear();
                                     state.last_jitter_instant = None;
-                                    state.status_message = "[HUMAN JITTER HARVESTED] 128 binary coin flips generated from keystroke timing deltas. Review & press [ENTER].".into();
+                                    state.status_message = "[HUMAN JITTER HARVESTED] 12-word seed generated from keystroke timing deltas. [W] Wipe".into();
                                 }
                             }
                         } else if state.is_selecting_test_vector {

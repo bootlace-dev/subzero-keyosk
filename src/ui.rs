@@ -673,27 +673,6 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     let is_bin = !raw.is_empty() && raw.chars().all(|c| c == '0' || c == '1');
     let is_dice = !raw.is_empty() && raw.chars().all(|c| ('1'..='6').contains(&c));
 
-    if let Some(instant) = state.wipe_confirmation_instant {
-        if instant.elapsed().as_secs() < 8 {
-            lines.push(Line::from(Span::styled(
-                "  ╔══════════════════════════════════════════════════════════════════════════════════════╗",
-                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(Span::styled(
-                "  ║  [✓] SECURE VOLATILE MEMORY PURGE: 100% OF RAM DATA STRUCTURES ZEROIZED              ║",
-                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(Span::styled(
-                "  ║  Master seeds, BIP-85 tables, derived keys, and passphrases scrubbed via ZeroizeOnDrop ║",
-                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(Span::styled(
-                "  ╚══════════════════════════════════════════════════════════════════════════════════════╝",
-                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(""));
-        }
-    }
 
     let mode_str = if is_bin {
         "BINARY COIN FLIPS (0/1)"
