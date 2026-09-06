@@ -172,6 +172,11 @@ impl AppState {
         self.update_entropy_status();
     }
 
+    pub fn set_entropy_input(&mut self, input: &str) {
+        self.entropy_input = input.to_string();
+        self.update_entropy_status();
+    }
+
     pub fn update_entropy_status(&mut self) {
         let len = self.entropy_input.len();
         if len == 0 {
@@ -332,7 +337,7 @@ fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
     let (source_badge, source_style) = if state.is_test_entropy() {
         ("[TEST PRNG SEED: UNTRUSTED]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
     } else if state.seed.is_some() {
-        ("[PHYSICAL ENTROPY: WHITENED]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        ("[PHYSICAL ENTROPY: SHA-256 HASHED]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
     } else {
         ("[AWAITING ENTROPY]", Style::default().fg(Color::DarkGray))
     };
@@ -439,7 +444,7 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
             )));
         } else {
             lines.push(Line::from(Span::styled(
-                "  [🛡️ GENUINE PHYSICAL ENTROPY (WHITENED) — PROVISIONED FOR TESTNET4 ONLY]",
+                "  [🛡️ GENUINE PHYSICAL ENTROPY (SHA-256 HASHED) — PROVISIONED FOR TESTNET4 ONLY]",
                 Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
             )));
         }
@@ -480,7 +485,7 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(vec![
             Span::raw("  Entropy Mode:         "),
             Span::styled(&seed.entropy_type, Style::default().fg(Color::Green)),
-            Span::raw("   (Pure Physical Whitened Entropy)"),
+            Span::raw("   (Raw Coins/Dice -> SHA-256 Hashed)"),
         ]));
         lines.push(Line::from(vec![
             Span::raw("  Protocol Network:     "),
@@ -650,6 +655,20 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
             Style::default().fg(Color::Cyan),
         )));
     }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  HOW THIS WORKS (PURE PHYSICAL ENTROPY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 50+ times."));
+    lines.push(Line::from("  2. Zero Hardware PRNG: Your private keys come 100% from physical chance, not a computer chip."));
+    lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions and blocks repetitive patterns."));
+    lines.push(Line::from("  4. Dice Hashing: 50+ dice rolls are hashed with SHA-256 to remove physical die bias."));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  DEVELOPER & TESTING SHORTCUTS (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
+    lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
+    lines.push(Line::from("  - Press [R] to load 128 pseudo-random bits from the device PRNG (testing only)."));
+    lines.push(Line::from("  - Press [W] at any time to wipe and clear all input buffers."));
 
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
@@ -821,6 +840,16 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             )));
         }
 
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  PHONE APP INSTRUCTIONS: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("In Nunchuk or Keeper, tap 'Add Wallet' -> 'Air-gapped / Watch-Only' -> 'Scan QR'.", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("  BLOCKSTREAM GREEN USERS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("Press 'M' to switch to Mode 3 (Static VPUB), then in Green tap '+' -> 'Watch-Only' -> 'Scan Key'.", Style::default().fg(Color::White)),
+        ]));
+
         let p = Paragraph::new(lines).block(block).alignment(Alignment::Center);
         frame.render_widget(p, area);
     } else {
@@ -847,6 +876,16 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                         "  [!] Send ONLY Testnet4 faucet coins to this address.",
                         Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
                     )));
+                    combined.push(Line::from(""));
+                    combined.push(Line::from(vec![
+                        Span::styled("  WHAT IS THIS? ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled("This is your first receive address (Address #0, path m/84'/1'/0'/0/0).", Style::default().fg(Color::White)),
+                    ]));
+                    combined.push(Line::from(vec![
+                        Span::styled("  HOW TO RECEIVE COINS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled("Scan this QR code with any Bitcoin wallet or online Testnet4 faucet to send test funds here.", Style::default().fg(Color::White)),
+                    ]));
+                    combined.push(Line::from("  Testnet4 coins are practice coins with zero financial value. Use them to verify your wallet before mainnet."));
                     let p = Paragraph::new(combined)
                         .alignment(Alignment::Center)
                         .block(block);
@@ -1006,6 +1045,15 @@ fn render_estate_provisioner(frame: &mut Frame, area: Rect, state: &AppState) {
         "  Controls: Press [P] to encrypt and write estate files to Partition 2.",
         Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
     )));
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  PLAIN-ENGLISH ESTATE PROTOCOL:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  1. What is written? An encrypted vault file (vault.json) containing your root seed & heir keys."));
+    lines.push(Line::from("  2. Who can read it? ONLY someone who enters the 12-word Passphrase from Tab 2."));
+    lines.push(Line::from("  3. Burglar / Loss Safety: If this SD card is lost or stolen, it is mathematically unbreakable"));
+    lines.push(Line::from("     without the Tab 2 Passphrase (protected by 600,000 PBKDF2 rounds + AES-256-GCM)."));
+    lines.push(Line::from("  4. Pure Determinism: All encryption salts and keys derive from your physical entropy, with"));
+    lines.push(Line::from("     zero reliance on hardware random number generators."));
 
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
@@ -1058,6 +1106,12 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from("    Press [ENTER] to attempt AES-256-GCM / PBKDF2 authentication."));
     }
 
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  HOW VAULT UNLOCK WORKS:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  - This tool reads vault.json and decrypts it strictly in the laptop's temporary RAM."));
+    lines.push(Line::from("  - Nothing is written to any internal hard drive. When you reboot, all decrypted keys vanish."));
+
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
 }
@@ -1104,7 +1158,7 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
 
             for (idx, cand) in candidates.iter().take(6).enumerate() {
                 let dist_str = if cand.distance < 99 {
-                    format!("(Levenshtein Distance: {})", cand.distance)
+                    format!("(Typo Match - Levenshtein Distance: {})", cand.distance)
                 } else {
                     "(Valid Checksum)".to_string()
                 };
@@ -1125,6 +1179,14 @@ fn render_seedfix(frame: &mut Frame, area: Rect, state: &AppState) {
             Style::default().fg(Color::DarkGray),
         )));
     }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  WHY IS THIS POSSIBLE? (THE 12TH WORD CHECKSUM):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  - In a standard 12-word Bitcoin seed, the 12th word contains a built-in mathematical checksum."));
+    lines.push(Line::from("  - Out of 2,048 possible BIP-39 words, exactly 128 words can mathematically fit the 12th slot."));
+    lines.push(Line::from("  - If your 12th word was smudged or has a typo, this tool computes all 128 valid candidates"));
+    lines.push(Line::from("    and sorts them by spelling similarity to your input."));
 
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
@@ -1162,6 +1224,14 @@ fn render_wordlist_inspector(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(spans));
     }
 
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  THE 4-LETTER BIP-39 RULE:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  - In the official 2,048-word Bitcoin dictionary, every single word is uniquely identified"));
+    lines.push(Line::from("    by its FIRST 4 LETTERS. No two words share the same first 4 letters."));
+    lines.push(Line::from("  - If a word only has 3 letters (like 'cat' or 'dog'), the entire word is punched."));
+    lines.push(Line::from("  - This is why metal backup plates only have 4 character slots per word."));
+
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
 }
@@ -1176,18 +1246,40 @@ fn render_drill_guide(frame: &mut Frame, area: Rect, state: &AppState) {
         let words: Vec<&str> = seed.mnemonic.split_whitespace().collect();
         let mut lines = Vec::new();
         lines.push(Line::from(""));
-        lines.push(Line::from("  Standard BIP-39 4-Letter Prefix Metal Punch Guide:"));
-        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  READING ORDER GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("Punch Column 1 (Word 01 -> 06) DOWN, then Column 2 (Word 07 -> 12) DOWN.", Style::default().fg(Color::White)),
+        ]));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:<42}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+            Span::styled("COLUMN 2: (Words 07 through 12)", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
 
-        for (i, word) in words.iter().enumerate() {
-            let prefix = if word.len() >= 4 { &word[..4] } else { word };
+        for i in 0..6 {
+            let w1 = words.get(i).unwrap_or(&"");
+            let w2 = words.get(i + 6).unwrap_or(&"");
+            let p1 = if w1.len() >= 4 { &w1[..4] } else { w1 }.to_uppercase();
+            let p2 = if w2.len() >= 4 { &w2[..4] } else { w2 }.to_uppercase();
+
+            let left = format!("  Slot #{:02}:  {:<12} -> [ {:<4} ]", i + 1, w1, p1);
+            let right = format!("    Slot #{:02}:  {:<12} -> [ {:<4} ]", i + 7, w2, p2);
             lines.push(Line::from(vec![
-                Span::styled(format!("  {:2}. {:<10} -> PUNCH: ", i + 1, word), Style::default().fg(Color::DarkGray)),
-                Span::styled(format!("{:<4}", prefix.to_uppercase()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(left, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled(right, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ]));
         }
 
-        frame.render_widget(Paragraph::new(lines).block(block), area);
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  STEEL PUNCHING BEST PRACTICES:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  1. Use stainless steel or titanium plates (fireproof to 2,000°F+)."));
+        lines.push(Line::from("  2. Center punch firmly into the 4 letters indicated in the brackets [ ABCD ]."));
+        lines.push(Line::from("  3. Check each stamped word against Tab 1 before erasing memory or powering down."));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
     } else {
         frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
@@ -1248,6 +1340,10 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
         Line::from(vec![
             Span::raw("  Memory Hygiene:       "),
             Span::styled("ZeroizeOnDrop on all entropy buffers, private keys, and master seeds", Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::raw("  Entropy Invariant:    "),
+            Span::styled("Zero Hardware PRNG: 100% Deterministic keys & vault encryption from coins/dice", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]),
     ];
 

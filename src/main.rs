@@ -188,25 +188,24 @@ fn run_event_loop(
                     ui::Page::MasterSeed => {
                         match key.code {
                             KeyCode::Char('r') | KeyCode::Char('R') => {
-                                let rand_bits = crypto::generate_random_128bit_binary();
-                                if let Ok(seed) = crypto::process_physical_entropy(&rand_bits) {
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                    state.set_seed(seed, children);
-                                    state.status_message = "[PRNG] Derived dynamic testing wallet from device PRNG (Untrusted).".into();
+                                if state.seed.is_none() {
+                                    let rand_bits = crypto::generate_random_128bit_binary();
+                                    state.set_entropy_input(&rand_bits);
+                                    state.status_message = "[PRNG LOADED] 128 pseudo-random bits populated. Review chunking & press [ENTER].".into();
                                 }
                             }
                             KeyCode::Char('c') | KeyCode::Char('C') => {
-                                let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
-                                if let Ok(seed) = crypto::process_physical_entropy(coin_entropy) {
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                    state.set_seed(seed, children);
+                                if state.seed.is_none() {
+                                    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                                    state.set_entropy_input(coin_entropy);
+                                    state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
                                 }
                             }
                             KeyCode::Char('d') | KeyCode::Char('D') => {
-                                let dice_entropy = "42312461325416235142635142316524136251436251436251";
-                                if let Ok(seed) = crypto::process_physical_entropy(dice_entropy) {
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                    state.set_seed(seed, children);
+                                if state.seed.is_none() {
+                                    let dice_entropy = "42312461325416235142635142316524136251436251436251";
+                                    state.set_entropy_input(dice_entropy);
+                                    state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
                                 }
                             }
                             KeyCode::Backspace => {

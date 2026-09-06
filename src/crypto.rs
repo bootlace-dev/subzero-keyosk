@@ -110,15 +110,27 @@ pub fn encrypt_vault_payload(
     payload: &DecryptedVaultPayload,
     passphrase_mnemonic: &str,
 ) -> Result<String, CryptoError> {
-    use rand::RngCore;
-
     let plaintext = serde_json::to_string_pretty(payload)
         .map_err(|e| CryptoError::SerializationError(e.to_string()))?;
 
+    // Pure Physical Entropy Invariant:
+    // Do NOT call rand::thread_rng() or /dev/urandom.
+    // Derive AES-256-GCM IV (12 bytes) and PBKDF2 Salt (16 bytes) deterministically from
+    // HMAC-SHA256 over master_root_mnemonic keyed by domain separation tags.
+    let mut hmac_salt: Hmac<Sha256> = Mac::new_from_slice(b"subzero:vault:pbkdf2:salt:v1")
+        .map_err(|_| CryptoError::HmacError)?;
+    hmac_salt.update(payload.master_root_mnemonic.trim().as_bytes());
+    let salt_hash = hmac_salt.finalize().into_bytes();
     let mut salt = [0u8; 16];
+    salt.copy_from_slice(&salt_hash[..16]);
+
+    let mut hmac_iv: Hmac<Sha256> = Mac::new_from_slice(b"subzero:vault:aes-gcm:iv:v1")
+        .map_err(|_| CryptoError::HmacError)?;
+    hmac_iv.update(payload.master_root_mnemonic.trim().as_bytes());
+    hmac_iv.update(passphrase_mnemonic.trim().as_bytes());
+    let iv_hash = hmac_iv.finalize().into_bytes();
     let mut iv = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut salt);
-    rand::thread_rng().fill_bytes(&mut iv);
+    iv.copy_from_slice(&iv_hash[..12]);
 
     let normalized_pass = passphrase_mnemonic.trim().to_lowercase();
     let mut derived_key = [0u8; 32];
@@ -451,7 +463,7 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
         return Ok((bytes, "Physical Coin Flips (128-bit Bin)"));
     }
 
-    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy whitening)
+    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing)
     if clean.chars().all(|c| ('1'..='6').contains(&c)) {
         if clean.len() < 50 {
             return Err(CryptoError::InvalidEntropyLength(clean.len()));

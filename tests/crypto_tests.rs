@@ -78,3 +78,28 @@ fn test_seedfix_levenshtein() {
     assert_eq!(results[0].twelfth_word, "about");
     assert_eq!(results[0].distance, 1);
 }
+
+#[test]
+fn test_deterministic_vault_encryption_roundtrip() {
+    use subzero::crypto::{encrypt_vault_payload, decrypt_vault_json, DecryptedVaultPayload};
+
+    let payload = DecryptedVaultPayload {
+        version: "1.0.0".to_string(),
+        created_utc: "2026-09-04T05:00:00Z".to_string(),
+        master_root_mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
+        descriptor: "wpkh([1c23b5f0/84'/1'/0']tpubDC59.../<0;1>/*)#12345678".to_string(),
+        heir_treasuries: vec![],
+    };
+
+    let passphrase = "zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong";
+    
+    // Encrypt twice - must be 100% deterministic (identical ciphertext, salt, and iv derived from physical entropy)
+    let encrypted1 = encrypt_vault_payload(&payload, passphrase).expect("Encryption failed");
+    let encrypted2 = encrypt_vault_payload(&payload, passphrase).expect("Encryption failed");
+    assert_eq!(encrypted1, encrypted2, "Vault encryption must be deterministic from physical root entropy");
+
+    // Decrypt and verify payload matches original
+    let decrypted = decrypt_vault_json(&encrypted1, passphrase).expect("Decryption failed");
+    assert_eq!(decrypted.master_root_mnemonic, payload.master_root_mnemonic);
+    assert_eq!(decrypted.descriptor, payload.descriptor);
+}
