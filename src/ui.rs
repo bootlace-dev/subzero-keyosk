@@ -109,6 +109,9 @@ pub struct AppState {
     pub qr_mode: QrMode,
     pub bbqr_frame_index: usize,
     pub external_export_status: String,
+    pub is_harvesting_jitter: bool,
+    pub jitter_samples: Vec<(char, u64)>,
+    pub last_jitter_instant: Option<std::time::Instant>,
 }
 
 impl AppState {
@@ -135,6 +138,9 @@ impl AppState {
             qr_mode: QrMode::BbqrAnimated,
             bbqr_frame_index: 0,
             external_export_status: "Press [E] to export descriptor to separate USB drive.".into(),
+            is_harvesting_jitter: false,
+            jitter_samples: Vec::new(),
+            last_jitter_instant: None,
         }
     }
 
@@ -144,6 +150,9 @@ impl AppState {
         self.bip85_children.clear();
         self.entropy_input.clear();
         self.is_entering_entropy = false;
+        self.is_harvesting_jitter = false;
+        self.jitter_samples.clear();
+        self.last_jitter_instant = None;
         self.decrypted_vault = None;
         self.address_page_offset = 0;
         self.heir_page_offset = 0;
@@ -573,6 +582,70 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
 
 fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
     let mut lines = Vec::new();
+
+    if state.is_harvesting_jitter {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  ╔══════════════════════════════════════════════════════════════════════════════╗",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ║  HUMAN KEYSTROKE JITTER HARVESTER — HARDWARE PRNG PURGED                     ║",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ║  Mash any keys on your keyboard rapidly! Watch nanosecond timing deltas.     ║",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  ╚══════════════════════════════════════════════════════════════════════════════╝",
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from(""));
+
+        let count = state.jitter_samples.len();
+        let target = 32;
+        let filled = (count * 30) / target;
+        let empty = 30usize.saturating_sub(filled);
+        let bar = format!("[{}{}] {} / {} Keystrokes", "█".repeat(filled), "░".repeat(empty), count, target);
+        
+        lines.push(Line::from(vec![
+            Span::styled("  Harvest Progress: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(bar, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  Live Keystroke Micro-Timing Telemetry (Nanosecond Clock Jitter):", Style::default().fg(Color::Cyan))));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+
+        let start_idx = state.jitter_samples.len().saturating_sub(6);
+        for (i, (ch, nanos)) in state.jitter_samples[start_idx..].iter().enumerate() {
+            let ms = (*nanos as f64) / 1_000_000.0;
+            let display_ch = if *ch == '\'' { "'''".to_string() } else { format!("'{}'", ch) };
+            let line_str = format!(
+                "    Sample #{:02}:  Key: {:<5}  |  Interval: {:>12} ns ({:>6.2} ms)",
+                start_idx + i + 1,
+                display_ch,
+                nanos,
+                ms
+            );
+            lines.push(Line::from(Span::styled(line_str, Style::default().fg(Color::Yellow))));
+        }
+        for _ in (state.jitter_samples.len() - start_idx)..6 {
+            lines.push(Line::from(Span::styled("    Sample --:  Key: --     |  Interval: ------------ ns (------ ms)", Style::default().fg(Color::DarkGray))));
+        }
+
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from(Span::styled("  WHY THIS WORKS & ELIMINATES HARDWARE SILICON TRUST:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  Even when you try to type at a fixed rhythm, human neuromuscular jitter varies by"));
+        lines.push(Line::from("  millions of nanoseconds between keys. SubZero hashes these micro-timing intervals"));
+        lines.push(Line::from("  into 128 binary coin flips via SHA-256 with ZERO hardware or kernel PRNG queries."));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  Keep typing rapidly on any keys... (or press [ESC] to cancel)", Style::default().fg(Color::LightCyan))));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
+        return;
+    }
     let raw = &state.entropy_input;
     let len = raw.len();
 
@@ -726,10 +799,10 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions and blocks repetitive patterns."));
     lines.push(Line::from("  4. Dice Hashing: 50+ dice rolls are hashed with SHA-256 to remove physical die bias."));
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  DEVELOPER & TESTING SHORTCUTS (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
     lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
     lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
-    lines.push(Line::from("  - Press [R] to load 128 pseudo-random bits from the device PRNG (testing only)."));
+    lines.push(Line::from("  - Press [K] to harvest human keystroke timing jitter (unique test seed, zero PRNG)."));
     lines.push(Line::from("  - Press [W] at any time to wipe and clear all input buffers."));
 
     let p = Paragraph::new(lines).block(block);
@@ -1424,7 +1497,7 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
         ]),
         Line::from(vec![
             Span::raw("  Entropy Invariant:    "),
-            Span::styled("Zero Hardware PRNG: 100% Deterministic keys & vault encryption from coins/dice", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("Zero Hardware PRNG: Deterministic keys from coins/dice + human keystroke jitter", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]),
         Line::from(vec![
             Span::raw("  OS Hardware Shield:   "),

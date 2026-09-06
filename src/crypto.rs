@@ -404,14 +404,21 @@ pub fn get_test_vector(id: u8) -> Result<(Vec<u8>, &'static str), CryptoError> {
     }
 }
 
-/// Generate 128 pseudo-random bits from device PRNG (Testing Only) formatted as a binary string.
-/// Convenience utility for testing dynamic wallets without pre-funded test vectors.
-pub fn generate_random_128bit_binary() -> String {
-    use rand::RngCore;
-    let mut bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut bytes);
+/// Derive 128 pseudo-random bits from human keystroke timing jitter.
+/// Takes a slice of (key_char, elapsed_nanos) collected during user typing.
+/// Hashed with SHA-256 into 128 binary coin flips (0/1).
+/// ZERO hardware/kernel PRNG queries: pure userspace human timing jitter.
+pub fn harvest_keystroke_jitter_to_binary(samples: &[(char, u64)]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"subzero:entropy:keystroke_jitter:v1");
+    for (ch, nanos) in samples {
+        hasher.update(ch.to_string().as_bytes());
+        hasher.update(&nanos.to_le_bytes());
+    }
+    let hash = hasher.finalize();
     let mut bits = String::with_capacity(128);
-    for b in bytes {
+    // Use first 16 bytes (128 bits) of the 256-bit SHA-256 digest
+    for &b in &hash[..16] {
         for i in (0..8).rev() {
             bits.push(if (b >> i) & 1 == 1 { '1' } else { '0' });
         }

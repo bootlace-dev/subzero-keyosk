@@ -103,3 +103,30 @@ fn test_deterministic_vault_encryption_roundtrip() {
     assert_eq!(decrypted.master_root_mnemonic, payload.master_root_mnemonic);
     assert_eq!(decrypted.descriptor, payload.descriptor);
 }
+
+#[test]
+fn test_harvest_keystroke_jitter_to_binary() {
+    use subzero::crypto::{harvest_keystroke_jitter_to_binary, process_physical_entropy};
+
+    let samples = vec![
+        ('a', 142839120),
+        ('s', 89412045),
+        ('d', 210183991),
+        ('f', 73501230),
+        ('j', 118924402),
+        ('k', 95210340),
+        ('l', 160411205),
+        (';', 84129031),
+    ];
+
+    let bits1 = harvest_keystroke_jitter_to_binary(&samples);
+    let bits2 = harvest_keystroke_jitter_to_binary(&samples);
+
+    assert_eq!(bits1.len(), 128);
+    assert_eq!(bits1, bits2, "Jitter hashing must be deterministic for identical sample sequence");
+    assert!(bits1.chars().all(|c| c == '0' || c == '1'));
+
+    // Verify it parses cleanly into a 12-word BIP-39 mnemonic
+    let seed = process_physical_entropy(&bits1).expect("Failed to process jitter entropy");
+    assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
+}

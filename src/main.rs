@@ -150,6 +150,15 @@ fn run_event_loop(
                     break;
                 }
 
+                // Cancel active jitter harvesting on Esc
+                if key.code == KeyCode::Esc && state.is_harvesting_jitter {
+                    state.is_harvesting_jitter = false;
+                    state.jitter_samples.clear();
+                    state.last_jitter_instant = None;
+                    state.status_message = "Keystroke jitter harvest canceled.".into();
+                    continue;
+                }
+
                 // Global exits
                 if key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q') || key.code == KeyCode::Esc {
                     if state.current_page != ui::Page::RoleSelect && key.code == KeyCode::Esc {
@@ -200,52 +209,76 @@ fn run_event_loop(
                         }
                     }
                     ui::Page::MasterSeed => {
-                        match key.code {
-                            KeyCode::Char('r') | KeyCode::Char('R') => {
-                                if state.seed.is_none() {
-                                    let rand_bits = crypto::generate_random_128bit_binary();
-                                    state.set_entropy_input(&rand_bits);
-                                    state.status_message = "[PRNG LOADED] 128 pseudo-random bits populated. Review chunking & press [ENTER].".into();
+                        if state.is_harvesting_jitter {
+                            if let KeyCode::Char(c) = key.code {
+                                let now = std::time::Instant::now();
+                                let delta_nanos = if let Some(prev) = state.last_jitter_instant {
+                                    now.duration_since(prev).as_nanos() as u64
+                                } else {
+                                    150_000_000 // default ~150ms for initial sample
+                                };
+                                state.last_jitter_instant = Some(now);
+                                state.jitter_samples.push((c, delta_nanos));
+
+                                if state.jitter_samples.len() >= 32 {
+                                    // Harvest completed: hash jitter samples to 128 binary bits
+                                    let bits = crypto::harvest_keystroke_jitter_to_binary(&state.jitter_samples);
+                                    state.set_entropy_input(&bits);
+                                    state.is_harvesting_jitter = false;
+                                    state.jitter_samples.clear();
+                                    state.last_jitter_instant = None;
+                                    state.status_message = "[HUMAN JITTER HARVESTED] 128 binary coin flips generated from keystroke timing deltas. Review & press [ENTER].".into();
                                 }
                             }
-                            KeyCode::Char('c') | KeyCode::Char('C') => {
-                                if state.seed.is_none() {
-                                    let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
-                                    state.set_entropy_input(coin_entropy);
-                                    state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
+                        } else {
+                            match key.code {
+                                KeyCode::Char('k') | KeyCode::Char('K') => {
+                                    if state.seed.is_none() {
+                                        state.is_harvesting_jitter = true;
+                                        state.jitter_samples.clear();
+                                        state.last_jitter_instant = Some(std::time::Instant::now());
+                                        state.status_message = "Harvesting human keystroke timing jitter. Mash any keys rapidly!".into();
+                                    }
                                 }
-                            }
-                            KeyCode::Char('d') | KeyCode::Char('D') => {
-                                if state.seed.is_none() {
-                                    let dice_entropy = "42312461325416235142635142316524136251436251436251";
-                                    state.set_entropy_input(dice_entropy);
-                                    state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
+                                KeyCode::Char('c') | KeyCode::Char('C') => {
+                                    if state.seed.is_none() {
+                                        let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                                        state.set_entropy_input(coin_entropy);
+                                        state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
+                                    }
                                 }
-                            }
-                            KeyCode::Backspace => {
-                                if state.seed.is_none() {
-                                    state.pop_entropy_char();
+                                KeyCode::Char('d') | KeyCode::Char('D') => {
+                                    if state.seed.is_none() {
+                                        let dice_entropy = "42312461325416235142635142316524136251436251436251";
+                                        state.set_entropy_input(dice_entropy);
+                                        state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
+                                    }
                                 }
-                            }
-                            KeyCode::Enter => {
-                                if state.seed.is_none() && !state.entropy_input.is_empty() {
-                                    match crypto::process_physical_entropy(&state.entropy_input) {
-                                        Ok(seed) => {
-                                            let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                            state.set_seed(seed, children);
-                                        }
-                                        Err(e) => {
-                                            state.status_message = format!("[BLOCKED] {}", e);
+                                KeyCode::Backspace => {
+                                    if state.seed.is_none() {
+                                        state.pop_entropy_char();
+                                    }
+                                }
+                                KeyCode::Enter => {
+                                    if state.seed.is_none() && !state.entropy_input.is_empty() {
+                                        match crypto::process_physical_entropy(&state.entropy_input) {
+                                            Ok(seed) => {
+                                                let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                                state.set_seed(seed, children);
+                                            }
+                                            Err(e) => {
+                                                state.status_message = format!("[BLOCKED] {}", e);
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            KeyCode::Char(c) if c.is_ascii_alphanumeric() => {
-                                if state.seed.is_none() {
-                                    state.push_entropy_char(c);
+                                KeyCode::Char(c) if c.is_ascii_alphanumeric() => {
+                                    if state.seed.is_none() {
+                                        state.push_entropy_char(c);
+                                    }
                                 }
+                                _ => {}
                             }
-                            _ => {}
                         }
                     }
                     ui::Page::VpubQr => {
