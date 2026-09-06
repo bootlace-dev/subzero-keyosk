@@ -166,15 +166,28 @@ fn run_event_loop(
                 // Cancel active jitter harvesting on Esc
                 if key.code == KeyCode::Esc && state.is_harvesting_jitter {
                     state.is_harvesting_jitter = false;
+                    for s in &mut state.jitter_samples {
+                        s.0 = '\0';
+                        s.1 = 0;
+                    }
                     state.jitter_samples.clear();
                     state.last_jitter_instant = None;
                     state.status_message = "Keystroke jitter harvest canceled.".into();
                     continue;
                 }
 
-                // Global exits: Only [Q] exits the appliance (disabled during active jitter harvesting)
+                // Global exits: Two-stroke confirmation required for [Q] to prevent accidental memory purge
                 if (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q')) && !state.is_harvesting_jitter {
-                    break;
+                    if let Some(t) = state.pending_exit_instant {
+                        if t.elapsed() < Duration::from_secs(3) {
+                            break;
+                        }
+                    }
+                    state.pending_exit_instant = Some(std::time::Instant::now());
+                    state.status_message = "[!] PRESS [Q] AGAIN WITHIN 3 SECONDS TO CONFIRM EXIT & PURGE RAM.".into();
+                    continue;
+                } else if state.pending_exit_instant.is_some() {
+                    state.pending_exit_instant = None;
                 }
 
                 // Global Home/Esc: Returns directly to Tab 0 (RoleSelect)
@@ -296,7 +309,7 @@ fn run_event_loop(
                                 }
                                 KeyCode::Char('d') | KeyCode::Char('D') => {
                                     if state.seed.is_none() {
-                                        let dice_entropy = "42312461325416235142635142316524136251436251436251";
+                                        let dice_entropy = "4231246132541623514263514231652413625143625143625132";
                                         state.set_entropy_input(dice_entropy);
                                         state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
                                     }

@@ -20,8 +20,8 @@ fn test_coin_entropy_to_bip39_testnet4() {
 
 #[test]
 fn test_dice_entropy_to_bip39_testnet4() {
-    // 50 realistic dice rolls passing Markov and repetition tests
-    let dice_str = "42312461325243625522323266341621355533154531632254";
+    // 52 realistic dice rolls passing Markov, Chi-squared, and repetition tests
+    let dice_str = "4231246132524362552232326634162135553315453163225413";
     let seed = process_physical_entropy(dice_str).expect("Failed to process dice entropy");
 
     assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
@@ -43,11 +43,27 @@ fn test_entropy_quality_hard_block() {
         _ => panic!("Expected MarkovAuditFailed, got {:?}", err),
     }
 
+    // Short dice rolls (50 rolls < 52) MUST fail length check
+    let short_dice = "42312461325243625522323266341621355533154531632254";
+    let err_short = process_physical_entropy(short_dice).expect_err("Should have failed <52 rolls");
+    match err_short {
+        CryptoError::InvalidEntropyLength(50) => {},
+        _ => panic!("Expected InvalidEntropyLength(50), got {:?}", err_short),
+    }
+
+    // Severely skewed frequency (84 ones and 44 zeros) passing Markov but failing Chi-squared audit
+    let skewed = "01010111101011101111011111110010111011111110110111110111001001101111001011111101100100110111111001110110110101100000010100111011";
+    let err_chi2 = process_physical_entropy(skewed).expect_err("Should have failed Chi-squared audit");
+    match err_chi2 {
+        CryptoError::ChiSquaredAuditFailed(_) => {},
+        _ => panic!("Expected ChiSquaredAuditFailed, got {:?}", err_chi2),
+    }
+
     // Repetitive chunk string (123123123...) MUST fail repetition check
     let repeat_str = "123123123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890";
     let err2 = process_physical_entropy(repeat_str).expect_err("Should have failed repetition check");
     match err2 {
-        CryptoError::RepetitivePatternDetected | CryptoError::MarkovAuditFailed(_) => {},
+        CryptoError::RepetitivePatternDetected | CryptoError::MarkovAuditFailed(_) | CryptoError::ChiSquaredAuditFailed(_) => {},
         _ => panic!("Expected repetition/markov error, got {:?}", err2),
     }
 }

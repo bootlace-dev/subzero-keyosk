@@ -16,6 +16,7 @@ impl QrMode {
         QrMode::StaticVpub,
     ];
 
+    #[allow(dead_code)]
     pub fn title(&self) -> &'static str {
         match self {
             QrMode::BbqrAnimated => "Mode 1: BBQR Animated Descriptor (~2.5 Hz)",
@@ -24,6 +25,7 @@ impl QrMode {
         }
     }
 
+    #[allow(dead_code)]
     pub fn description(&self) -> &'static str {
         match self {
             QrMode::BbqrAnimated => "Splits descriptor into rotating full-block frames. Universal fit on all screens.",

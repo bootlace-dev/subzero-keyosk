@@ -5,15 +5,16 @@ use ratatui::{
     widgets::{Block, Borders, Paragraph, Wrap},
     Frame,
 };
+use zeroize::Zeroize;
 use crate::crypto::{
-    has_repetitive_substrings, run_markov_audit, Bip85Child,
+    has_repetitive_substrings, run_markov_audit, run_chi_squared_audit, Bip85Child,
     DecryptedVaultPayload, GeneratedSeed, decrypt_vault_json,
     process_physical_entropy, derive_bip85_children,
 };
 use crate::qr::{
     create_bbqr_frames, render_full_block_qr, QrMode,
 };
-use crate::seedfix::{search_wordlist, solve_twelfth_word, SeedFixCandidate};
+use crate::seedfix::{search_wordlist, solve_twelfth_word};
 use crate::storage::{
     locate_estate_partition, write_estate_partition, read_estate_partition, export_descriptor_external_usb,
 };
@@ -64,7 +65,7 @@ impl Page {
             Page::FaucetQr => "Tab 5. Faucet QR",
             Page::Addresses => "Tab 6. Receive Addresses",
             Page::Bip85Children => "Tab 7. BIP-85 Heir Keys",
-            Page::EstateProvisioner => "Tab 8. Partition 2 Estate Writer",
+            Page::EstateProvisioner => "Tab 8. Benefactor Estate Vault Provisioner",
             Page::VaultUnlock => "Tab 9. Unlock & Decrypt Estate Vault (vault.json)",
             Page::SeedFix => "Tab 10. SeedFix Recovery Tool (Interactive Candidate Solver)",
             Page::WordlistInspector => "Tab 11. BIP-39 Canonical English Wordlist Inspector (2048 Words)",
@@ -101,7 +102,6 @@ pub struct AppState {
     pub heir_page_offset: usize,
     pub estate_write_status: String,
     pub seedfix_input: String,
-    pub seedfix_results: Vec<SeedFixCandidate>,
     pub wordlist_query: String,
     pub vault_passphrase_input: String,
     pub decrypted_vault: Option<DecryptedVaultPayload>,
@@ -115,6 +115,7 @@ pub struct AppState {
     pub last_jitter_instant: Option<std::time::Instant>,
     pub is_selecting_test_vector: bool,
     pub wipe_confirmation_instant: Option<std::time::Instant>,
+    pub pending_exit_instant: Option<std::time::Instant>,
 }
 
 impl AppState {
@@ -132,7 +133,6 @@ impl AppState {
             heir_page_offset: 0,
             estate_write_status: "Press [P] to provision Partition 2 (SUBZERO_EST).".into(),
             seedfix_input: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
-            seedfix_results: Vec::new(),
             wordlist_query: String::new(),
             vault_passphrase_input: String::new(),
             decrypted_vault: None,
@@ -146,6 +146,7 @@ impl AppState {
             last_jitter_instant: None,
             is_selecting_test_vector: false,
             wipe_confirmation_instant: None,
+            pending_exit_instant: None,
         }
     }
 
@@ -153,13 +154,21 @@ impl AppState {
         self.seed = None;
         self.decoupled_passphrase = None;
         self.bip85_children.clear();
+        self.entropy_input.zeroize();
         self.entropy_input.clear();
         self.is_entering_entropy = false;
         self.is_harvesting_jitter = false;
+        for s in &mut self.jitter_samples {
+            s.0 = '\0';
+            s.1.zeroize();
+        }
         self.jitter_samples.clear();
         self.last_jitter_instant = None;
         self.decrypted_vault = None;
+        self.vault_passphrase_input.zeroize();
         self.vault_passphrase_input.clear();
+        self.seedfix_input.zeroize();
+        self.seedfix_input.clear();
         self.vault_status_msg = "Enter 12-word passphrase or 'test0'..'test9' / 't0'..'t9'.".into();
         self.address_page_offset = 0;
         self.heir_page_offset = 0;
@@ -208,23 +217,25 @@ impl AppState {
 
         if is_bin {
             let markov = run_markov_audit(&self.entropy_input);
+            let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
             let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
-            if len >= 128 && markov.passed && !repeats {
+            if len >= 128 && markov.passed && chi2_pass && !repeats {
                 self.status_message = "Entropy 128-bit threshold valid! Press [ENTER] to derive keys.".into();
             } else if len >= 128 {
-                self.status_message = "[BLOCKED] 128 bits met, but failed Markov or repeat checks!".into();
+                self.status_message = "[BLOCKED] 128 bits met, but failed Markov, Chi-squared, or repeat checks!".into();
             } else {
                 self.status_message = format!("Collecting coin flips: {}/128 bits...", len);
             }
         } else if is_dice {
             let markov = run_markov_audit(&self.entropy_input);
+            let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
             let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
-            if len >= 50 && markov.passed && !repeats {
-                self.status_message = "Dice entropy threshold valid! Press [ENTER] to derive keys.".into();
-            } else if len >= 50 {
-                self.status_message = "[BLOCKED] 50 rolls met, but failed Markov or repeat checks!".into();
+            if len >= 52 && markov.passed && chi2_pass && !repeats {
+                self.status_message = "Dice entropy threshold valid (52 rolls)! Press [ENTER] to derive keys.".into();
+            } else if len >= 52 {
+                self.status_message = "[BLOCKED] 52 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
             } else {
-                self.status_message = format!("Collecting dice rolls: {}/50 rolls...", len);
+                self.status_message = format!("Collecting dice rolls: {}/52 rolls...", len);
             }
         } else {
             self.status_message = "Mixed entropy input detected. Use only 0/1 or 1-6.".into();
@@ -500,7 +511,7 @@ fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 }
 
-fn render_role_select(frame: &mut Frame, area: Rect, state: &AppState) {
+fn render_role_select(frame: &mut Frame, area: Rect, _state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
         .title(" Tab 0. Welcome to SubZero Keyosk — Select Your Operator Role ")
@@ -767,6 +778,20 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         Span::styled(format!(" (Max cond prob: {:.1}%)", markov.max_cond_prob * 100.0), Style::default().fg(Color::DarkGray)),
     ]));
 
+    let (chi2_pass, chi2_val, _) = run_chi_squared_audit(raw);
+    let chi2_style = if len < 16 {
+        Style::default().fg(Color::DarkGray)
+    } else if chi2_pass {
+        Style::default().fg(Color::Green)
+    } else {
+        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
+    };
+    lines.push(Line::from(vec![
+        Span::raw("  Chi-Squared Uniformity:  "),
+        Span::styled(if len < 16 { "Awaiting 16+ chars..." } else if chi2_pass { "[PASS - FREQUENCY UNIFORM]" } else { "[FAIL - SKEWED FREQUENCY]" }, chi2_style),
+        Span::styled(format!(" (χ² = {:.2})", chi2_val), Style::default().fg(Color::DarkGray)),
+    ]));
+
     let repeat_style = if len < 16 {
         Style::default().fg(Color::DarkGray)
     } else if repeats {
@@ -830,20 +855,24 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         }
     } else if is_dice {
         let chars: Vec<char> = raw.chars().collect();
-        for row in 0..5 {
+        for row in 0..6 {
             let mut spans = vec![Span::raw("    ")];
             for col in 0..10 {
                 let idx = row * 10 + col;
-                if idx < chars.len() {
-                    spans.push(Span::styled(format!("{} ", chars[idx]), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
-                } else {
-                    spans.push(Span::styled("- ", Style::default().fg(Color::DarkGray)));
-                }
-                if col == 4 {
-                    spans.push(Span::raw("  "));
+                if idx < 52 {
+                    if idx < chars.len() {
+                        spans.push(Span::styled(format!("{} ", chars[idx]), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+                    } else {
+                        spans.push(Span::styled("- ", Style::default().fg(Color::DarkGray)));
+                    }
+                    if col == 4 {
+                        spans.push(Span::raw("  "));
+                    }
                 }
             }
-            lines.push(Line::from(spans));
+            if row < 5 || (row == 5 && chars.len() > 50) || (row == 5 && 52 > 50) {
+                lines.push(Line::from(spans));
+            }
         }
     } else {
         lines.push(Line::from(Span::styled(
@@ -853,14 +882,14 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     }
 
     lines.push(Line::from(""));
-    if (is_bin && len >= 128 && markov.passed && !repeats) || (is_dice && len >= 50 && markov.passed && !repeats) {
+    if (is_bin && len >= 128 && markov.passed && chi2_pass && !repeats) || (is_dice && len >= 52 && markov.passed && chi2_pass && !repeats) {
         lines.push(Line::from(Span::styled(
             "  [CRITERIA MET] Press [ENTER] to derive master keys and BIP-85 suite.",
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )));
     } else if !raw.is_empty() {
         let needed = if is_dice {
-            format!("{} rolls", 50usize.saturating_sub(len))
+            format!("{} rolls", 52usize.saturating_sub(len))
         } else {
             format!("{} bits", 128usize.saturating_sub(len))
         };
@@ -873,10 +902,10 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  HOW THIS WORKS (PURE PHYSICAL ENTROPY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 50+ times."));
+    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 52+ times."));
     lines.push(Line::from("  2. Zero Hardware PRNG: Your private keys come 100% from physical chance, not a computer chip."));
-    lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions and blocks repetitive patterns."));
-    lines.push(Line::from("  4. Dice Hashing: 50+ dice rolls are hashed with SHA-256 to remove physical die bias."));
+    lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions, Chi-squared uniformity, and blocks repeats."));
+    lines.push(Line::from("  4. Dice Hashing: 52+ dice rolls are hashed with SHA-256 to eliminate physical die bias."));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
     lines.push(Line::from("  - Press [T] to select a deterministic test vector (0=All-Zeros, 8=Genesis Lore, 9=Hal Finney)."));
@@ -1003,7 +1032,7 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from("  +-------------------+----------------------------+-----------------------------+"));
         lines.push(Line::from("  | Nunchuk (Mobile)  | Tab 4, Mode 1 (BBQR)       | BIP-380 Output Descriptor   |"));
         lines.push(Line::from("  | Sparrow (Desktop) | Tab 4, Mode 1 or Mode 2    | BIP-380 Output Descriptor   |"));
-        lines.push(Line::from("  | Bitcoin Keeper    | Tab 4, Mode 1 (BBQR)       | BIP-380 Output Descriptor   |"));
+        lines.push(Line::from("  | Bitcoin Keeper    | Tab 4, Mode 2 (Descriptor) | BIP-380 Output Descriptor   |"));
         lines.push(Line::from("  | Blockstream Green | Tab 4, Mode 3 (Static VPUB)| SLIP-0132 Raw Extended Key  |"));
         lines.push(Line::from("  | Electrum          | Tab 4, Mode 3 (Static VPUB)| SLIP-0132 Raw Extended Key  |"));
         lines.push(Line::from("  | Bitcoin Core CLI  | USB File: descriptor.txt   | importdescriptors JSON      |"));
@@ -1261,7 +1290,7 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 fn render_estate_provisioner(frame: &mut Frame, area: Rect, state: &AppState) {
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(" Tab 8. Partition 2 Estate Writer (SUBZERO_EST) ")
+        .title(" Tab 8. Benefactor Estate Vault Provisioner (SUBZERO_EST) ")
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
@@ -1349,6 +1378,10 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
     lines.push(Line::from(Span::styled(
         format!("  Status: {}", state.vault_status_msg),
         Style::default().fg(Color::Cyan),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Note: Press [ENTER] to authenticate. Press [Esc] to exit input typing & allow memory wipe.",
+        Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(""));
 

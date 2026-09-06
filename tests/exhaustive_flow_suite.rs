@@ -1,6 +1,6 @@
 use subzero::ui::{AppState, Page, render_app};
 use subzero::qr::QrMode;
-use subzero::crypto::{process_physical_entropy, derive_bip85_children, harvest_keystroke_jitter_to_binary, get_test_vector};
+use subzero::crypto::{process_physical_entropy, derive_bip85_children, get_test_vector};
 use subzero::seedfix::solve_twelfth_word;
 use ratatui::backend::TestBackend;
 use ratatui::Terminal;
@@ -73,7 +73,7 @@ fn test_exhaustive_entropy_input_methods_and_screen_rendering() {
     // 1. Test every test vector from test0 through test9
     for i in 0..=9 {
         let (bytes, label) = get_test_vector(i).expect(&format!("Failed test vector {}", i));
-        let bits: String = bytes.iter().flat_map(|b| (0..8).rev().map(move |n| if (b >> n) & 1 == 1 { '1' } else { '0' })).collect();
+        let _bits: String = bytes.iter().flat_map(|b| (0..8).rev().map(move |n| if (b >> n) & 1 == 1 { '1' } else { '0' })).collect();
         let seed = process_physical_entropy(&format!("test{}", i)).expect(&format!("Failed processing test vector {}", label));
         let children = derive_bip85_children(&seed.mnemonic, 20).expect("Failed children");
         
@@ -92,7 +92,7 @@ fn test_exhaustive_entropy_input_methods_and_screen_rendering() {
     }
 
     // 2. Test 52 dice rolls input
-    let dice_input = "42312461325416235142635142316524136251436251436251";
+    let dice_input = "4231246132541623514263514231652413625143625143625132";
     let seed_dice = process_physical_entropy(dice_input).expect("Dice entropy failed");
     let children_dice = derive_bip85_children(&seed_dice.mnemonic, 20).expect("Dice children failed");
     state.set_seed(seed_dice, children_dice);
@@ -265,7 +265,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
             "VERSATILE BIP-85 USE CASES (MASTER SEED REMAINS AIRGAPPED & COLD):",
         ]),
         (Page::EstateProvisioner, &[
-            "Tab 8. Partition 2 Estate Writer",
+            "Tab 8. Benefactor Estate Vault Provisioner",
             "PLAIN-ENGLISH ESTATE PROTOCOL:",
         ]),
         (Page::VaultUnlock, &[

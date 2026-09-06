@@ -17,13 +17,40 @@ pub fn locate_estate_partition() -> Option<String> {
         }
     }
 
-    // 2. Scan standard device paths for partition 2
+    // 2. Try findfs LABEL=SUBZERO_EST
+    if let Ok(output) = Command::new("findfs").arg("LABEL=SUBZERO_EST").output() {
+        if output.status.success() {
+            let part = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !part.is_empty() {
+                return Some(part);
+            }
+        }
+    }
+
+    // 3. Scan /dev/disk/by-label/SUBZERO_EST
+    let by_label = "/dev/disk/by-label/SUBZERO_EST";
+    if std::path::Path::new(by_label).exists() {
+        if let Ok(target) = std::fs::read_link(by_label) {
+            let abs = std::path::Path::new("/dev/disk/by-label").join(target);
+            if let Ok(canonical) = abs.canonicalize() {
+                return Some(canonical.to_string_lossy().to_string());
+            }
+        }
+        return Some(by_label.to_string());
+    }
+
+    // 4. Candidate scan WITH label assertion (never blindly mount arbitrary disk partitions)
     let candidates = [
-        "/dev/sdb2", "/dev/mmcblk0p2", "/dev/sdc2", "/dev/sdd2", "/dev/vda2", "/dev/sda2"
+        "/dev/sdb2", "/dev/mmcblk0p2", "/dev/sdc2", "/dev/sdd2", "/dev/vda2"
     ];
     for p in candidates {
         if std::path::Path::new(p).exists() {
-            return Some(p.to_string());
+            if let Ok(out) = Command::new("blkid").arg(p).output() {
+                let info = String::from_utf8_lossy(&out.stdout);
+                if info.contains("SUBZERO_EST") {
+                    return Some(p.to_string());
+                }
+            }
         }
     }
 
@@ -45,9 +72,9 @@ pub fn write_estate_partition(
     // Unmount if already mounted
     let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
 
-    // Mount read-write
+    // Mount read-write with secure umask
     let mount_status = Command::new("mount")
-        .args(["-t", "vfat", "-o", "rw,sync,umask=000", &partition, mount_dir])
+        .args(["-t", "vfat", "-o", "rw,sync,umask=077", &partition, mount_dir])
         .output();
 
     let mounted = match mount_status {
@@ -58,7 +85,7 @@ pub fn write_estate_partition(
     if !mounted {
         // Fallback mount attempt
         let fallback = Command::new("mount")
-            .args(["-o", "rw", &partition, mount_dir])
+            .args(["-o", "rw,umask=077", &partition, mount_dir])
             .output();
         if !fallback.map(|o| o.status.success()).unwrap_or(false) {
             return Err(format!("Failed to mount {partition} to {mount_dir} (Permission denied or unformatted)."));

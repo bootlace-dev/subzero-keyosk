@@ -6,7 +6,7 @@ use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256, Sha512};
 use std::collections::HashMap;
 use std::str::FromStr;
-use zeroize::{Zeroize, ZeroizeOnDrop};
+use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
@@ -22,6 +22,8 @@ pub enum CryptoError {
     InvalidEntropyLength(usize),
     #[error("Entropy failed Markov transition audit: {0}")]
     MarkovAuditFailed(String),
+    #[error("Entropy failed Chi-squared uniformity audit: {0}")]
+    ChiSquaredAuditFailed(String),
     #[error("Entropy contains repetitive substrings")]
     RepetitivePatternDetected,
     #[error("BIP-39 error: {0}")]
@@ -39,11 +41,13 @@ pub enum CryptoError {
 }
 
 /// Secure container for master entropy with automatic memory zeroization on drop.
+#[allow(dead_code)]
 #[derive(Zeroize, ZeroizeOnDrop)]
 pub struct SecretEntropy {
     bytes: Vec<u8>,
 }
 
+#[allow(dead_code)]
 impl SecretEntropy {
     pub fn new(bytes: Vec<u8>) -> Result<Self, CryptoError> {
         if bytes.len() != 16 && bytes.len() != 32 {
@@ -141,8 +145,9 @@ pub fn encrypt_vault_payload(
         &mut derived_key,
     );
 
-    let cipher = Aes256Gcm::new_from_slice(&derived_key)
-        .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+    let cipher_res = Aes256Gcm::new_from_slice(&derived_key);
+    derived_key.zeroize();
+    let cipher = cipher_res.map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
     let nonce = Nonce::from_slice(&iv);
 
     let ciphertext = cipher
@@ -194,22 +199,27 @@ pub fn decrypt_vault_json(
         &mut derived_key,
     );
 
-    let cipher = Aes256Gcm::new_from_slice(&derived_key)
-        .map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
+    let cipher_res = Aes256Gcm::new_from_slice(&derived_key);
+    derived_key.zeroize();
+    let cipher = cipher_res.map_err(|e| CryptoError::DecryptionError(e.to_string()))?;
     let nonce = Nonce::from_slice(&iv);
 
-    let plaintext_bytes = cipher
+    let mut plaintext_bytes = cipher
         .decrypt(nonce, ciphertext.as_ref())
         .map_err(|_| CryptoError::DecryptionError("Authentication failed: incorrect passphrase or corrupt ciphertext.".into()))?;
 
     let payload: DecryptedVaultPayload = serde_json::from_slice(&plaintext_bytes)
         .map_err(|e| CryptoError::SerializationError(format!("Corrupt payload JSON: {e}")))?;
+    plaintext_bytes.zeroize();
 
     Ok(payload)
 }
 
 /// Run first-order Markov chain transition audit on physical entropy stream.
-/// Rejects entropy if any transition probability is >= 0.85 (85%).
+/// Alphabet-aware:
+/// - Binary coin flips (0/1): Max allowed conditional transition probability is 80% (0.80).
+/// - 6-sided dice rolls (1-6): Max allowed conditional transition probability is 75% (0.75) for transitions with >= 2 occurrences.
+/// - Generic streams: Max allowed conditional transition probability is 85% (0.85).
 pub fn run_markov_audit(input: &str) -> MarkovResult {
     if input.len() < 16 {
         return MarkovResult {
@@ -218,6 +228,16 @@ pub fn run_markov_audit(input: &str) -> MarkovResult {
             details: "Input length insufficient for statistical analysis (<16)".to_string(),
         };
     }
+
+    let is_bin = input.chars().all(|c| c == '0' || c == '1');
+    let is_dice = input.chars().all(|c| ('1'..='6').contains(&c));
+    let threshold = if is_bin {
+        0.80
+    } else if is_dice {
+        0.75
+    } else {
+        0.85
+    };
 
     let chars: Vec<char> = input.chars().collect();
     let mut counts: HashMap<char, HashMap<char, usize>> = HashMap::new();
@@ -234,6 +254,9 @@ pub fn run_markov_audit(input: &str) -> MarkovResult {
     let mut max_cond_prob = 0.0f64;
     for (prev, next_map) in &counts {
         let total = totals[prev] as f64;
+        if total < 2.0 {
+            continue;
+        }
         for (_next, &cnt) in next_map {
             let prob = (cnt as f64) / total;
             if prob > max_cond_prob {
@@ -242,18 +265,72 @@ pub fn run_markov_audit(input: &str) -> MarkovResult {
         }
     }
 
-    let passed = max_cond_prob < 0.85;
+    let passed = max_cond_prob <= threshold;
     let pct = (max_cond_prob * 100.0).round() as u32;
+    let thresh_pct = (threshold * 100.0).round() as u32;
     let details = if passed {
-        format!("Markov audit passed: Max conditional probability {}% (<85%)", pct)
+        format!("Markov audit passed: Max conditional probability {}% (<= {}%)", pct, thresh_pct)
     } else {
-        format!("Markov audit failed: Extreme transition bias detected ({}% >= 85%)", pct)
+        format!("Markov audit failed: Extreme transition bias detected ({}% > {}%)", pct, thresh_pct)
     };
 
     MarkovResult {
         passed,
         max_cond_prob,
         details,
+    }
+}
+
+/// Run Pearson's Chi-squared goodness-of-fit uniformity audit on physical entropy stream.
+/// For binary (coin flips, df=1), critical value at p=0.001 is 10.828.
+/// For 6-sided dice (df=5), critical value at p=0.001 is 20.515.
+pub fn run_chi_squared_audit(input: &str) -> (bool, f64, String) {
+    let clean: String = input.chars().filter(|c| !c.is_whitespace() && *c != ',' && *c != '-').collect();
+    let n = clean.len();
+    if n < 16 {
+        return (true, 0.0, "Input length insufficient (<16) for Chi-squared audit".into());
+    }
+
+    let is_bin = clean.chars().all(|c| c == '0' || c == '1');
+    let is_dice = clean.chars().all(|c| ('1'..='6').contains(&c));
+
+    if is_bin {
+        let count_1 = clean.chars().filter(|&c| c == '1').count() as f64;
+        let count_0 = (n as f64) - count_1;
+        let expected = (n as f64) / 2.0;
+        let chi2 = ((count_0 - expected).powi(2) / expected) + ((count_1 - expected).powi(2) / expected);
+        let crit = 10.828; // p = 0.001, df = 1
+        let passed = chi2 <= crit;
+        let details = if passed {
+            format!("Chi-squared passed: χ² = {:.2} (<= {:.2}, p=0.001)", chi2, crit)
+        } else {
+            format!("Chi-squared failed: Non-uniform bit distribution (χ² = {:.2} > {:.2})", chi2, crit)
+        };
+        (passed, chi2, details)
+    } else if is_dice {
+        let mut counts = [0usize; 6];
+        for c in clean.chars() {
+            if let Some(digit) = c.to_digit(10) {
+                if (1..=6).contains(&digit) {
+                    counts[(digit - 1) as usize] += 1;
+                }
+            }
+        }
+        let expected = (n as f64) / 6.0;
+        let mut chi2 = 0.0;
+        for &cnt in &counts {
+            chi2 += ((cnt as f64 - expected).powi(2)) / expected;
+        }
+        let crit = 20.515; // p = 0.001, df = 5
+        let passed = chi2 <= crit;
+        let details = if passed {
+            format!("Chi-squared passed: χ² = {:.2} (<= {:.2}, p=0.001)", chi2, crit)
+        } else {
+            format!("Chi-squared failed: Non-uniform dice distribution (χ² = {:.2} > {:.2})", chi2, crit)
+        };
+        (passed, chi2, details)
+    } else {
+        (true, 0.0, "Non-standard alphabet skipped Chi-squared".into())
     }
 }
 
@@ -444,11 +521,15 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
     }
 
     // Mathematical Quality Hard-Blocks (ENTROPY_QUALITY_HARD_BLOCK)
-    // Run Markov and repetition checks on raw streams >= 16 chars
+    // Run Markov, Chi-squared, and repetition checks on raw streams >= 16 chars
     if clean.len() >= 16 {
         let markov = run_markov_audit(&clean);
         if !markov.passed {
             return Err(CryptoError::MarkovAuditFailed(markov.details));
+        }
+        let (chi2_pass, _chi2_val, chi2_details) = run_chi_squared_audit(&clean);
+        if !chi2_pass {
+            return Err(CryptoError::ChiSquaredAuditFailed(chi2_details));
         }
         if has_repetitive_substrings(&clean, 3, 6) {
             return Err(CryptoError::RepetitivePatternDetected);
@@ -470,13 +551,13 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
         return Ok((bytes, "Physical Coin Flips (128-bit Bin)"));
     }
 
-    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing)
+    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing, 52 rolls minimum for >= 134 bits)
     if clean.chars().all(|c| ('1'..='6').contains(&c)) {
-        if clean.len() < 50 {
+        if clean.len() < 52 {
             return Err(CryptoError::InvalidEntropyLength(clean.len()));
         }
         let hash = Sha256::digest(clean.as_bytes());
-        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (50+ Rolls)"));
+        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (52+ Rolls)"));
     }
 
     // Hex string (16 bytes = 32 hex chars)
@@ -494,11 +575,11 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
     let mnemonic = Mnemonic::from_entropy_in(Language::English, &entropy_bytes)?;
     let mnemonic_str = mnemonic.to_string();
 
-    let seed = mnemonic.to_seed("");
+    let seed = Zeroizing::new(mnemonic.to_seed(""));
     let secp = Secp256k1::new();
     
     // Default network: Testnet4 (bip-0094 / testnet)
-    let master_xprv = Xpriv::new_master(Network::Testnet4, &seed)?;
+    let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())?;
     let master_fingerprint = master_xprv.fingerprint(&secp).to_string();
 
     // BIP-84 Native SegWit Testnet path: m/84'/1'/0'
@@ -548,9 +629,9 @@ pub fn process_physical_entropy(raw_input: &str) -> Result<GeneratedSeed, Crypto
 /// followed by indices 1..=count (Heir & Vault Keys).
 pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Vec<Bip85Child>, CryptoError> {
     let mnemonic = Mnemonic::from_str(master_mnemonic_str)?;
-    let seed = mnemonic.to_seed("");
+    let seed = Zeroizing::new(mnemonic.to_seed(""));
     let secp = Secp256k1::new();
-    let master_xprv = Xpriv::new_master(Network::Testnet4, &seed)?;
+    let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())?;
 
     let mut children = Vec::new();
 
