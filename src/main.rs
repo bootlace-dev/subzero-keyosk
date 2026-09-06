@@ -105,6 +105,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         env!("GIT_COMMIT").to_string(),
     );
 
+    // Startup Memory Hygiene Invariant:
+    // Execute proactive pre-display zeroization of all data structures.
+    state.wipe_memory();
+    state.status_message = "[✓] PROACTIVE PRE-BOOT SCRUB: RAM zeroized prior to display initialization.".into();
+
     // If CLI provided initial entropy, process it immediately
     if let Some(entropy_str) = cli.entropy {
         if let Ok(seed) = crypto::process_physical_entropy(&entropy_str) {
@@ -338,15 +343,15 @@ fn run_event_loop(
                         }
                     }
                     ui::Page::Bip85Children => {
-                        // Pagination for BIP-85 heir keys (8 per page across 20 total)
+                        // Pagination for BIP-85 child keys (10 per page across 20 total)
                         match key.code {
                             KeyCode::Down | KeyCode::PageDown => {
-                                if state.heir_page_offset + 8 < state.bip85_children.len() {
-                                    state.heir_page_offset += 8;
+                                if state.heir_page_offset + 10 < state.bip85_children.len() {
+                                    state.heir_page_offset += 10;
                                 }
                             }
                             KeyCode::Up | KeyCode::PageUp => {
-                                state.heir_page_offset = state.heir_page_offset.saturating_sub(8);
+                                state.heir_page_offset = state.heir_page_offset.saturating_sub(10);
                             }
                             _ => {}
                         }

@@ -524,10 +524,20 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
         lines.push(Line::from(""));
 
         lines.push(Line::from(vec![
-            Span::styled("  12-WORD SEED PHRASE (HORIZONTAL READING ORDER):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("  12-WORD SEED PHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]));
-        let full_phrase = words.iter().enumerate().map(|(idx, w)| format!("{}.{}", idx + 1, w)).collect::<Vec<_>>().join("  ");
-        lines.push(Line::from(Span::styled(format!("  {}", full_phrase), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        // Two-line layout: line 1 subtle numbers, line 2 space-separated words
+        let num_line = words.iter().enumerate().map(|(idx, w)| {
+            let width = std::cmp::max(w.len(), 4);
+            format!("{:<width$}", format!("#{:02}", idx + 1), width = width)
+        }).collect::<Vec<_>>().join(" ");
+        let word_line = words.iter().map(|w| {
+            let width = std::cmp::max(w.len(), 4);
+            format!("{:<width$}", w, width = width)
+        }).collect::<Vec<_>>().join(" ");
+
+        lines.push(Line::from(Span::styled(format!("  {}", num_line), Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(format!("  {}", word_line), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
         lines.push(Line::from(""));
 
         lines.push(Line::from(vec![
@@ -842,10 +852,19 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled("  12-WORD PASSPHRASE (HORIZONTAL READING ORDER):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("  12-WORD PASSPHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]));
-        let full_pass_phrase = words.iter().enumerate().map(|(idx, w)| format!("{}.{}", idx + 1, w)).collect::<Vec<_>>().join("  ");
-        lines.push(Line::from(Span::styled(format!("  {}", full_pass_phrase), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
+        let pass_num_line = words.iter().enumerate().map(|(idx, w)| {
+            let width = std::cmp::max(w.len(), 4);
+            format!("{:<width$}", format!("#{:02}", idx + 1), width = width)
+        }).collect::<Vec<_>>().join(" ");
+        let pass_word_line = words.iter().map(|w| {
+            let width = std::cmp::max(w.len(), 4);
+            format!("{:<width$}", w, width = width)
+        }).collect::<Vec<_>>().join(" ");
+
+        lines.push(Line::from(Span::styled(format!("  {}", pass_num_line), Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled(format!("  {}", pass_word_line), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
         lines.push(Line::from(""));
 
         lines.push(Line::from(vec![
@@ -940,15 +959,36 @@ fn render_descriptor(frame: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
-    let subtitle = match state.qr_mode {
-        QrMode::BbqrAnimated => format!(" [BBQR Frame {}/3] | [M] Rotate Mode | [E] USB ", (state.bbqr_frame_index % 3) + 1),
-        QrMode::FullBlockSpace => " [Full Descriptor] | [M] Rotate Mode | [E] USB ".to_string(),
-        QrMode::StaticVpub => " [Static VPUB] | [M] Rotate Mode | [E] USB ".to_string(),
+    let (mode_banner, target_wallet, raw_payload) = match state.qr_mode {
+        QrMode::BbqrAnimated => {
+            let frames = if let Some(ref s) = state.seed {
+                create_bbqr_frames(&s.descriptor, 3)
+            } else {
+                Vec::new()
+            };
+            let frame_idx = if frames.is_empty() { 0 } else { state.bbqr_frame_index % frames.len() };
+            let cur_frame = frames.get(frame_idx).cloned().unwrap_or_default();
+            (
+                format!("MODE 1 OF 3: Animated BBQr (Frame {}/{})", frame_idx + 1, frames.len()),
+                "Nunchuk (Mobile) [Auto-cycles ~350ms]",
+                cur_frame,
+            )
+        }
+        QrMode::FullBlockSpace => (
+            "MODE 2 OF 3: Static BIP-380 Descriptor".to_string(),
+            "Bitcoin Keeper & Sparrow Desktop",
+            state.seed.as_ref().map(|s| s.descriptor.clone()).unwrap_or_default(),
+        ),
+        QrMode::StaticVpub => (
+            "MODE 3 OF 3: Static SLIP-0132 VPUB".to_string(),
+            "Blockstream Green (Android/iOS) & Electrum",
+            state.seed.as_ref().map(|s| s.vpub_slip132.clone()).unwrap_or_default(),
+        ),
     };
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" Tab 4. Airgapped Export QR{} [TESTNET4 ONLY] ", subtitle))
+        .title(format!(" Tab 4. Airgapped Export QR [{} | Target: {}] [M=Rotate Mode | E=USB] ", mode_banner, target_wallet))
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -964,6 +1004,13 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let mut lines = Vec::new();
 
+        lines.push(Line::from(vec![
+            Span::styled(format!("  [{}]  ", mode_banner), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Target: {}", target_wallet), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("  [Press 'M' to cycle modes]", Style::default().fg(Color::DarkGray)),
+        ]));
+        lines.push(Line::from(""));
+
         match qr_result {
             Ok(qr_lines) => {
                 for l in qr_lines {
@@ -975,20 +1022,43 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             }
         }
 
+        let block_top = Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" Tab 4. Airgapped Export QR [{} | Target: {}] [M=Rotate Mode | E=USB] ", mode_banner, target_wallet))
+            .style(Style::default().fg(Color::White));
+
+        let sub_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(20),   // QR code
+                Constraint::Length(6), // Payload preview & Heir guidance
+            ])
+            .split(area);
+
+        let p_qr = Paragraph::new(lines).block(block_top).alignment(Alignment::Center);
+        frame.render_widget(p_qr, sub_chunks[0]);
+
+        let mut bottom_lines = Vec::new();
+        bottom_lines.push(Line::from(vec![
+            Span::styled(" [RAW QR PAYLOAD CONTENT]: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled(raw_payload, Style::default().fg(Color::Yellow)),
+        ]));
+
         if state.external_export_status.starts_with("[✓]") || state.external_export_status.starts_with("[!]") {
-            lines.push(Line::from(Span::styled(
+            bottom_lines.push(Line::from(Span::styled(
                 format!("  USB Status: {}", state.external_export_status),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )));
         } else {
-            lines.push(Line::from(vec![
-                Span::styled("Target Wallets: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                Span::styled("Mode 1: Nunchuk/Keeper (BBQR) | Mode 2: Sparrow | Mode 3: Blockstream Green (VPUB)", Style::default().fg(Color::White)),
+            bottom_lines.push(Line::from(vec![
+                Span::styled(" [✓] SOVEREIGN HEIR GUIDANCE: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled("This QR imports WATCH-ONLY public keys. No private keys ever leave this appliance.", Style::default().fg(Color::White)),
             ]));
         }
 
-        let p = Paragraph::new(lines).block(block).alignment(Alignment::Center);
-        frame.render_widget(p, area);
+        let p_bottom = Paragraph::new(bottom_lines)
+            .block(Block::default().borders(Borders::ALL).title(" Payload Content & Heir Guidance "));
+        frame.render_widget(p_bottom, sub_chunks[1]);
     } else {
         frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
     }
@@ -1004,17 +1074,32 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
         if let Some(addr) = seed.addresses.first() {
             match render_full_block_qr(addr) {
                 Ok(qr_lines) => {
-                    let mut combined = qr_lines;
-                    combined.push(Line::from(vec![
-                        Span::styled("Address #0: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                        Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        Span::raw(" | "),
-                        Span::styled("Scan with Bitcoin wallet or online Testnet4 faucet.", Style::default().fg(Color::White)),
-                    ]));
-                    let p = Paragraph::new(combined)
+                    let sub_chunks = Layout::default()
+                        .direction(Direction::Vertical)
+                        .constraints([
+                            Constraint::Min(20),   // QR code
+                            Constraint::Length(4), // Address Info
+                        ])
+                        .split(area);
+
+                    let p_qr = Paragraph::new(qr_lines)
                         .alignment(Alignment::Center)
                         .block(block);
-                    frame.render_widget(p, area);
+                    frame.render_widget(p_qr, sub_chunks[0]);
+
+                    let info_lines = vec![
+                        Line::from(vec![
+                            Span::styled(" [RECEIVE ADDRESS #0]: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                            Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        ]),
+                        Line::from(vec![
+                            Span::styled(" [ACTION]: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                            Span::styled("Scan with Bitcoin mobile wallet or online Testnet4 faucet to fund test sats.", Style::default().fg(Color::White)),
+                        ]),
+                    ];
+                    let p_info = Paragraph::new(info_lines)
+                        .block(Block::default().borders(Borders::ALL).title(" Faucet Intake Address "));
+                    frame.render_widget(p_info, sub_chunks[1]);
                 }
                 Err(e) => {
                     let p = Paragraph::new(format!("QR Render Error: {}", e)).block(block);
@@ -1091,7 +1176,7 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 
     if !state.bip85_children.is_empty() {
         let total = state.bip85_children.len();
-        let page_size = 8;
+        let page_size = 10;
         let start = state.heir_page_offset;
         let end = std::cmp::min(start + page_size, total);
         let cur_page = (start / page_size) + 1;
@@ -1100,14 +1185,14 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
         let mut lines = Vec::new();
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::styled(format!("  Deterministic Heir Seeds #{}-#{} (Page {} of {}):", start + 1, end, cur_page, total_pages), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("  [UP/DOWN to Page]"),
+            Span::styled(format!("  Deterministic Child Seeds #{}-#{} (Page {} of {}):", start + 1, end, cur_page, total_pages), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("  [UP/DOWN to Page 10 Seeds at a time]"),
         ]));
         lines.push(Line::from(""));
 
         for i in start..end {
             if let Some(child) = state.bip85_children.get(i) {
-                let prefix = format!("  #{:02} {:<16} ", child.index, child.label);
+                let prefix = format!("  #{:02} {:<20} ", child.index, child.label);
                 lines.push(Line::from(vec![
                     Span::styled(prefix, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled(&child.mnemonic, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
@@ -1116,13 +1201,12 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
         }
         lines.push(Line::from(""));
         lines.push(Line::from("  --------------------------------------------------------------------------------"));
-        lines.push(Line::from(Span::styled("  ROLE & PURPOSE: OPTIONAL BIP-85 SUB-TREASURIES:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from("  1. Primary vs Optional Model: You do NOT need to distribute funds to separate heir wallets."));
-        lines.push(Line::from("     The primary out-of-the-box SubZero mechanism is Tab 8 & 9 (the unified encrypted vault)."));
-        lines.push(Line::from("  2. Optional Sub-Accounts: These child seeds are mathematically derived from your master seed."));
-        lines.push(Line::from("     You can use them for hot wallets, children's allowances, business branches, or specific"));
-        lines.push(Line::from("     trust allocations without revealing your master keys or other sub-accounts."));
-        lines.push(Line::from("  3. Security Invariant: Giving someone a child seed gives them NO access to your master funds."));
+        lines.push(Line::from(Span::styled("  VERSATILE BIP-85 USE CASES (MASTER SEED REMAINS AIRGAPPED & COLD):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  1. Hot Mobile & Daily Spending: Fund a child seed on mobile (Phoenix/Breez) without risking vault funds."));
+        lines.push(Line::from("  2. Sovereign Heir Allocations: Provide a sovereign child seed to each heir/family member."));
+        lines.push(Line::from("  3. High-Entropy Passphrases & PKI: Use 12-word child seeds as unhackable master passwords, Age keys, or Nostr IDs."));
+        lines.push(Line::from("  4. Business / Project Sub-Treasuries: Isolate company, homelab, or testing budgets with independent accounting."));
+        lines.push(Line::from("  5. One-Way Derivation Invariant: Compromising any child seed mathematically reveals ZERO info about your master seed."));
 
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);

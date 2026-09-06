@@ -115,9 +115,9 @@ fn test_exhaustive_pagination_boundaries() {
         assert_render_all_resolutions(&state);
     }
 
-    // 2. Tab 7: BIP-85 pagination (20 total children, 8 per page)
+    // 2. Tab 7: BIP-85 pagination (20 total children, 10 per page)
     state.current_page = Page::Bip85Children;
-    for offset in [0, 8, 16, 24, 100] {
+    for offset in [0, 10, 20, 100] {
         state.heir_page_offset = offset;
         assert_render_all_resolutions(&state);
     }
@@ -191,14 +191,14 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
             "[3] EMERGENCY TOOLS & SEED REPAIR (SEEDFIX / WORDLIST)",
         ]),
         (Page::MasterSeed, &[
-            "12-WORD SEED PHRASE (HORIZONTAL READING ORDER):",
+            "12-WORD SEED PHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):",
             "METAL PUNCH / COLUMN GUIDANCE:",
             "Master Fingerprint:",
             "Protocol Network:",
             "Bitcoin Testnet4",
         ]),
         (Page::Passphrase, &[
-            "12-WORD PASSPHRASE (HORIZONTAL READING ORDER):",
+            "12-WORD PASSPHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):",
             "METAL PUNCH / COLUMN GUIDANCE:",
             "CRITICAL ANTI-COLOCATION PROTOCOL",
             "TWO-LOCATION RECOVERY FORMULA:",
@@ -211,11 +211,14 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
         ]),
         (Page::VpubQr, &[
             "Tab 4. Airgapped Export QR",
-            "[M] Rotate Mode",
-            "[E] USB",
+            "[RAW QR PAYLOAD CONTENT]:",
+            "Target:",
+            "[Press 'M' to cycle modes]",
+            "[✓] SOVEREIGN HEIR GUIDANCE:",
         ]),
         (Page::FaucetQr, &[
             "Tab 5. Faucet QR Code",
+            "[RECEIVE ADDRESS #0]:",
         ]),
         (Page::Addresses, &[
             "Tab 6. Receive Addresses",
@@ -223,8 +226,8 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
         ]),
         (Page::Bip85Children, &[
             "Tab 7. BIP-85 Heir Keys",
-            "Deterministic Heir Seeds",
-            "ROLE & PURPOSE: OPTIONAL BIP-85 SUB-TREASURIES:",
+            "Deterministic Child Seeds",
+            "VERSATILE BIP-85 USE CASES (MASTER SEED REMAINS AIRGAPPED & COLD):",
         ]),
         (Page::EstateProvisioner, &[
             "Tab 8. Partition 2 Estate Writer",
