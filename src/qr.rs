@@ -120,10 +120,21 @@ pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
         .map_err(|e| format!("Failed to generate QR: {}", e))?;
 
     let width = qr.width();
+    let quiet = 1; // Exactly 1-module white quiet zone ring
+    let total_w = width + quiet * 2;
     let mut lines = Vec::new();
+
+    // Top quiet zone (1 row of white)
+    lines.push(Line::from(Span::styled(
+        " ".repeat(total_w * 2),
+        Style::default().bg(Color::White),
+    )));
 
     for y in 0..width {
         let mut spans = Vec::new();
+        // Left quiet zone (1 module = 2 spaces)
+        spans.push(Span::styled("  ", Style::default().bg(Color::White)));
+
         let mut current_dark = qr[(0, y)] == QrColor::Dark;
         let mut count = 0;
 
@@ -141,8 +152,17 @@ pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
         let bg_col = if current_dark { Color::Black } else { Color::White };
         spans.push(Span::styled(" ".repeat(count), Style::default().bg(bg_col)));
 
+        // Right quiet zone (1 module = 2 spaces)
+        spans.push(Span::styled("  ", Style::default().bg(Color::White)));
+
         lines.push(Line::from(spans));
     }
+
+    // Bottom quiet zone (1 row of white)
+    lines.push(Line::from(Span::styled(
+        " ".repeat(total_w * 2),
+        Style::default().bg(Color::White),
+    )));
 
     Ok(lines)
 }
