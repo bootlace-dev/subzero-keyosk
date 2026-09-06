@@ -112,7 +112,9 @@ pub fn encode_qr_bmp(data: &str, scale: usize, quiet: usize) -> Result<Vec<u8>, 
     Ok(bmp)
 }
 
-/// Render full-block seamless QR using reverse-video space characters
+/// Render high-density half-block QR using Unicode ▀, ▄, █, and space characters.
+/// Compresses two vertical QR modules into a single terminal row, cutting height in half
+/// so that large descriptors (41x41 to 45x45) fit effortlessly on 25-row laptop/Chromebook screens.
 pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
     let qr = QrCode::with_version(data, Version::Normal(4), EcLevel::L)
         .or_else(|_| QrCode::new(data))
@@ -122,43 +124,41 @@ pub fn render_full_block_qr(data: &str) -> Result<Vec<Line<'static>>, String> {
     let quiet = 2;
     let total_w = width + quiet * 2;
 
-    let mut lines = Vec::new();
-    // Top quiet zone (1 row)
-    let quiet_line = Line::from(Span::styled(
-        " ".repeat(total_w * 2),
-        Style::default().bg(Color::White),
-    ));
-    lines.push(quiet_line.clone());
-
-    for y in 0..width {
-        let mut spans = Vec::new();
-        // Left quiet zone
-        spans.push(Span::styled(" ".repeat(quiet * 2), Style::default().bg(Color::White)));
-
-        let mut current_dark = qr[(0, y)] == QrColor::Dark;
-        let mut count = 0;
-
-        for x in 0..width {
-            let dark = qr[(x, y)] == QrColor::Dark;
-            if dark == current_dark {
-                count += 2;
-            } else {
-                let bg_col = if current_dark { Color::Black } else { Color::White };
-                spans.push(Span::styled(" ".repeat(count), Style::default().bg(bg_col)));
-                current_dark = dark;
-                count = 2;
-            }
+    // Helper closure: returns true if module is Light (White), false if Dark (Black)
+    let is_light = |x: isize, y: isize| -> bool {
+        if x < 0 || y < 0 || x >= width as isize || y >= width as isize {
+            true // Quiet zone is white
+        } else {
+            qr[(x as usize, y as usize)] == QrColor::Light
         }
-        let bg_col = if current_dark { Color::Black } else { Color::White };
-        spans.push(Span::styled(" ".repeat(count), Style::default().bg(bg_col)));
+    };
 
-        // Right quiet zone
-        spans.push(Span::styled(" ".repeat(quiet * 2), Style::default().bg(Color::White)));
-        lines.push(Line::from(spans));
+    let mut lines = Vec::new();
+
+    let style = Style::default().fg(Color::White).bg(Color::Black);
+
+    // Process two rows at a time (y is top module, y+1 is bottom module)
+    let mut y = -(quiet as isize);
+    let max_y = (width + quiet) as isize;
+
+    while y < max_y {
+        let mut line_str = String::with_capacity(total_w);
+        for x in -(quiet as isize)..(width + quiet) as isize {
+            let top_light = is_light(x, y);
+            let bot_light = is_light(x, y + 1);
+
+            let ch = match (top_light, bot_light) {
+                (true, true) => '█',   // Full block (both light/white)
+                (false, false) => ' ', // Space (both dark/black)
+                (true, false) => '▀',  // Upper half block (top light, bot dark)
+                (false, true) => '▄',  // Lower half block (top dark, bot light)
+            };
+            line_str.push(ch);
+        }
+        lines.push(Line::from(Span::styled(line_str, style)));
+        y += 2;
     }
 
-    // Bottom quiet zone
-    lines.push(quiet_line);
     Ok(lines)
 }
 

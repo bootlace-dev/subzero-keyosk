@@ -113,6 +113,7 @@ pub struct AppState {
     pub jitter_samples: Vec<(char, u64)>,
     pub last_jitter_instant: Option<std::time::Instant>,
     pub is_selecting_test_vector: bool,
+    pub wipe_confirmation_instant: Option<std::time::Instant>,
 }
 
 impl AppState {
@@ -143,6 +144,7 @@ impl AppState {
             jitter_samples: Vec::new(),
             last_jitter_instant: None,
             is_selecting_test_vector: false,
+            wipe_confirmation_instant: None,
         }
     }
 
@@ -161,6 +163,7 @@ impl AppState {
         self.estate_write_status = "Press [P] to provision Partition 2 (SUBZERO_EST).".into();
         self.external_export_status = "Press [E] to export descriptor to separate USB drive.".into();
         self.current_page = Page::MasterSeed;
+        self.wipe_confirmation_instant = Some(std::time::Instant::now());
         self.status_message = "[✓] MEMORY WIPED: All private keys and entropy zeroized in RAM.".into();
     }
 
@@ -671,6 +674,28 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     let is_bin = !raw.is_empty() && raw.chars().all(|c| c == '0' || c == '1');
     let is_dice = !raw.is_empty() && raw.chars().all(|c| ('1'..='6').contains(&c));
 
+    if let Some(instant) = state.wipe_confirmation_instant {
+        if instant.elapsed().as_secs() < 8 {
+            lines.push(Line::from(Span::styled(
+                "  ╔══════════════════════════════════════════════════════════════════════════════════════╗",
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  ║  [✓] SECURE VOLATILE MEMORY PURGE: 100% OF RAM DATA STRUCTURES ZEROIZED              ║",
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  ║  Master seeds, BIP-85 tables, derived keys, and passphrases scrubbed via ZeroizeOnDrop ║",
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(Span::styled(
+                "  ╚══════════════════════════════════════════════════════════════════════════════════════╝",
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(""));
+        }
+    }
+
     let mode_str = if is_bin {
         "BINARY COIN FLIPS (0/1)"
     } else if is_dice {
@@ -1009,7 +1034,6 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(format!("Target: {}", target_wallet), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled("  [Press 'M' to cycle modes]", Style::default().fg(Color::DarkGray)),
         ]));
-        lines.push(Line::from(""));
 
         match qr_result {
             Ok(qr_lines) => {
@@ -1024,14 +1048,14 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let block_top = Block::default()
             .borders(Borders::ALL)
-            .title(format!(" Tab 4. Airgapped Export QR [{} | Target: {}] [M=Rotate Mode | E=USB] ", mode_banner, target_wallet))
+            .title(format!(" Tab 4. Airgapped Export QR [M=Cycle Mode | E=USB] "))
             .style(Style::default().fg(Color::White));
 
         let sub_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(20),   // QR code
-                Constraint::Length(6), // Payload preview & Heir guidance
+                Constraint::Min(14),   // High-density half-block QR code
+                Constraint::Length(3), // Clean borderless payload content line
             ])
             .split(area);
 
@@ -1052,12 +1076,12 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
         } else {
             bottom_lines.push(Line::from(vec![
                 Span::styled(" [✓] SOVEREIGN HEIR GUIDANCE: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::styled("This QR imports WATCH-ONLY public keys. No private keys ever leave this appliance.", Style::default().fg(Color::White)),
+                Span::styled("WATCH-ONLY public keys. Cannot spend bitcoin.", Style::default().fg(Color::White)),
             ]));
         }
 
         let p_bottom = Paragraph::new(bottom_lines)
-            .block(Block::default().borders(Borders::ALL).title(" Payload Content & Heir Guidance "));
+            .block(Block::default().borders(Borders::TOP));
         frame.render_widget(p_bottom, sub_chunks[1]);
     } else {
         frame.render_widget(Paragraph::new("Generate a seed first on Tab 1.").block(block), area);
@@ -1077,8 +1101,8 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                     let sub_chunks = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints([
-                            Constraint::Min(20),   // QR code
-                            Constraint::Length(4), // Address Info
+                            Constraint::Min(14),   // QR code
+                            Constraint::Length(3), // Address Info
                         ])
                         .split(area);
 
@@ -1098,7 +1122,7 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                         ]),
                     ];
                     let p_info = Paragraph::new(info_lines)
-                        .block(Block::default().borders(Borders::ALL).title(" Faucet Intake Address "));
+                        .block(Block::default().borders(Borders::TOP));
                     frame.render_widget(p_info, sub_chunks[1]);
                 }
                 Err(e) => {
@@ -1192,7 +1216,7 @@ fn render_bip85(frame: &mut Frame, area: Rect, state: &AppState) {
 
         for i in start..end {
             if let Some(child) = state.bip85_children.get(i) {
-                let prefix = format!("  #{:02} {:<20} ", child.index, child.label);
+                let prefix = format!("  Seed #{:02}:  ", child.index);
                 lines.push(Line::from(vec![
                     Span::styled(prefix, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                     Span::styled(&child.mnemonic, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),

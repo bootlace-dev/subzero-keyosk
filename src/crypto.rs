@@ -585,7 +585,7 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
         let child_entropy = &result[..16];
         let child_mnemonic = Mnemonic::from_entropy_in(Language::English, child_entropy)?;
         children.push(Bip85Child {
-            label: format!("Seed #{:02} (Index {i})", i),
+            label: format!("Seed #{:02}", i),
             index: i,
             path: path_str,
             mnemonic: child_mnemonic.to_string(),
