@@ -334,7 +334,7 @@ pub fn render_app(frame: &mut Frame, state: &AppState) {
         .constraints([
             Constraint::Length(2), // Header Status Line
             Constraint::Min(10),   // Content
-            Constraint::Length(4), // Footer / Status Bar & Global Nav
+            Constraint::Length(3), // Footer / Status Bar & Global Nav (1 line nav, 1 line status with top border)
         ])
         .split(frame.area());
 
@@ -993,19 +993,19 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             let frame_idx = if frames.is_empty() { 0 } else { state.bbqr_frame_index % frames.len() };
             let cur_frame = frames.get(frame_idx).cloned().unwrap_or_default();
             (
-                format!("MODE 1 OF 3: Animated BBQr (Frame {}/{})", frame_idx + 1, frames.len()),
-                "Nunchuk (Mobile) [Auto-cycles ~350ms]",
+                format!("MODE 1 OF 3: Animated BBQr ({}/{})", frame_idx + 1, frames.len()),
+                "Nunchuk (Mobile)",
                 cur_frame,
             )
         }
         QrMode::FullBlockSpace => (
             "MODE 2 OF 3: Static BIP-380 Descriptor".to_string(),
-            "Bitcoin Keeper & Sparrow Desktop",
+            "Sparrow Desktop & Keeper",
             state.seed.as_ref().map(|s| s.descriptor.clone()).unwrap_or_default(),
         ),
         QrMode::StaticVpub => (
             "MODE 3 OF 3: Static SLIP-0132 VPUB".to_string(),
-            "Blockstream Green (Android/iOS) & Electrum",
+            "Blockstream Green & Electrum",
             state.seed.as_ref().map(|s| s.vpub_slip132.clone()).unwrap_or_default(),
         ),
     };
@@ -1027,13 +1027,6 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
         };
 
         let mut lines = Vec::new();
-
-        lines.push(Line::from(vec![
-            Span::styled(format!("  [{}]  ", mode_banner), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("Target: {}", target_wallet), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("  [Press 'M' to cycle modes]", Style::default().fg(Color::DarkGray)),
-        ]));
-
         match qr_result {
             Ok(qr_lines) => {
                 for l in qr_lines {
@@ -1045,41 +1038,32 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             }
         }
 
-        let block_top = Block::default()
-            .borders(Borders::ALL)
-            .title(format!(" Tab 4. Airgapped Export QR [M=Cycle Mode | E=USB] "))
-            .style(Style::default().fg(Color::White));
-
         let sub_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(14),   // High-density half-block QR code
-                Constraint::Length(3), // Clean borderless payload content line
+                Constraint::Min(10),   // Full QR code area
+                Constraint::Length(4), // Clean wrapped CONTENT area (supports up to 3 lines of wrapped payload)
             ])
             .split(area);
 
-        let p_qr = Paragraph::new(lines).block(block_top).alignment(Alignment::Center);
+        let p_qr = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(p_qr, sub_chunks[0]);
 
         let mut bottom_lines = Vec::new();
         bottom_lines.push(Line::from(vec![
-            Span::styled(" [RAW QR PAYLOAD CONTENT]: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(raw_payload, Style::default().fg(Color::Yellow)),
         ]));
 
         if state.external_export_status.starts_with("[✓]") || state.external_export_status.starts_with("[!]") {
             bottom_lines.push(Line::from(Span::styled(
-                format!("  USB Status: {}", state.external_export_status),
+                format!("USB Status: {}", state.external_export_status),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )));
-        } else {
-            bottom_lines.push(Line::from(vec![
-                Span::styled(" [✓] SOVEREIGN HEIR GUIDANCE: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::styled("WATCH-ONLY public keys. Cannot spend bitcoin.", Style::default().fg(Color::White)),
-            ]));
         }
 
         let p_bottom = Paragraph::new(bottom_lines)
+            .wrap(Wrap { trim: false })
             .block(Block::default().borders(Borders::TOP));
         frame.render_widget(p_bottom, sub_chunks[1]);
     } else {
@@ -1100,27 +1084,27 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                     let sub_chunks = Layout::default()
                         .direction(Direction::Vertical)
                         .constraints([
-                            Constraint::Min(14),   // QR code
-                            Constraint::Length(3), // Address Info
+                            Constraint::Min(10),   // QR code
+                            Constraint::Length(4), // Address Info
                         ])
                         .split(area);
 
                     let p_qr = Paragraph::new(qr_lines)
-                        .alignment(Alignment::Center)
-                        .block(block);
+                        .alignment(Alignment::Center);
                     frame.render_widget(p_qr, sub_chunks[0]);
 
                     let info_lines = vec![
                         Line::from(vec![
-                            Span::styled(" [RECEIVE ADDRESS #0]: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                            Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                             Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                         ]),
                         Line::from(vec![
-                            Span::styled(" [ACTION]: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                            Span::styled("ACTION: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                             Span::styled("Scan with Bitcoin mobile wallet or online Testnet4 faucet to fund test sats.", Style::default().fg(Color::White)),
                         ]),
                     ];
                     let p_info = Paragraph::new(info_lines)
+                        .wrap(Wrap { trim: false })
                         .block(Block::default().borders(Borders::TOP));
                     frame.render_widget(p_info, sub_chunks[1]);
                 }

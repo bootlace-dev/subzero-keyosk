@@ -15,6 +15,7 @@ fn assert_render_all_resolutions(state: &AppState) {
 
         // Deep character inspection: Extract rendered text line-by-line from Ratatui buffer
         let buffer = terminal.backend().buffer();
+        let mut full_screen = String::new();
         for y in 0..h {
             let mut line_str = String::with_capacity(w as usize);
             for x in 0..w {
@@ -22,12 +23,34 @@ fn assert_render_all_resolutions(state: &AppState) {
                 line_str.push_str(cell.symbol());
             }
             let trimmed = line_str.trim_end();
+            full_screen.push_str(trimmed);
+            full_screen.push(' ');
             // Assert no line exceeds the printable width of the terminal
             assert!(
                 trimmed.chars().count() <= w as usize,
                 "Rendered line exceeded screen width ({}) on page {:?} at row {}: '{}'",
                 w, state.current_page, y, trimmed
             );
+        }
+
+        // Active truncation detection: On Tab 4, verify that the descriptor or vpub payload is fully present across all resolutions without right-edge truncation
+        if state.current_page == Page::VpubQr {
+            if let Some(ref s) = state.seed {
+                let expected = match state.qr_mode {
+                    QrMode::BbqrAnimated => "", // BBQr is split across frames
+                    QrMode::FullBlockSpace => &s.descriptor,
+                    QrMode::StaticVpub => &s.vpub_slip132,
+                };
+                if !expected.is_empty() {
+                    let cleaned_screen: String = full_screen.chars().filter(|c| !c.is_whitespace()).collect();
+                    let cleaned_expected: String = expected.chars().filter(|c| !c.is_whitespace()).collect();
+                    assert!(
+                        cleaned_screen.contains(&cleaned_expected),
+                        "Payload was truncated on page {:?} at resolution {}x{}! Missing content: {}",
+                        state.current_page, w, h, expected
+                    );
+                }
+            }
         }
     }
 }
@@ -210,15 +233,13 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
             "WALLET IMPORT PROTOCOL & COMPATIBILITY MATRIX:",
         ]),
         (Page::VpubQr, &[
-            "Tab 4. Airgapped Export QR",
-            "[RAW QR PAYLOAD CONTENT]:",
-            "Target:",
-            "[Press 'M' to cycle modes]",
-            "[✓] SOVEREIGN HEIR GUIDANCE:",
+            "Tab 4. Watch-Only QR",
+            "CONTENT:",
         ]),
         (Page::FaucetQr, &[
-            "Tab 5. Faucet QR Code",
-            "[RECEIVE ADDRESS #0]:",
+            "Tab 5. Faucet QR",
+            "CONTENT:",
+            "ACTION:",
         ]),
         (Page::Addresses, &[
             "Tab 6. Receive Addresses",
