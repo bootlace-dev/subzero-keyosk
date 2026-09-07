@@ -1160,11 +1160,25 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             }
         }
 
+        let is_usb_active = state.external_export_status.starts_with("[✓]") || state.external_export_status.starts_with("[!]");
+        // For displays with width <= 165 (including standard 80x24, 80x25, 100x30, 120x40, 128x48, and 160x50),
+        // 154-char output descriptors wrap across multiple lines (+ 1 mode banner + 1 top border = 5 lines, or 6 with USB status).
+        // For widescreen displays with width > 165 (such as the Dell amnesic live framebuffer console),
+        // the 163-char 'CONTENT: <descriptor>' fits on a single line (+ 1 mode banner + 1 top border = 3 lines, or 4 with USB status),
+        // completely eliminating the spare wasted blank line between CONTENT and NAV while maximizing vertical QR area.
+        let bottom_height = if is_usb_active {
+            if area.width <= 165 { 6 } else { 4 }
+        } else if area.width <= 165 {
+            5
+        } else {
+            3
+        };
+
         let sub_chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Min(10),   // Full QR code area
-                Constraint::Length(5), // Clean wrapped CONTENT area (supports title + up to 3 lines of wrapped payload)
+                Constraint::Min(10),                 // Full QR code area
+                Constraint::Length(bottom_height),   // Compact wrapped CONTENT area (Mode banner + CONTENT + optional USB)
             ])
             .split(area);
 
@@ -1178,15 +1192,15 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let mut bottom_lines = Vec::new();
         bottom_lines.push(Line::from(vec![
-            Span::styled("Tab 4. Watch-Only QR Export", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("  [INTEGRITY SHA-256: {}]", checksum), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("[{}] [M=Rotate | E=USB]", mode_banner), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  [SHA-256: {}]", checksum), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]));
         bottom_lines.push(Line::from(vec![
             Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(raw_payload, Style::default().fg(Color::Yellow)),
         ]));
 
-        if state.external_export_status.starts_with("[✓]") || state.external_export_status.starts_with("[!]") {
+        if is_usb_active {
             bottom_lines.push(Line::from(Span::styled(
                 format!("USB Status: {}", state.external_export_status),
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
@@ -1216,7 +1230,7 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                         .direction(Direction::Vertical)
                         .constraints([
                             Constraint::Min(10),   // QR code
-                            Constraint::Length(5), // Address Info + Title
+                            Constraint::Length(4), // Address Info + Content (compacted)
                         ])
                         .split(area);
 
@@ -1232,15 +1246,12 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                     let mut info_lines = Vec::new();
                     info_lines.push(Line::from(vec![
                         Span::styled("Tab 5. Faucet QR Code (Receive Address #0)", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-                        Span::styled(format!("  [INTEGRITY SHA-256: {}]", checksum), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("  [SHA-256: {}]", checksum), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                     ]));
                     info_lines.push(Line::from(vec![
                         Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
                         Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                    ]));
-                    info_lines.push(Line::from(vec![
-                        Span::styled("ACTION: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                        Span::styled("Scan with Bitcoin mobile wallet or online Testnet4 faucet to fund test sats.", Style::default().fg(Color::White)),
+                        Span::styled("  (Scan to fund test sats)", Style::default().fg(Color::Green)),
                     ]));
                     let p_info = Paragraph::new(info_lines)
                         .wrap(Wrap { trim: false })

@@ -253,7 +253,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
         (Page::FaucetQr, &[
             "Tab 5. Faucet QR",
             "CONTENT:",
-            "ACTION:",
+            "Scan to fund test sats",
         ]),
         (Page::Addresses, &[
             "Tab 6. Receive Addresses",
