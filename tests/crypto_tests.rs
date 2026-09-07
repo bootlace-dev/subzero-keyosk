@@ -43,12 +43,12 @@ fn test_entropy_quality_hard_block() {
         _ => panic!("Expected MarkovAuditFailed, got {:?}", err),
     }
 
-    // Short dice rolls (56 rolls < 60) MUST fail length check
-    let short_dice = "42312461325243625522323266341621355533154531632254132415";
-    let err_short = process_physical_entropy(short_dice).expect_err("Should have failed <60 rolls");
+    // Short dice rolls (45 rolls < 50) MUST fail length check
+    let short_dice = "423124613252436255223232663416213555331545316";
+    let err_short = process_physical_entropy(short_dice).expect_err("Should have failed <50 rolls");
     match err_short {
-        CryptoError::InvalidEntropyLength(56) => {},
-        _ => panic!("Expected InvalidEntropyLength(56), got {:?}", err_short),
+        CryptoError::InvalidEntropyLength(45) => {},
+        _ => panic!("Expected InvalidEntropyLength(45), got {:?}", err_short),
     }
 
     // Severely skewed frequency (84 ones and 44 zeros) passing Markov but failing Chi-squared audit

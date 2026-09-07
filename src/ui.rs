@@ -1,3 +1,5 @@
+use std::time::Duration;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
@@ -6,8 +8,9 @@ use ratatui::{
     Frame,
 };
 use zeroize::Zeroize;
+use sha2::{Digest, Sha256};
 use crate::crypto::{
-    has_repetitive_substrings, run_markov_audit, run_chi_squared_audit, Bip85Child,
+    self, has_repetitive_substrings, run_markov_audit, run_chi_squared_audit, Bip85Child,
     DecryptedVaultPayload, GeneratedSeed, decrypt_vault_json,
     process_physical_entropy, derive_bip85_children,
 };
@@ -55,6 +58,7 @@ impl Page {
         Page::Provenance,
     ];
 
+    #[allow(dead_code)]
     pub fn title(&self) -> &'static str {
         match self {
             Page::RoleSelect => "Tab 0. Welcome / Operator Role Selection",
@@ -66,11 +70,31 @@ impl Page {
             Page::Addresses => "Tab 6. Receive Addresses",
             Page::Bip85Children => "Tab 7. BIP-85 Heir Keys",
             Page::EstateProvisioner => "Tab 8. Benefactor Estate Vault Provisioner",
-            Page::VaultUnlock => "Tab 9. Unlock & Decrypt Estate Vault (vault.json)",
-            Page::SeedFix => "Tab 10. SeedFix Recovery Tool (Interactive Candidate Solver)",
-            Page::WordlistInspector => "Tab 11. BIP-39 Canonical English Wordlist Inspector (2048 Words)",
+            Page::VaultUnlock => "Tab 9. Unlock & Decrypt Estate Vault",
+            Page::SeedFix => "Tab 10. SeedFix Recovery Tool",
+            Page::WordlistInspector => "Tab 11. BIP-39 Canonical English Wordlist Inspector",
             Page::DrillGuide => "Tab 12. Metal Punch Grid",
             Page::Provenance => "Tab 13. Provenance & Spec",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn short_title(&self) -> &'static str {
+        match self {
+            Page::RoleSelect => "Role Select",
+            Page::MasterSeed => "Master Seed",
+            Page::Passphrase => "Passphrase",
+            Page::Descriptor => "Descriptor",
+            Page::VpubQr => "VPUB QR",
+            Page::FaucetQr => "Faucet QR",
+            Page::Addresses => "Addresses",
+            Page::Bip85Children => "BIP-85 Keys",
+            Page::EstateProvisioner => "Provisioner",
+            Page::VaultUnlock => "Vault Unlock",
+            Page::SeedFix => "SeedFix",
+            Page::WordlistInspector => "Wordlist",
+            Page::DrillGuide => "Metal Grid",
+            Page::Provenance => "Provenance",
         }
     }
 
@@ -116,6 +140,9 @@ pub struct AppState {
     pub is_selecting_test_vector: bool,
     pub wipe_confirmation_instant: Option<std::time::Instant>,
     pub pending_exit_instant: Option<std::time::Instant>,
+    pub vault_mask_passphrase: bool,
+    pub last_activity_instant: std::time::Instant,
+    pub vault_unlocked_instant: Option<std::time::Instant>,
 }
 
 impl AppState {
@@ -147,6 +174,9 @@ impl AppState {
             is_selecting_test_vector: false,
             wipe_confirmation_instant: None,
             pending_exit_instant: None,
+            vault_mask_passphrase: false,
+            last_activity_instant: std::time::Instant::now(),
+            vault_unlocked_instant: None,
         }
     }
 }
@@ -173,8 +203,10 @@ impl AppState {
         self.jitter_samples.clear();
         self.last_jitter_instant = None;
         self.decrypted_vault = None;
+        self.vault_unlocked_instant = None;
         self.vault_passphrase_input.zeroize();
         self.vault_passphrase_input.clear();
+        self.vault_mask_passphrase = false;
         self.seedfix_input.zeroize();
         self.seedfix_input.clear();
         self.vault_status_msg = "Enter 12-word passphrase or 'test0'..'test9' / 't0'..'t9'.".into();
@@ -238,15 +270,26 @@ impl AppState {
             let markov = run_markov_audit(&self.entropy_input);
             let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
             let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
-            if len >= 60 && markov.passed && chi2_pass && !repeats {
-                self.status_message = "Dice entropy threshold valid (60 rolls)! Press [ENTER] to derive keys.".into();
-            } else if len >= 60 {
-                self.status_message = "[BLOCKED] 60 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
+            if len >= 50 && markov.passed && chi2_pass && !repeats {
+                self.status_message = format!("Dice entropy threshold valid ({}/50 rolls, 60 recommended)! Press [ENTER] to derive keys.", len);
+            } else if len >= 50 {
+                self.status_message = "[BLOCKED] 50 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
             } else {
-                self.status_message = format!("Collecting dice rolls: {}/60 rolls...", len);
+                self.status_message = format!("Collecting dice rolls: {}/50 rolls (60 recommended)...", len);
             }
         } else {
             self.status_message = "Mixed entropy input detected. Use only 0/1 or 1-6.".into();
+        }
+    }
+
+    pub fn check_inactivity_autolock(&mut self) {
+        if self.decrypted_vault.is_some() {
+            // 30 minutes = 1,800 seconds of inactivity
+            if self.last_activity_instant.elapsed() >= std::time::Duration::from_secs(1800) {
+                self.decrypted_vault = None;
+                self.vault_unlocked_instant = None;
+                self.vault_status_msg = "[!] Auto-Lock: Vault locked after 30 minutes of inactivity to protect amnesic RAM.".into();
+            }
         }
     }
 
@@ -348,6 +391,8 @@ impl AppState {
                     heir_treasuries: children,
                 };
                 self.decrypted_vault = Some(test_payload);
+                self.vault_unlocked_instant = Some(std::time::Instant::now());
+                self.last_activity_instant = std::time::Instant::now();
                 self.vault_status_msg = format!("[✓] TEST VECTOR {} VAULT DECRYPTED: Master root keys restored in amnesic RAM.", id);
                 return;
             }
@@ -359,10 +404,17 @@ impl AppState {
                 match decrypt_vault_json(&vault_json_str, input) {
                     Ok(payload) => {
                         self.decrypted_vault = Some(payload);
+                        self.vault_unlocked_instant = Some(std::time::Instant::now());
+                        self.last_activity_instant = std::time::Instant::now();
                         self.vault_status_msg = "[✓] VAULT DECRYPTED FROM PARTITION 2: Master root keys restored in amnesic RAM.".into();
                     }
                     Err(e) => {
-                        self.vault_status_msg = format!("[!] Authentication failed: {}", e);
+                        let err_str = e.to_string();
+                        if err_str.contains("parse") || err_str.contains("JSON") {
+                            self.vault_status_msg = format!("[!] Corrupted vault file: vault.json is damaged or invalid ({}). Please verify media integrity.", e);
+                        } else {
+                            self.vault_status_msg = format!("[!] Authentication failed: Incorrect passphrase ({}). Please verify your 12 words; funds are safe.", e);
+                        }
                     }
                 }
             }
@@ -397,29 +449,55 @@ pub fn render_app(frame: &mut Frame, state: &AppState) {
 }
 
 fn render_header(frame: &mut Frame, area: Rect, state: &AppState) {
+    let is_narrow = area.width < 120;
+
     let fp_str = if let Some(ref s) = state.seed {
-        format!("[Master fp: {}]", s.fingerprint)
+        if is_narrow {
+            format!("[fp:{}]", s.fingerprint)
+        } else {
+            format!("[Master fp: {}]", s.fingerprint)
+        }
     } else {
-        "[NO KEYS IN RAM]".to_string()
+        if is_narrow {
+            "[NO KEYS]".to_string()
+        } else {
+            "[NO KEYS IN RAM]".to_string()
+        }
     };
 
     let (source_badge, source_style) = if state.is_test_entropy() {
-        ("[TEST PRNG SEED: UNTRUSTED]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        if is_narrow {
+            ("[TEST]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        } else {
+            ("[TEST PRNG]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
+        }
     } else if state.seed.is_some() {
-        ("[PHYSICAL ENTROPY: SHA-256 HASHED]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
+        ("[PHYSICAL]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))
     } else {
-        ("[AWAITING ENTROPY]", Style::default().fg(Color::DarkGray))
+        if is_narrow {
+            ("[AWAITING]", Style::default().fg(Color::DarkGray))
+        } else {
+            ("[AWAITING ENTROPY]", Style::default().fg(Color::DarkGray))
+        }
+    };
+
+    let net_badge = "[TESTNET4]";
+    let sep = " | ";
+    let title_text = if is_narrow {
+        state.current_page.short_title()
+    } else {
+        state.current_page.title()
     };
 
     let line = Line::from(vec![
         Span::styled(format!(" [{}/{}] ", state.current_page.page_num(), Page::ALL.len()), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::styled(state.current_page.title(), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::raw("  |  "),
+        Span::styled(title_text, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::raw(sep),
         Span::styled(fp_str, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw("  |  "),
+        Span::raw(sep),
         Span::styled(source_badge, source_style),
-        Span::raw("  |  "),
-        Span::styled("[TESTNET4 ONLY]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        Span::raw(sep),
+        Span::styled(net_badge, Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
     ]);
 
     let block = Block::default().borders(Borders::BOTTOM).style(Style::default().fg(Color::Cyan));
@@ -597,14 +675,14 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
 
         lines.push(Line::from(vec![
             Span::styled("  METAL PUNCH / COLUMN GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("If punching steel plates, read Column 1 DOWN, then Column 2 DOWN.", Style::default().fg(Color::White)),
+            Span::styled("Read Column 1 DOWN (01-06), then Column 2 DOWN (07-12).", Style::default().fg(Color::White)),
         ]));
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:<42}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {:<35}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
             Span::styled("COLUMN 2: (Words 07 through 12)", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
         ]));
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
 
         for i in 0..6 {
             let w1 = words.get(i).unwrap_or(&"");
@@ -612,15 +690,15 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
             let p1 = if w1.len() >= 4 { &w1[..4] } else { w1 }.to_uppercase();
             let p2 = if w2.len() >= 4 { &w2[..4] } else { w2 }.to_uppercase();
 
-            let left = format!("  Word #{:02}:  {:<12} [Punch: {:<4}]", i + 1, w1, p1);
-            let right = format!("    Word #{:02}:  {:<12} [Punch: {:<4}]", i + 7, w2, p2);
+            let left = format!("  Word #{:02}: {:<8} [Punch: {:<4}]", i + 1, w1, p1);
+            let right = format!("   Word #{:02}: {:<8} [Punch: {:<4}]", i + 7, w2, p2);
             lines.push(Line::from(vec![
                 Span::styled(left, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::styled(right, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             ]));
         }
 
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
         lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::raw("  Master Fingerprint:   "),
@@ -865,14 +943,14 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     }
 
     lines.push(Line::from(""));
-    if (is_bin && len >= 128 && markov.passed && chi2_pass && !repeats) || (is_dice && len >= 60 && markov.passed && chi2_pass && !repeats) {
+    if (is_bin && len >= 128 && markov.passed && chi2_pass && !repeats) || (is_dice && len >= 50 && markov.passed && chi2_pass && !repeats) {
         lines.push(Line::from(Span::styled(
             "  [CRITERIA MET] Press [ENTER] to derive master keys and BIP-85 suite.",
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )));
     } else if !raw.is_empty() {
         let needed = if is_dice {
-            format!("{} rolls", 60usize.saturating_sub(len))
+            format!("{} rolls (50 min, 60 rec.)", 50usize.saturating_sub(len))
         } else {
             format!("{} bits", 128usize.saturating_sub(len))
         };
@@ -885,15 +963,15 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  HOW THIS WORKS (PURE PHYSICAL ENTROPY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 60+ times."));
+    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 50+ times (60 recommended)."));
     lines.push(Line::from("  2. Zero Hardware PRNG: Your private keys come 100% from physical chance, not a computer chip."));
     lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions, Chi-squared uniformity, and blocks repeats."));
-    lines.push(Line::from("  4. Dice Hashing: 60+ dice rolls are hashed with SHA-256 to eliminate physical die bias."));
+    lines.push(Line::from("  4. Dice Hashing: 50+ dice rolls (60 recommended for pip bias) are hashed with SHA-256 to eliminate physical die bias."));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
     lines.push(Line::from("  - Press [T] to select a deterministic test vector (0=All-Zeros, 8=Genesis Lore, 9=Hal Finney)."));
     lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
-    lines.push(Line::from("  - Press [D] to load 60 real dice rolls into the buffer for instant review."));
+    lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
     lines.push(Line::from("  - Press [K] to harvest human keystroke timing jitter (unique test seed, zero PRNG)."));
     lines.push(Line::from("  - Press [W] at any time to wipe and clear all input buffers."));
 
@@ -916,13 +994,11 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
             "  [NON-COLOCATED ENCRYPTION KEY & ESTATE DEAD-MAN SWITCH]",
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )));
-        lines.push(Line::from(""));
         lines.push(Line::from(vec![
-            Span::raw("  BIP-85 Derivation Path: "),
+            Span::raw("  BIP-85 Path: "),
             Span::styled(&pass.path, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("  (Deterministic one-way child derivation)"),
+            Span::raw(" (Deterministic child derivation)"),
         ]));
-        lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  12-WORD PASSPHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]));
@@ -937,18 +1013,16 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
 
         lines.push(Line::from(Span::styled(format!("  {}", pass_num_line), Style::default().fg(Color::DarkGray).add_modifier(Modifier::BOLD))));
         lines.push(Line::from(Span::styled(format!("  {}", pass_word_line), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from(""));
-
         lines.push(Line::from(vec![
             Span::styled("  METAL PUNCH / COLUMN GUIDANCE: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::styled("If punching steel plates, read Column 1 DOWN, then Column 2 DOWN.", Style::default().fg(Color::White)),
+            Span::styled("Read Column 1 DOWN (01-06), then Column 2 DOWN (07-12).", Style::default().fg(Color::White)),
         ]));
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:<42}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  {:<35}", "COLUMN 1: (Words 01 through 06)"), Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
             Span::styled("COLUMN 2: (Words 07 through 12)", Style::default().fg(Color::LightCyan).add_modifier(Modifier::BOLD)),
         ]));
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
 
         for i in 0..6 {
             let w1 = words.get(i).unwrap_or(&"");
@@ -956,15 +1030,15 @@ fn render_passphrase(frame: &mut Frame, area: Rect, state: &AppState) {
             let p1 = if w1.len() >= 4 { &w1[..4] } else { w1 }.to_uppercase();
             let p2 = if w2.len() >= 4 { &w2[..4] } else { w2 }.to_uppercase();
 
-            let left = format!("  Word #{:02}:  {:<12} [Punch: {:<4}]", i + 1, w1, p1);
-            let right = format!("    Word #{:02}:  {:<12} [Punch: {:<4}]", i + 7, w2, p2);
+            let left = format!("  Word #{:02}: {:<8} [Punch: {:<4}]", i + 1, w1, p1);
+            let right = format!("   Word #{:02}: {:<8} [Punch: {:<4}]", i + 7, w2, p2);
             lines.push(Line::from(vec![
                 Span::styled(left, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
                 Span::styled(right, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             ]));
         }
 
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("  DECOUPLED ESTATE PASSING ARCHITECTURE:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
         lines.push(Line::from("  1. Location A (Master Seed on Steel): Direct spending control of your master root cold wallet."));
@@ -1060,7 +1134,7 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .title(format!(" Tab 4. Airgapped Export QR [{} | Target: {}] [M=Rotate Mode | E=USB] ", mode_banner, target_wallet))
+        .title(format!(" Tab 4. Watch-Only QR [{} | Target: {}] [M=Rotate Mode | E=USB] ", mode_banner, target_wallet))
         .style(Style::default().fg(Color::White));
 
     if let Some(ref seed) = state.seed {
@@ -1090,14 +1164,23 @@ fn render_vpub_qr(frame: &mut Frame, area: Rect, state: &AppState) {
             .direction(Direction::Vertical)
             .constraints([
                 Constraint::Min(10),   // Full QR code area
-                Constraint::Length(4), // Clean wrapped CONTENT area (supports up to 3 lines of wrapped payload)
+                Constraint::Length(5), // Clean wrapped CONTENT area (supports title + up to 3 lines of wrapped payload)
             ])
             .split(area);
 
         let p_qr = Paragraph::new(lines).alignment(Alignment::Center);
         frame.render_widget(p_qr, sub_chunks[0]);
 
+        let checksum = {
+            let digest = Sha256::digest(raw_payload.as_bytes());
+            hex::encode(&digest[..4]).to_uppercase()
+        };
+
         let mut bottom_lines = Vec::new();
+        bottom_lines.push(Line::from(vec![
+            Span::styled("Tab 4. Watch-Only QR Export", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("  [INTEGRITY SHA-256: {}]", checksum), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        ]));
         bottom_lines.push(Line::from(vec![
             Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::styled(raw_payload, Style::default().fg(Color::Yellow)),
@@ -1133,7 +1216,7 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                         .direction(Direction::Vertical)
                         .constraints([
                             Constraint::Min(10),   // QR code
-                            Constraint::Length(4), // Address Info
+                            Constraint::Length(5), // Address Info + Title
                         ])
                         .split(area);
 
@@ -1141,16 +1224,24 @@ fn render_faucet_qr(frame: &mut Frame, area: Rect, state: &AppState) {
                         .alignment(Alignment::Center);
                     frame.render_widget(p_qr, sub_chunks[0]);
 
-                    let info_lines = vec![
-                        Line::from(vec![
-                            Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-                            Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-                        ]),
-                        Line::from(vec![
-                            Span::styled("ACTION: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                            Span::styled("Scan with Bitcoin mobile wallet or online Testnet4 faucet to fund test sats.", Style::default().fg(Color::White)),
-                        ]),
-                    ];
+                    let checksum = {
+                        let digest = Sha256::digest(addr.as_bytes());
+                        hex::encode(&digest[..4]).to_uppercase()
+                    };
+
+                    let mut info_lines = Vec::new();
+                    info_lines.push(Line::from(vec![
+                        Span::styled("Tab 5. Faucet QR Code (Receive Address #0)", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("  [INTEGRITY SHA-256: {}]", checksum), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                    ]));
+                    info_lines.push(Line::from(vec![
+                        Span::styled("CONTENT: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                        Span::styled(addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    ]));
+                    info_lines.push(Line::from(vec![
+                        Span::styled("ACTION: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                        Span::styled("Scan with Bitcoin mobile wallet or online Testnet4 faucet to fund test sats.", Style::default().fg(Color::White)),
+                    ]));
                     let p_info = Paragraph::new(info_lines)
                         .wrap(Wrap { trim: false })
                         .block(Block::default().borders(Borders::TOP));
@@ -1339,58 +1430,80 @@ fn render_vault_unlock(frame: &mut Frame, area: Rect, state: &AppState) {
         .style(Style::default().fg(Color::White));
 
     let mut lines = Vec::new();
-    lines.push(Line::from(""));
     lines.push(Line::from(Span::styled(
         "  INHERITANCE RECOVERY & VAULT AUTHENTICATION ENGINE",
         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
     )));
-    lines.push(Line::from(""));
     lines.push(Line::from("  Enter your 12-Word Decoupled Estate Passphrase below to decrypt vault.json:"));
-    lines.push(Line::from(""));
 
-    let input_display = if state.vault_passphrase_input.is_empty() {
-        "Type 12-word passphrase or 't0'..'t9' / 'test'..."
+    let char_count = state.vault_passphrase_input.len();
+    let word_count = if state.vault_passphrase_input.trim().is_empty() {
+        0
     } else {
-        &state.vault_passphrase_input
+        state.vault_passphrase_input.split_whitespace().count()
     };
+
+    let (input_display, mask_badge) = if state.vault_passphrase_input.is_empty() {
+        ("Type 12-word passphrase or 't0'..'t9' / 'test'...".to_string(), "[AWAITING INPUT]")
+    } else if state.vault_mask_passphrase {
+        ("•".repeat(char_count.min(48)), "[MASKED - Press Ctrl+M to Unmask]")
+    } else {
+        (state.vault_passphrase_input.clone(), "[VISIBLE - Press Ctrl+M to Mask]")
+    };
+
     lines.push(Line::from(vec![
         Span::styled("  > ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         Span::styled(input_display, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
     ]));
-    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled(format!("    Passphrase Metrics: {} word(s) entered | {} character(s)  ", word_count, char_count), Style::default().fg(Color::DarkGray)),
+        Span::styled(mask_badge, Style::default().fg(Color::Cyan)),
+    ]));
     lines.push(Line::from(Span::styled(
         format!("  Status: {}", state.vault_status_msg),
         Style::default().fg(Color::Cyan),
     )));
     lines.push(Line::from(Span::styled(
-        "  Note: Press [ENTER] to authenticate. Press [Esc] to exit input typing & allow memory wipe.",
+        "  Note: Press [ENTER] to authenticate. Press [Ctrl+M] to toggle visual masking.",
         Style::default().fg(Color::DarkGray),
     )));
-    lines.push(Line::from(""));
 
     if let Some(ref payload) = state.decrypted_vault {
+        let remaining_mins = 30u64.saturating_sub(state.last_activity_instant.elapsed().as_secs() / 60);
         lines.push(Line::from(Span::styled(
-            "  [RESTORED TESTNET4 KEYS FROM DECRYPTED VAULT]:",
+            "  [✓] RECOVERY SUCCESSFUL: Decrypted into amnesic RAM.",
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )));
-        lines.push(Line::from(format!("    Master Root Mnemonic: {}", payload.master_root_mnemonic)));
-        lines.push(Line::from(format!("    Output Descriptor:    {}", payload.descriptor)));
-        lines.push(Line::from("    Heir Treasuries:"));
-        for heir in &payload.heir_treasuries {
-            lines.push(Line::from(format!("      - {} (Index {}): {}", heir.label, heir.index, heir.mnemonic)));
+        lines.push(Line::from(Span::styled(
+            format!("  [Auto-Lock: 30m idle timer active ({}m remaining)]", remaining_mins),
+            Style::default().fg(Color::Yellow),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  Key Location Guidance: Mnemonic below. Optical QR codes on Tab 4. Addresses on Tab 6.",
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(format!("  Master Root Mnemonic: {}", payload.master_root_mnemonic)));
+        lines.push(Line::from(format!("  Output Descriptor:    {}", payload.descriptor)));
+        lines.push(Line::from("  Heir Treasuries:"));
+        for heir in payload.heir_treasuries.iter().take(2) {
+            lines.push(Line::from(format!("    - {} (Index {}): {}", heir.label, heir.index, heir.mnemonic)));
         }
+        lines.push(Line::from(Span::styled(
+            "  Next Actions: Write down words on steel or paper. Press [Tab] to view Tab 4 (Optical QR exports).",
+            Style::default().fg(Color::Yellow),
+        )));
     } else {
-        lines.push(Line::from("    Press [ENTER] to attempt AES-256-GCM / PBKDF2 authentication."));
+        lines.push(Line::from("  Press [ENTER] to attempt AES-256-GCM / PBKDF2 authentication against Partition 2."));
     }
 
-    lines.push(Line::from(""));
-    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from("  --------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  OPERATOR GUIDANCE (IF YOU ARE AN HEIR OR EXECUTOR):", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  1. Welcome: This tab is your recovery workstation. Insert the SubZero media into this laptop."));
-    lines.push(Line::from("  2. Enter Passphrase: Type the 12 words provided in your estate letter or safe deposit box."));
-    lines.push(Line::from("  3. Press [ENTER]: The vault unlocks in amnesic memory, showing the master seed & descriptors."));
-    lines.push(Line::from("  4. Zero Footprint: Nothing is ever saved to disk. When you turn off this laptop, all"));
-    lines.push(Line::from("     decrypted keys vanish completely from RAM."));
+    lines.push(Line::from("  1. Welcome: This tab is your recovery workstation. Insert media into laptop."));
+    lines.push(Line::from("  2. Enter Passphrase: Type the 12 words provided in your estate letter."));
+    lines.push(Line::from("  3. Unknown Passphrase? Check benefactor estate planning packet or will."));
+    lines.push(Line::from("     SubZero cannot bypass the 12-word passphrase."));
+    lines.push(Line::from("  4. Press [ENTER]: The vault unlocks in amnesic memory."));
+    lines.push(Line::from("  5. Zero Footprint: Nothing is ever saved to disk. Power off purges RAM."));
 
     let p = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(p, area);
@@ -1632,4 +1745,329 @@ fn render_provenance(frame: &mut Frame, area: Rect, state: &AppState) {
     ];
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+/// Centralized key event handler for interactive terminal and headless test suites.
+/// Returns true if the application should terminate (break main loop), false to continue.
+pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
+    state.last_activity_instant = std::time::Instant::now();
+    state.check_inactivity_autolock();
+
+    // 1. Unconditional Emergency Exit: Ctrl+c
+    if key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('c') {
+        return true;
+    }
+
+    // 2. High-Priority Mode: Active Keystroke Jitter Harvesting
+    // INVARIANT 3 (JITTER ISOLATION):
+    // When is_harvesting_jitter is active, pressing Tab, Left, Right, or digits MUST NOT
+    // silently switch pages or corrupt background state without cancelling or finishing jitter.
+    // INVARIANT 1: 'w' or 'W' during jitter harvest MUST NEVER wipe memory or clear the seed.
+    // INVARIANT 2: 'q' or 'Q' during jitter harvest MUST NEVER trigger exit confirmation.
+    if state.is_harvesting_jitter {
+        if key.code == KeyCode::Esc {
+            state.is_harvesting_jitter = false;
+            for s in &mut state.jitter_samples {
+                s.0 = '\0';
+                s.1.zeroize();
+            }
+            state.jitter_samples.clear();
+            state.last_jitter_instant = None;
+            state.status_message = "Keystroke jitter harvest canceled.".into();
+            return false;
+        }
+
+        if let KeyCode::Char(c) = key.code {
+            let now = std::time::Instant::now();
+            let delta_nanos = if let Some(prev) = state.last_jitter_instant {
+                now.duration_since(prev).as_nanos() as u64
+            } else {
+                150_000_000 // default ~150ms for initial sample
+            };
+            state.last_jitter_instant = Some(now);
+            state.jitter_samples.push((c, delta_nanos));
+
+            if state.jitter_samples.len() >= 32 {
+                let bits = crypto::harvest_keystroke_jitter_to_binary(&state.jitter_samples);
+                for s in &mut state.jitter_samples {
+                    s.0 = '\0';
+                    s.1.zeroize();
+                }
+                state.jitter_samples.clear();
+                state.last_jitter_instant = None;
+                state.is_harvesting_jitter = false;
+
+                match crypto::process_physical_entropy(&bits) {
+                    Ok(seed) => {
+                        let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                        state.set_seed(seed, children);
+                        state.status_message = "[HUMAN JITTER HARVESTED] 12-word seed generated from keystroke timing deltas. [W] Wipe".into();
+                    }
+                    Err(e) => {
+                        state.status_message = format!("[JITTER FAILED] {}. Try again.", e);
+                    }
+                }
+            }
+        }
+        // All non-char keys (Tab, Left, Right, Up, Down, Home, etc.) are swallowed to enforce jitter isolation
+        return false;
+    }
+
+    // 3. High-Priority Mode: Test Vector Selection Modal
+    if state.is_selecting_test_vector {
+        match key.code {
+            KeyCode::Char(c) if ('0'..='9').contains(&c) => {
+                let digit = c.to_digit(10).unwrap() as u8;
+                state.is_selecting_test_vector = false;
+                if let Ok((_bytes, label)) = crypto::get_test_vector(digit) {
+                    let seed = crypto::process_physical_entropy(&format!("test{}", digit)).unwrap();
+                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                    state.set_seed(seed, children);
+                    state.status_message = format!("[{}] Loaded. [W] Wipe", label);
+                }
+            }
+            KeyCode::Esc => {
+                state.is_selecting_test_vector = false;
+                state.status_message = "Test vector selection canceled.".into();
+            }
+            _ => {
+                state.status_message = "Select test vector 0-9, or press [Esc] to cancel.".into();
+            }
+        }
+        return false;
+    }
+
+    // Helper: Determine if user is in an active typing input field
+    let is_typing_input = match state.current_page {
+        Page::MasterSeed => state.seed.is_none(),
+        Page::SeedFix => true,
+        Page::WordlistInspector => true,
+        Page::VaultUnlock => state.decrypted_vault.is_none(),
+        _ => false,
+    };
+
+    // 4. Two-Stroke Exit [Q] Confirmation
+    // INVARIANT 2 (NO ACCIDENTAL EXIT): Typing 'q' or 'Q' in an input field MUST NEVER trigger exit confirmation.
+    // INVARIANT 4 (TWO-STROKE EXIT INTEGRITY): Pressing [Q] once sets pending_exit_instant;
+    // pressing ANY OTHER KEY cancels it; pressing [Q] again within 3 seconds confirms exit;
+    // pressing [Q] after 3 seconds resets the timer.
+    let is_plain_q = (key.code == KeyCode::Char('q') || key.code == KeyCode::Char('Q'))
+        && !key.modifiers.contains(KeyModifiers::CONTROL);
+
+    if is_plain_q && !is_typing_input {
+        if let Some(t) = state.pending_exit_instant {
+            if t.elapsed() < Duration::from_secs(3) {
+                return true; // Confirmed exit
+            }
+        }
+        state.pending_exit_instant = Some(std::time::Instant::now());
+        state.status_message = "[!] PRESS [Q] AGAIN WITHIN 3 SECONDS TO CONFIRM EXIT & PURGE RAM.".into();
+        return false;
+    } else if state.pending_exit_instant.is_some() {
+        // Any other key (or Q inside an input field) cancels pending exit confirmation
+        state.pending_exit_instant = None;
+    }
+
+    // 5. Global Home / Esc: Return to RoleSelect and reset ephemeral input buffers
+    // In input fields, Esc cancels text entry and returns to Tab 0
+    if key.code == KeyCode::Esc || key.code == KeyCode::Home {
+        state.vault_passphrase_input.zeroize();
+        state.vault_passphrase_input.clear();
+        state.seedfix_input.zeroize();
+        state.seedfix_input.clear();
+        state.wordlist_query.clear();
+        state.is_entering_entropy = false;
+        state.is_selecting_test_vector = false;
+        state.current_page = Page::RoleSelect;
+        return false;
+    }
+
+    // 6. Global Tab Navigation
+    match key.code {
+        KeyCode::Tab | KeyCode::Right => {
+            state.current_page = state.current_page.next();
+            return false;
+        }
+        KeyCode::BackTab | KeyCode::Left => {
+            state.current_page = state.current_page.prev();
+            return false;
+        }
+        _ => {}
+    }
+
+    // 7. Global Memory Wipe [W]
+    // INVARIANT 1 (NO ACCIDENTAL WIPE): Typing 'w' or 'W' while entering text MUST NEVER wipe memory or clear the seed.
+    let is_plain_w = (key.code == KeyCode::Char('w') || key.code == KeyCode::Char('W'))
+        && !key.modifiers.contains(KeyModifiers::CONTROL);
+
+    if is_plain_w && !is_typing_input {
+        state.wipe_memory();
+        return false;
+    }
+
+    // 8. Contextual Page Handlers
+    match state.current_page {
+        Page::RoleSelect => {
+            match key.code {
+                KeyCode::Char('1') | KeyCode::Enter => {
+                    state.current_page = Page::MasterSeed;
+                }
+                KeyCode::Char('2') => {
+                    state.current_page = Page::VaultUnlock;
+                }
+                KeyCode::Char('3') => {
+                    state.current_page = Page::SeedFix;
+                }
+                _ => {}
+            }
+        }
+        Page::MasterSeed => {
+            let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Char('t' | 'T') if !has_ctrl => {
+                    if state.seed.is_none() {
+                        state.is_selecting_test_vector = true;
+                        state.status_message = "SELECT TEST VECTOR: Press [0-9] (e.g. 0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney) or [Esc] to cancel:".into();
+                    }
+                }
+                KeyCode::Char('k' | 'K') if !has_ctrl => {
+                    if state.seed.is_none() {
+                        state.is_harvesting_jitter = true;
+                        state.jitter_samples.clear();
+                        state.last_jitter_instant = Some(std::time::Instant::now());
+                        state.status_message = "Harvesting human keystroke timing jitter. Mash any keys rapidly!".into();
+                    }
+                }
+                KeyCode::Char('c' | 'C') if !has_ctrl => {
+                    if state.seed.is_none() {
+                        let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                        state.set_entropy_input(coin_entropy);
+                        state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
+                    }
+                }
+                KeyCode::Char('d' | 'D') if !has_ctrl => {
+                    if state.seed.is_none() {
+                        let dice_entropy = "4231246132541623514263514231652413625143625143625132";
+                        state.set_entropy_input(dice_entropy);
+                        state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
+                    }
+                }
+                KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
+                    if state.seed.is_none() {
+                        state.pop_entropy_char();
+                    }
+                }
+                KeyCode::Enter => {
+                    if state.seed.is_none() && !state.entropy_input.is_empty() {
+                        match crypto::process_physical_entropy(&state.entropy_input) {
+                            Ok(seed) => {
+                                let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                state.set_seed(seed, children);
+                            }
+                            Err(e) => {
+                                state.status_message = format!("[BLOCKED] {}", e);
+                            }
+                        }
+                    }
+                }
+                KeyCode::Char(c) if !has_ctrl && c.is_ascii_alphanumeric() => {
+                    if state.seed.is_none() {
+                        state.push_entropy_char(c);
+                    }
+                }
+                _ => {}
+            }
+        }
+        Page::VpubQr => {
+            let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Char('m' | 'M') if !has_ctrl => {
+                    state.qr_mode = state.qr_mode.next();
+                    state.bbqr_frame_index = 0;
+                }
+                KeyCode::Char('e' | 'E') if !has_ctrl => {
+                    state.export_external_usb();
+                }
+                _ => {}
+            }
+        }
+        Page::Addresses => {
+            match key.code {
+                KeyCode::Down | KeyCode::PageDown => {
+                    if let Some(ref s) = state.seed {
+                        if state.address_page_offset + 25 < s.addresses.len() {
+                            state.address_page_offset += 25;
+                        }
+                    }
+                }
+                KeyCode::Up | KeyCode::PageUp => {
+                    state.address_page_offset = state.address_page_offset.saturating_sub(25);
+                }
+                _ => {}
+            }
+        }
+        Page::Bip85Children => {
+            match key.code {
+                KeyCode::Down | KeyCode::PageDown => {
+                    if state.heir_page_offset + 10 < state.bip85_children.len() {
+                        state.heir_page_offset += 10;
+                    }
+                }
+                KeyCode::Up | KeyCode::PageUp => {
+                    state.heir_page_offset = state.heir_page_offset.saturating_sub(10);
+                }
+                _ => {}
+            }
+        }
+        Page::EstateProvisioner => {
+            if !key.modifiers.contains(KeyModifiers::CONTROL) && (key.code == KeyCode::Char('p') || key.code == KeyCode::Char('P')) {
+                state.write_estate_vault();
+            }
+        }
+        Page::SeedFix => {
+            let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
+                    state.seedfix_input.pop();
+                }
+                KeyCode::Char(c) if !has_ctrl && (c.is_alphanumeric() || c == ' ') => {
+                    state.seedfix_input.push(c);
+                }
+                _ => {}
+            }
+        }
+        Page::WordlistInspector => {
+            let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
+                    state.wordlist_query.pop();
+                }
+                KeyCode::Char(c) if !has_ctrl && c.is_alphabetic() => {
+                    state.wordlist_query.push(c);
+                }
+                _ => {}
+            }
+        }
+        Page::VaultUnlock => {
+            let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            if has_ctrl && (key.code == KeyCode::Char('m') || key.code == KeyCode::Char('M')) {
+                state.vault_mask_passphrase = !state.vault_mask_passphrase;
+            } else {
+                match key.code {
+                    KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
+                        state.vault_passphrase_input.pop();
+                    }
+                    KeyCode::Enter => {
+                        state.attempt_vault_decrypt();
+                    }
+                    KeyCode::Char(c) if !has_ctrl && (c.is_alphanumeric() || c == ' ') => {
+                        state.vault_passphrase_input.push(c);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+    false
 }

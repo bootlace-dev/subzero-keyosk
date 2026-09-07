@@ -80,6 +80,80 @@ pub struct Bip85Child {
     pub mnemonic: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Bip85ChildPublic {
+    pub index: u32,
+    pub path: String,
+    pub label: String,
+    pub fingerprint: String,
+    pub xpub: String,          // BIP-32 account extended public key (tpub...)
+    pub vpub_slip132: String,  // SLIP-0132 Native SegWit BIP-84 account key (vpub...)
+    pub descriptor: String,    // BIP-380 Native SegWit watch-only descriptor
+    pub first_address: String, // First receive address (tb1q...)
+}
+
+impl Bip85Child {
+    /// Derive watch-only public keys (xpub, SLIP-0132 vpub, descriptor) from child mnemonic.
+    /// Security invariant: Zero private keys are exposed or retained in the output.
+    pub fn derive_public_keys(&self) -> Result<Bip85ChildPublic, CryptoError> {
+        let mnemonic = Mnemonic::from_str(&self.mnemonic)?;
+        let seed = Zeroizing::new(mnemonic.to_seed(""));
+        let secp = Secp256k1::new();
+        let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())?;
+        let master_fingerprint = master_xprv.fingerprint(&secp).to_string();
+
+        let account_path = DerivationPath::from_str("m/84'/1'/0'")?;
+        let account_xprv = master_xprv.derive_priv(&secp, &account_path)?;
+        let account_xpub = Xpub::from_priv(&secp, &account_xprv);
+        let _ = account_xprv;
+        let _ = master_xprv;
+
+        let xpub_str = account_xpub.to_string();
+
+        let mut raw_bytes = account_xpub.encode();
+        raw_bytes[0] = 0x04;
+        raw_bytes[1] = 0x5f;
+        raw_bytes[2] = 0x1c;
+        raw_bytes[3] = 0xf6;
+        let vpub_slip132 = bitcoin::base58::encode_check(&raw_bytes);
+
+        let recv_branch = account_xpub.derive_pub(&secp, &DerivationPath::from_str("0")?)?;
+        let child_key = recv_branch.derive_pub(&secp, &DerivationPath::from_str("0")?)?;
+        let compressed_pk = CompressedPublicKey(child_key.public_key);
+        let first_address = Address::p2wpkh(&compressed_pk, KnownHrp::Testnets).to_string();
+
+        let raw_descriptor = format!("wpkh([{}/84'/1'/0']{}/<0;1>/*)", master_fingerprint, account_xpub);
+        let checksum = get_descriptor_checksum(&raw_descriptor);
+        let descriptor = if checksum.is_empty() {
+            raw_descriptor
+        } else {
+            format!("{}#{}", raw_descriptor, checksum)
+        };
+
+        Ok(Bip85ChildPublic {
+            index: self.index,
+            path: self.path.clone(),
+            label: self.label.clone(),
+            fingerprint: master_fingerprint,
+            xpub: xpub_str,
+            vpub_slip132,
+            descriptor,
+            first_address,
+        })
+    }
+}
+
+#[allow(dead_code)]
+pub fn derive_bip85_child_public_keys(child_mnemonic: &str) -> Result<Bip85ChildPublic, CryptoError> {
+    let dummy = Bip85Child {
+        label: "Child Public Derivation".to_string(),
+        index: 1,
+        path: "m/83696968'/39'/0'/12'/1'".to_string(),
+        mnemonic: child_mnemonic.to_string(),
+    };
+    dummy.derive_public_keys()
+}
+
 #[derive(Debug, Clone)]
 pub struct MarkovResult {
     pub passed: bool,
@@ -579,13 +653,13 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
         return Ok((bytes, "Physical Coin Flips (128-bit Bin)"));
     }
 
-    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing, 60 rolls minimum for >= 139 bits min-entropy)
+    // 6-sided Dice Rolls (Base-6 to SHA-256 entropy hashing, 50 rolls minimum for >= 129 bits min-entropy)
     if clean.chars().all(|c| ('1'..='6').contains(&c)) {
-        if clean.len() < 60 {
+        if clean.len() < 50 {
             return Err(CryptoError::InvalidEntropyLength(clean.len()));
         }
         let hash = Sha256::digest(clean.as_bytes());
-        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (60+ Rolls)"));
+        return Ok((hash[..16].to_vec(), "Standard Dice Rolls (50+ Rolls)"));
     }
 
     // Hex string (16 bytes = 32 hex chars)
