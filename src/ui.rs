@@ -271,11 +271,11 @@ impl AppState {
             let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
             let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
             if len >= 50 && markov.passed && chi2_pass && !repeats {
-                self.status_message = format!("Dice entropy threshold valid ({}/50 rolls, 60 recommended)! Press [ENTER] to derive keys.", len);
+                self.status_message = format!("Dice entropy valid ({}/50 rolls)! Tip: Rolling multiple dice blends out individual defect bias. Press [ENTER] to derive.", len);
             } else if len >= 50 {
                 self.status_message = "[BLOCKED] 50 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
             } else {
-                self.status_message = format!("Collecting dice rolls: {}/50 rolls (60 recommended)...", len);
+                self.status_message = format!("Collecting dice rolls: {}/50 rolls (Tip: Roll 2-5 dice together to soften physical bias)...", len);
             }
         } else {
             self.status_message = "Mixed entropy input detected. Use only 0/1 or 1-6.".into();
@@ -950,7 +950,7 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
         )));
     } else if !raw.is_empty() {
         let needed = if is_dice {
-            format!("{} rolls (50 min, 60 rec.)", 50usize.saturating_sub(len))
+            format!("{} rolls (50 min floor)", 50usize.saturating_sub(len))
         } else {
             format!("{} bits", 128usize.saturating_sub(len))
         };
@@ -963,10 +963,10 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  HOW THIS WORKS (PURE PHYSICAL ENTROPY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 50+ times (60 recommended)."));
+    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 50+ times."));
     lines.push(Line::from("  2. Zero Hardware PRNG: Your private keys come 100% from physical chance, not a computer chip."));
     lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions, Chi-squared uniformity, and blocks repeats."));
-    lines.push(Line::from("  4. Dice Hashing: 50+ dice rolls (60 recommended for pip bias) are hashed with SHA-256 to eliminate physical die bias."));
+    lines.push(Line::from("  4. Dice Hashing: 50+ rolls are hashed with SHA-256. Tip: Rolling 2-5 dice together blends out individual die flaws."));
     lines.push(Line::from(""));
     lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
     lines.push(Line::from("  - Press [T] to select a deterministic test vector (0=All-Zeros, 8=Genesis Lore, 9=Hal Finney)."));
