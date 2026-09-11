@@ -26,6 +26,18 @@ struct Cli {
     /// Run non-interactive entropy ingestion (coin flips or dice rolls)
     #[arg(short, long)]
     entropy: Option<String>,
+
+    /// [AUTOMATED TESTING ONLY] Ingest 12-word offline BIP-39 mnemonic phrase
+    #[arg(short, long, hide = true)]
+    mnemonic: Option<String>,
+
+    /// [AUTOMATED TESTING ONLY] Ingest 48-digit CompactSeedQR numeric string
+    #[arg(long, hide = true)]
+    compact_seed_qr: Option<String>,
+
+    /// [AUTOMATED TESTING ONLY] Ingest BIP-380 output descriptor (wpkh/tpub/vpub)
+    #[arg(short, long, hide = true)]
+    descriptor: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -111,9 +123,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     state.wipe_confirmation_instant = None;
     state.status_message = "[✓] PROACTIVE PRE-BOOT SCRUB: RAM zeroized prior to display initialization.".into();
 
-    // If CLI provided an existing offline mnemonic, import it immediately
-    // If CLI provided initial entropy, process it immediately
-    if let Some(entropy_str) = cli.entropy {
+    // Hidden Test CLI Ingestion Handlers (Automated integration testing only)
+    if cli.mnemonic.is_some() || cli.compact_seed_qr.is_some() || cli.descriptor.is_some() {
+        eprintln!("\x1b[1;33m[!] WARNING: CLI KEY INGESTION IS STRICTLY FOR AUTOMATED TESTING HARNESSES.\x1b[0m");
+        eprintln!("\x1b[1;33m[!] In production, CLI arguments leak to /proc/$PID/cmdline and shell history.\x1b[0m");
+        eprintln!("\x1b[1;33m[!] Always use the interactive virtual console kiosk on /dev/tty1.\x1b[0m");
+    }
+
+    if let Some(m) = cli.mnemonic {
+        if let Ok(seed) = crypto::process_mnemonic_phrase(&m) {
+            let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+            state.set_seed(seed, children);
+            state.current_page = ui::Page::MasterSeed;
+            state.status_message = "[✓] CLI TEST SEED IMPORTED: Master keys and BIP-85 suite ready in RAM.".into();
+        }
+    } else if let Some(csqr) = cli.compact_seed_qr {
+        if let Ok(seed) = crypto::process_mnemonic_phrase(&csqr) {
+            let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+            state.set_seed(seed, children);
+            state.current_page = ui::Page::MasterSeed;
+            state.status_message = "[✓] CLI TEST COMPACTSEEDQR IMPORTED: Master keys ready in RAM.".into();
+        }
+    } else if let Some(desc) = cli.descriptor {
+        if let Ok(seed) = crypto::process_watch_only_descriptor(&desc) {
+            state.set_seed(seed, Vec::new());
+            state.current_page = ui::Page::MasterSeed;
+            state.status_message = "[✓] CLI TEST DESCRIPTOR IMPORTED: Watch-only keys ready in RAM.".into();
+        }
+    } else if let Some(entropy_str) = cli.entropy {
         if let Ok(seed) = crypto::process_physical_entropy(&entropy_str) {
             let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
             state.set_seed(seed, children);

@@ -785,13 +785,80 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
     Ok(children)
 }
 
-/// Process an existing offline 12-word BIP-39 English mnemonic seed phrase (without passphrase).
-pub fn process_mnemonic_phrase(raw_mnemonic: &str) -> Result<GeneratedSeed, CryptoError> {
-    let clean = raw_mnemonic
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase();
+/// Convert a 12-word BIP-39 mnemonic into a 48-digit CompactSeedQR string (4 digits per word, 0000-2047).
+pub fn mnemonic_to_compact_seed_qr(mnemonic: &str) -> Result<String, CryptoError> {
+    let clean = mnemonic.split_whitespace().collect::<Vec<_>>();
+    if clean.len() != 12 {
+        return Err(CryptoError::InvalidMnemonic(format!(
+            "CompactSeedQR requires exactly 12 words (got {})",
+            clean.len()
+        )));
+    }
+    let wordlist = bip39::Language::English.word_list();
+    let mut digits = String::with_capacity(48);
+    for w in &clean {
+        let lower = w.to_lowercase();
+        match wordlist.iter().position(|&x| x == lower) {
+            Some(idx) => digits.push_str(&format!("{:04}", idx)),
+            None => {
+                return Err(CryptoError::InvalidMnemonic(format!(
+                    "'{}' is not in BIP-39 English dictionary",
+                    w
+                )))
+            }
+        }
+    }
+    Ok(digits)
+}
+
+/// Convert a 48-digit CompactSeedQR string into a 12-word BIP-39 mnemonic.
+pub fn compact_seed_qr_to_mnemonic(digits: &str) -> Result<String, CryptoError> {
+    let clean: String = digits.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    if clean.len() != 48 || !clean.chars().all(|c| c.is_ascii_digit()) {
+        return Err(CryptoError::InvalidMnemonic(format!(
+            "CompactSeedQR must be exactly 48 decimal digits (got {})",
+            clean.len()
+        )));
+    }
+    let wordlist = bip39::Language::English.word_list();
+    let mut words = Vec::with_capacity(12);
+    for i in 0..12 {
+        let chunk = &clean[i * 4..(i + 1) * 4];
+        let idx: usize = chunk.parse().map_err(|_| {
+            CryptoError::InvalidMnemonic(format!("Invalid numeric chunk in CompactSeedQR: {}", chunk))
+        })?;
+        if idx >= wordlist.len() {
+            return Err(CryptoError::InvalidMnemonic(format!(
+                "Word index {} exceeds BIP-39 dictionary size (2048)",
+                idx
+            )));
+        }
+        words.push(wordlist[idx]);
+    }
+    let phrase = words.join(" ");
+    let _ = bip39::Mnemonic::from_str(&phrase)?;
+    Ok(phrase)
+}
+
+/// Process an existing offline 12-word BIP-39 mnemonic, 48-digit CompactSeedQR, or BIP-380 Output Descriptor.
+pub fn process_mnemonic_phrase(raw_input: &str) -> Result<GeneratedSeed, CryptoError> {
+    let trimmed = raw_input.trim();
+    if trimmed.starts_with("wpkh(") || trimmed.starts_with("tpub") || trimmed.starts_with("vpub") {
+        return process_watch_only_descriptor(trimmed);
+    }
+    let digits_only: String = trimmed.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    let (clean, was_compact) = if digits_only.len() == 48 && digits_only.chars().all(|c| c.is_ascii_digit()) {
+        (compact_seed_qr_to_mnemonic(&digits_only)?, true)
+    } else {
+        (
+            raw_input
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+                .to_lowercase(),
+            false,
+        )
+    };
 
     let words: Vec<&str> = clean.split_whitespace().collect();
     if words.len() != 12 {
@@ -847,6 +914,12 @@ pub fn process_mnemonic_phrase(raw_mnemonic: &str) -> Result<GeneratedSeed, Cryp
         format!("{}#{}", raw_descriptor, checksum)
     };
 
+    let mode_label = if was_compact {
+        "Imported Offline CompactSeedQR (48-Digit Numeric)".to_string()
+    } else {
+        "Imported Offline 12-Word BIP-39 Mnemonic".to_string()
+    };
+
     Ok(GeneratedSeed {
         mnemonic: clean,
         fingerprint: master_fingerprint,
@@ -854,7 +927,123 @@ pub fn process_mnemonic_phrase(raw_mnemonic: &str) -> Result<GeneratedSeed, Cryp
         vpub,
         vpub_slip132,
         addresses,
-        entropy_type: "Imported Offline 12-Word BIP-39 Mnemonic".to_string(),
+        entropy_type: mode_label,
+    })
+}
+
+/// Process a watch-only BIP-380 Output Descriptor or raw tpub/vpub without private keys.
+pub fn process_watch_only_descriptor(raw_input: &str) -> Result<GeneratedSeed, CryptoError> {
+    let clean = raw_input.trim();
+    if clean.is_empty() {
+        return Err(CryptoError::InvalidMnemonic("Input descriptor cannot be empty".into()));
+    }
+
+    // Strip and verify checksum if present (after '#')
+    let base_desc = if let Some(idx) = clean.find('#') {
+        let (desc_part, check_part) = clean.split_at(idx);
+        let check_part = &check_part[1..]; // skip '#'
+        let expected = get_descriptor_checksum(desc_part);
+        if !expected.is_empty() && !check_part.is_empty() && check_part != expected {
+            return Err(CryptoError::InvalidMnemonic(format!(
+                "Descriptor checksum mismatch: expected #{} (got #{})",
+                expected, check_part
+            )));
+        }
+        desc_part
+    } else {
+        clean
+    };
+
+    // Extract key origin [fingerprint/path] and xpub string
+    let secp = Secp256k1::new();
+    let (fingerprint, xpub_str) = if base_desc.starts_with("wpkh(") && base_desc.ends_with(')') {
+        let inner = &base_desc[5..base_desc.len() - 1]; // inside wpkh(...)
+        let key_expr = if let Some(slash_idx) = inner.rfind("/<0;1>/*") {
+            &inner[..slash_idx]
+        } else if let Some(slash_idx) = inner.rfind("/*") {
+            &inner[..slash_idx]
+        } else {
+            inner
+        };
+
+        if key_expr.starts_with('[') {
+            if let Some(bracket_end) = key_expr.find(']') {
+                let origin = &key_expr[1..bracket_end];
+                let key = &key_expr[bracket_end + 1..];
+                let fprint = origin.split('/').next().unwrap_or("00000000").to_string();
+                (fprint, key.to_string())
+            } else {
+                return Err(CryptoError::InvalidMnemonic("Malformed key origin in descriptor".into()));
+            }
+        } else {
+            ("00000000".to_string(), key_expr.to_string())
+        }
+    } else if base_desc.starts_with("tpub") || base_desc.starts_with("vpub") {
+        ("00000000".to_string(), base_desc.to_string())
+    } else {
+        return Err(CryptoError::InvalidMnemonic(
+            "Unsupported descriptor format. Expected wpkh([fingerprint/84'/1'/0']tpub.../<0;1>/*) or tpub..."
+                .into(),
+        ));
+    };
+
+    // If key is SLIP-132 vpub, convert to standard tpub bytes for rust-bitcoin parsing
+    let account_xpub = if xpub_str.starts_with("vpub") {
+        let mut decoded = bitcoin::base58::decode_check(&xpub_str)
+            .map_err(|e| CryptoError::InvalidMnemonic(format!("Invalid vpub Base58: {}", e)))?;
+        if decoded.len() != 78 {
+            return Err(CryptoError::InvalidMnemonic("Invalid vpub length (expected 78 bytes)".into()));
+        }
+        // Replace SLIP-132 version 0x045f1cf6 with Testnet4 BIP-84/BIP-32 version 0x043587cf (tpub)
+        decoded[0] = 0x04;
+        decoded[1] = 0x35;
+        decoded[2] = 0x87;
+        decoded[3] = 0xcf;
+        let tpub_b58 = bitcoin::base58::encode_check(&decoded);
+        Xpub::from_str(&tpub_b58).map_err(CryptoError::Bip32Error)?
+    } else {
+        Xpub::from_str(&xpub_str).map_err(CryptoError::Bip32Error)?
+    };
+
+    let fprint_final = if fingerprint == "00000000" {
+        account_xpub.fingerprint().to_string()
+    } else {
+        fingerprint
+    };
+
+    let vpub_raw = account_xpub.to_string();
+    let mut raw_bytes = account_xpub.encode();
+    raw_bytes[0] = 0x04;
+    raw_bytes[1] = 0x5f;
+    raw_bytes[2] = 0x1c;
+    raw_bytes[3] = 0xf6;
+    let vpub_slip132 = bitcoin::base58::encode_check(&raw_bytes);
+
+    let recv_branch = account_xpub.derive_pub(&secp, &DerivationPath::from_str("0")?)?;
+    let mut addresses = Vec::with_capacity(50);
+    for idx in 0..50 {
+        let child_key = recv_branch.derive_pub(&secp, &DerivationPath::from_str(&format!("{}", idx))?)?;
+        let compressed_pk = CompressedPublicKey(child_key.public_key);
+        let addr = Address::p2wpkh(&compressed_pk, KnownHrp::Testnets);
+        addresses.push(addr.to_string());
+    }
+
+    let canonical_desc = format!("wpkh([{}/84'/1'/0']{}/<0;1>/*)", fprint_final, account_xpub);
+    let checksum = get_descriptor_checksum(&canonical_desc);
+    let final_descriptor = if checksum.is_empty() {
+        canonical_desc
+    } else {
+        format!("{}#{}", canonical_desc, checksum)
+    };
+
+    Ok(GeneratedSeed {
+        mnemonic: "[WATCH-ONLY DESCRIPTOR: ZERO PRIVATE KEYS IN MEMORY]".to_string(),
+        fingerprint: fprint_final,
+        descriptor: final_descriptor,
+        vpub: vpub_raw,
+        vpub_slip132,
+        addresses,
+        entropy_type: "Imported Watch-Only BIP-380 Descriptor".to_string(),
     })
 }
 
@@ -914,11 +1103,49 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_hex_256_bit_entropy() {
-        // 64 hex chars = 32 bytes = 256-bit entropy -> 24 words (using high-entropy SHA256 string)
-        let hex_256 = "483ed0cebd5ac3dfad854b9a4a191452ad483c75f4162af60d0ff974b789b122";
-        let (bytes, label) = parse_physical_entropy(hex_256).expect("Failed 256-bit hex");
-        assert_eq!(bytes.len(), 32);
-        assert!(label.contains("256-bit"));
+    fn test_raw_hex_128_bit_entropy() {
+        // 32 hex chars = 16 bytes = 128-bit entropy -> exactly 12 words
+        let hex_128 = "483ed0cebd5ac3dfad854b9a4a191452";
+        let (bytes, label) = parse_physical_entropy(hex_128).expect("Failed 128-bit hex");
+        assert_eq!(bytes.len(), 16);
+        assert!(label.contains("128-bit"));
+        let seed = process_physical_entropy(hex_128).expect("Failed process 128-bit hex");
+        assert_eq!(seed.mnemonic.split_whitespace().count(), 12);
+    }
+
+    #[test]
+    fn test_compact_seed_qr_roundtrip() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let digits = mnemonic_to_compact_seed_qr(phrase).expect("Failed to encode CompactSeedQR");
+        assert_eq!(digits.len(), 48);
+        assert_eq!(digits, "000000000000000000000000000000000000000000000003");
+
+        let recovered = compact_seed_qr_to_mnemonic(&digits).expect("Failed to decode CompactSeedQR");
+        assert_eq!(recovered, phrase);
+
+        // Process directly via process_mnemonic_phrase
+        let seed = process_mnemonic_phrase(&digits).expect("Failed process CompactSeedQR directly");
+        assert_eq!(seed.mnemonic, phrase);
+        assert_eq!(seed.fingerprint, "73c5da0a");
+        assert!(seed.entropy_type.contains("CompactSeedQR"));
+    }
+
+    #[test]
+    fn test_process_watch_only_descriptor() {
+        let reference_seed = process_physical_entropy("test0").unwrap();
+        
+        let watch_only = process_watch_only_descriptor(&reference_seed.descriptor).expect("Failed watch only");
+        assert_eq!(watch_only.fingerprint, reference_seed.fingerprint);
+        assert_eq!(watch_only.vpub, reference_seed.vpub);
+        assert_eq!(watch_only.vpub_slip132, reference_seed.vpub_slip132);
+        assert_eq!(watch_only.addresses[0], reference_seed.addresses[0]);
+        assert_eq!(watch_only.addresses.len(), 50);
+        assert!(watch_only.mnemonic.contains("WATCH-ONLY"));
+        assert!(watch_only.entropy_type.contains("Watch-Only"));
+
+        // Also test dispatching via process_mnemonic_phrase
+        let via_mnemonic_fn = process_mnemonic_phrase(&reference_seed.descriptor).expect("Failed via mnemonic dispatch");
+        assert_eq!(via_mnemonic_fn.fingerprint, reference_seed.fingerprint);
+        assert_eq!(via_mnemonic_fn.addresses[0], reference_seed.addresses[0]);
     }
 }

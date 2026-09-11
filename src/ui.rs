@@ -12,7 +12,8 @@ use sha2::{Digest, Sha256};
 use crate::crypto::{
     self, has_repetitive_substrings, run_markov_audit, run_chi_squared_audit, Bip85Child,
     DecryptedVaultPayload, GeneratedSeed, decrypt_vault_json,
-    process_physical_entropy, derive_bip85_children,
+    process_physical_entropy, derive_bip85_children, mnemonic_to_compact_seed_qr,
+    compact_seed_qr_to_mnemonic, get_descriptor_checksum,
 };
 use crate::qr::{
     create_bbqr_frames, render_full_block_qr, QrMode,
@@ -633,14 +634,14 @@ fn render_role_select(frame: &mut Frame, area: Rect, _state: &AppState) {
     lines.push(Line::from("      • Action: Press key [3] to open SeedFix (Tab 10)"));
     lines.push(Line::from(""));
 
-    // Option 4: Import Existing Seed
+    // Option 4: Ingest Materials
     lines.push(Line::from(vec![
         Span::styled("  [4] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
-        Span::styled("I HAVE AN EXISTING OFFLINE SEED PHRASE (12-WORD IMPORT)", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::styled("INGEST EXISTING MATERIALS (12 WORDS / COMPACTSEEDQR / DESCRIPTOR)", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
     ]));
-    lines.push(Line::from("      • Purpose: I already generated an offline 12-word seed phrase (coins, dice, or cold wallet)"));
-    lines.push(Line::from("        and want to load it into SubZero to view descriptors, optical QRs, and derive heir keys."));
-    lines.push(Line::from("      • Next Step: Jump directly to Tab 1 in 12-Word Mnemonic Import Mode (English only)."));
+    lines.push(Line::from("      • Purpose: I have an offline 12-word seed phrase, a 48-digit CompactSeedQR string,"));
+    lines.push(Line::from("        or a watch-only BIP-380 output descriptor (wpkh/tpub/vpub) to audit in RAM."));
+    lines.push(Line::from("      • Next Step: Jump to Tab 1 Ingestion Mode to verify checksums and derive keys."));
     lines.push(Line::from("      • Action: Press key [4] or [I]"));
     lines.push(Line::from(""));
 
@@ -726,6 +727,14 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(&seed.fingerprint, Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
             Span::raw("    (BIP-32 root key identifier)"),
         ]));
+        if let Ok(cseed_digits) = mnemonic_to_compact_seed_qr(&seed.mnemonic) {
+            let chunked: Vec<String> = (0..12).map(|i| cseed_digits[i*4..(i+1)*4].to_string()).collect();
+            lines.push(Line::from(vec![
+                Span::raw("  CompactSeedQR:        "),
+                Span::styled(chunked.join(" "), Style::default().fg(Color::Yellow)),
+                Span::raw(" (48-digit numeric)"),
+            ]));
+        }
         lines.push(Line::from(vec![
             Span::raw("  Entropy Mode:         "),
             Span::styled(&seed.entropy_type, Style::default().fg(Color::Green)),
@@ -1006,14 +1015,16 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
 fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
     let mut lines = Vec::new();
 
-    lines.push(Line::from(""));
+    let trimmed = state.mnemonic_import_input.trim();
+    let digits_only: String = trimmed.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
+    let is_compact = digits_only.len() == 48 && digits_only.chars().all(|c| c.is_ascii_digit());
+    let is_descriptor = trimmed.starts_with("wpkh(") || trimmed.starts_with("tpub") || trimmed.starts_with("vpub");
+
     lines.push(Line::from(Span::styled(
-        "  IMPORT EXISTING 12-WORD OFFLINE SEED PHRASE (BIP-39 ENGLISH)",
+        "  INGESTION: 12 WORDS (BIP-39) | COMPACTSEEDQR (48 DIGITS) | BIP-380 DESCRIPTOR",
         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
     )));
-    lines.push(Line::from("  Type your 12 words separated by spaces. SubZero validates each word against the 2048-word"));
-    lines.push(Line::from("  BIP-39 English dictionary and verifies the mathematical checksum. No passphrase required."));
-    lines.push(Line::from(""));
+    lines.push(Line::from("  Type 12 words, 48-digit CompactSeedQR, or wpkh([fprint/path]tpub.../<0;1>/*)#checksum."));
 
     // User input display box
     let char_count = state.mnemonic_import_input.len();
@@ -1021,131 +1032,191 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
     let word_count = words.len();
 
     let display_str = if state.mnemonic_import_input.is_empty() {
-        "Type 12 English words (e.g. abandon abandon ... about)...".to_string()
+        "Type 12 English words, 48 digits, or wpkh(tpub...)...".to_string()
     } else {
         state.mnemonic_import_input.clone()
     };
 
+    let input_label = if is_descriptor {
+        format!("(Descriptor | {} chars)", char_count)
+    } else if is_compact {
+        format!("(CompactSeedQR | {} / 48 digits)", digits_only.len())
+    } else {
+        format!("({} / 12 words | {} chars)", word_count, char_count)
+    };
+
     lines.push(Line::from(vec![
-        Span::styled("  Mnemonic Input: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled(format!("({} / 12 words | {} chars)", word_count, char_count), Style::default().fg(Color::DarkGray)),
+        Span::styled("  Input Buffer: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(input_label, Style::default().fg(Color::DarkGray)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  > ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         Span::styled(display_str, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
     ]));
-    lines.push(Line::from(""));
 
-    // Word validation table
     let wordlist = bip39::Language::English.word_list();
-    if !words.is_empty() {
-        lines.push(Line::from("  Word Validation & Metal Punch Breakdown:"));
+
+    if is_descriptor {
+        lines.push(Line::from("  Descriptor Validation:"));
         lines.push(Line::from("  --------------------------------------------------------------------------"));
-
-        let half = 6;
-
-        for i in 0..half {
-            let mut left_spans = Vec::new();
-            left_spans.push(Span::raw("    "));
-            if i < words.len() {
-                let w = words[i];
-                let is_valid = wordlist.contains(&w);
-                let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
-                if is_valid {
-                    left_spans.push(Span::styled(
-                        format!("Word #{:02}: {:<8} [✓ {:<4}]", i + 1, w, punch),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    left_spans.push(Span::styled(
-                        format!("Word #{:02}: {:<8} [? UNKNOWN]", i + 1, w),
-                        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-                    ));
-                }
+        if let Some(pound_idx) = trimmed.find('#') {
+            let (desc_part, check_part) = trimmed.split_at(pound_idx);
+            let check_part = &check_part[1..];
+            let expected = get_descriptor_checksum(desc_part);
+            if check_part == expected {
+                lines.push(Line::from(Span::styled(
+                    format!("  [✓ BIP-380 CHECKSUM VALID: #{}] Press [ENTER] to audit watch-only keys in RAM.", expected),
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )));
             } else {
-                left_spans.push(Span::styled(
-                    format!("Word #{:02}: -------- [------]", i + 1),
-                    Style::default().fg(Color::DarkGray),
-                ));
+                lines.push(Line::from(Span::styled(
+                    format!("  [!] CHECKSUM MISMATCH: expected #{} (got #{})", expected, check_part),
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                )));
             }
-
-            let mut right_spans = Vec::new();
-            right_spans.push(Span::raw("      "));
-            let r_idx = i + half;
-            if r_idx < words.len() {
-                let w = words[r_idx];
-                let is_valid = wordlist.contains(&w);
-                let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
-                if is_valid {
-                    right_spans.push(Span::styled(
-                        format!("Word #{:02}: {:<8} [✓ {:<4}]", r_idx + 1, w, punch),
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                    ));
-                } else {
-                    right_spans.push(Span::styled(
-                        format!("Word #{:02}: {:<8} [? UNKNOWN]", r_idx + 1, w),
-                        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-                    ));
-                }
+        } else {
+            let expected = get_descriptor_checksum(trimmed);
+            if !expected.is_empty() {
+                lines.push(Line::from(Span::styled(
+                    format!("  [NO CHECKSUM] Expected checksum: #{} — Press [ENTER] to audit watch-only keys.", expected),
+                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                )));
             } else {
-                right_spans.push(Span::styled(
-                    format!("Word #{:02}: -------- [------]", r_idx + 1),
-                    Style::default().fg(Color::DarkGray),
-                ));
+                lines.push(Line::from(Span::styled(
+                    "  [!] INVALID DESCRIPTOR: Unable to calculate BIP-380 checksum.",
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                )));
             }
-
-            let mut combined = left_spans;
-            combined.extend(right_spans);
-            lines.push(Line::from(combined));
         }
         lines.push(Line::from("  --------------------------------------------------------------------------"));
-    }
+    } else if is_compact {
+        lines.push(Line::from("  CompactSeedQR 48-Digit Numeric Decoding:"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
+        match compact_seed_qr_to_mnemonic(&digits_only) {
+            Ok(recovered_phrase) => {
+                lines.push(Line::from(Span::styled(
+                    format!("  [✓ VALID COMPACTSEEDQR]: Decoded to 12 valid BIP-39 words."),
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )));
+                lines.push(Line::from(Span::styled(
+                    format!("  Words: {}", recovered_phrase),
+                    Style::default().fg(Color::Cyan),
+                )));
+            }
+            Err(e) => {
+                lines.push(Line::from(Span::styled(
+                    format!("  [!] INVALID COMPACTSEEDQR: {}", e),
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                )));
+            }
+        }
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
+    } else {
+        // Standard 12-word validation table
+        if !words.is_empty() {
+            lines.push(Line::from("  Word Validation & Metal Punch Breakdown:"));
+            lines.push(Line::from("  --------------------------------------------------------------------------"));
 
-    // Mathematical Checksum Audit
-    lines.push(Line::from(""));
-    let trimmed = state.mnemonic_import_input.trim();
-    if word_count == 12 {
-        let all_english = words.iter().all(|w| wordlist.contains(w));
-        if !all_english {
+            let half = 6;
+            for i in 0..half {
+                let mut left_spans = Vec::new();
+                left_spans.push(Span::raw("    "));
+                if i < words.len() {
+                    let w = words[i];
+                    let is_valid = wordlist.contains(&w);
+                    let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
+                    if is_valid {
+                        left_spans.push(Span::styled(
+                            format!("Word #{:02}: {:<8} [✓ {:<4}]", i + 1, w, punch),
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        left_spans.push(Span::styled(
+                            format!("Word #{:02}: {:<8} [? UNKNOWN]", i + 1, w),
+                            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                        ));
+                    }
+                } else {
+                    left_spans.push(Span::styled(
+                        format!("Word #{:02}: -------- [------]", i + 1),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+
+                let mut right_spans = Vec::new();
+                right_spans.push(Span::raw("      "));
+                let r_idx = i + half;
+                if r_idx < words.len() {
+                    let w = words[r_idx];
+                    let is_valid = wordlist.contains(&w);
+                    let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
+                    if is_valid {
+                        right_spans.push(Span::styled(
+                            format!("Word #{:02}: {:<8} [✓ {:<4}]", r_idx + 1, w, punch),
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        ));
+                    } else {
+                        right_spans.push(Span::styled(
+                            format!("Word #{:02}: {:<8} [? UNKNOWN]", r_idx + 1, w),
+                            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                        ));
+                    }
+                } else {
+                    right_spans.push(Span::styled(
+                        format!("Word #{:02}: -------- [------]", r_idx + 1),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+
+                let mut combined = left_spans;
+                combined.extend(right_spans);
+                lines.push(Line::from(combined));
+            }
+            lines.push(Line::from("  --------------------------------------------------------------------------"));
+        }
+
+        // Mathematical Checksum Audit
+        if word_count == 12 {
+            let all_english = words.iter().all(|w| wordlist.contains(w));
+            if !all_english {
+                lines.push(Line::from(Span::styled(
+                    "  [!] UNKNOWN WORDS: One or more words not in BIP-39 English dictionary.",
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                )));
+            } else {
+                match bip39::Mnemonic::parse_in_normalized(bip39::Language::English, trimmed) {
+                    Ok(_) => {
+                        lines.push(Line::from(Span::styled(
+                            "  [✓ BIP-39 CHECKSUM VALID] Press [ENTER] to derive master keys and BIP-85 suite in RAM.",
+                            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                        )));
+                    }
+                    Err(e) => {
+                        lines.push(Line::from(Span::styled(
+                            format!("  [!] INVALID BIP-39 CHECKSUM: {} (Check final word or press [3] for SeedFix).", e),
+                            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                        )));
+                    }
+                }
+            }
+        } else if word_count < 12 {
             lines.push(Line::from(Span::styled(
-                "  [!] UNKNOWN WORDS: One or more words not in BIP-39 English dictionary.",
-                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                format!("  [AWAITING WORDS] Entered {} of 12 words. Keep typing...", word_count),
+                Style::default().fg(Color::Cyan),
             )));
         } else {
-            match bip39::Mnemonic::parse_in_normalized(bip39::Language::English, trimmed) {
-                Ok(_) => {
-                    lines.push(Line::from(Span::styled(
-                        "  [✓ BIP-39 CHECKSUM VALID] Press [ENTER] to derive master keys and BIP-85 suite in RAM.",
-                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-                    )));
-                }
-                Err(e) => {
-                    lines.push(Line::from(Span::styled(
-                        format!("  [!] INVALID BIP-39 CHECKSUM: {} (Check final word or press [3] for SeedFix).", e),
-                        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-                    )));
-                }
-            }
+            lines.push(Line::from(Span::styled(
+                format!("  [!] EXCEEDED 12 WORDS: Entered {} words (SubZero requires exactly 12 words).", word_count),
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
         }
-    } else if word_count < 12 {
-        lines.push(Line::from(Span::styled(
-            format!("  [AWAITING WORDS] Entered {} of 12 words. Keep typing...", word_count),
-            Style::default().fg(Color::Cyan),
-        )));
-    } else {
-        lines.push(Line::from(Span::styled(
-            format!("  [!] EXCEEDED 12 WORDS: Entered {} words (SubZero requires exactly 12 words).", word_count),
-            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-        )));
     }
 
-    lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
-    lines.push(Line::from(Span::styled("  IMPORT CONTROLS & SECURITY INVARIANTS:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  • Press [ENTER] on valid checksum to derive keys and unlock all 14 appliance tabs."));
-    lines.push(Line::from("  • Press [ESC] to cancel import mode and return to physical coin/dice entropy."));
-    lines.push(Line::from("  • Press [W] at any time to instantly zeroize all memory buffers."));
-    lines.push(Line::from("  • Amnesic Guarantee: Imported seed phrases exist 100% in RAM and are NEVER written to disk."));
+    lines.push(Line::from(Span::styled(
+        "  CONTROLS: [ENTER] Derive/Audit | [ESC] Cancel | [W] Zeroize RAM | [Amnesic RAM Only]",
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
+    )));
 
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
@@ -2076,16 +2147,21 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
     }
 
     // 6. Global Tab Navigation
-    match key.code {
-        KeyCode::Tab | KeyCode::Right => {
-            state.current_page = state.current_page.next();
-            return false;
+    // INVARIANT: When entering mnemonic/materials or entropy, Tab and arrow keys must NOT navigate away.
+    if state.current_page == Page::MasterSeed && (state.is_importing_mnemonic || state.is_entering_entropy) {
+        // Suppress Tab and arrow navigation while actively typing in MasterSeed
+    } else {
+        match key.code {
+            KeyCode::Tab | KeyCode::Right => {
+                state.current_page = state.current_page.next();
+                return false;
+            }
+            KeyCode::BackTab | KeyCode::Left => {
+                state.current_page = state.current_page.prev();
+                return false;
+            }
+            _ => {}
         }
-        KeyCode::BackTab | KeyCode::Left => {
-            state.current_page = state.current_page.prev();
-            return false;
-        }
-        _ => {}
     }
 
     // 7. Global Memory Wipe [W]
@@ -2116,7 +2192,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                     state.current_page = Page::MasterSeed;
                     state.is_importing_mnemonic = true;
                     state.mnemonic_import_input.clear();
-                    state.status_message = "IMPORT MODE: Enter 12 or 24-word seed phrase.".into();
+                    state.status_message = "INGESTION MODE: Enter 12 words, 48 digits, or descriptor.".into();
                 }
                 _ => {}
             }
@@ -2133,19 +2209,26 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                         if !trimmed.is_empty() {
                             match crypto::process_mnemonic_phrase(trimmed) {
                                 Ok(seed) => {
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                    let children = if seed.mnemonic.starts_with("[WATCH-ONLY") {
+                                        Vec::new()
+                                    } else {
+                                        crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default()
+                                    };
                                     state.set_seed(seed, children);
-                                    state.status_message = "[✓] OFFLINE SEED IMPORTED: Keys ready in RAM.".into();
+                                    state.status_message = "[✓] MATERIALS INGESTED: Ready in amnesic RAM.".into();
                                 }
                                 Err(e) => {
-                                    state.status_message = format!("[!] IMPORT FAILED: {}", e);
+                                    state.status_message = format!("[!] INGESTION FAILED: {}", e);
                                 }
                             }
                         }
                     }
-                    KeyCode::Char(c) if !has_ctrl && (c.is_alphabetic() || c == ' ') => {
-                        if state.mnemonic_import_input.len() < 300 {
-                            state.mnemonic_import_input.push(c.to_ascii_lowercase());
+                    KeyCode::Char(c) if !has_ctrl => {
+                        // Allow letters, digits, spaces, and BIP-380 descriptor characters (including < and > for multipath)
+                        if state.mnemonic_import_input.len() < 300
+                            && (c.is_alphanumeric() || c == ' ' || "[]/'*()#;:-_.<>{}".contains(c))
+                        {
+                            state.mnemonic_import_input.push(c);
                         }
                     }
                     _ => {}
@@ -2155,7 +2238,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                     KeyCode::Char('i' | 'I') if !has_ctrl && state.seed.is_none() && state.entropy_input.is_empty() => {
                         state.is_importing_mnemonic = true;
                         state.mnemonic_import_input.clear();
-                        state.status_message = "IMPORT MODE: Enter 12 or 24-word seed phrase.".into();
+                        state.status_message = "INGESTION MODE: Enter 12 words, 48 digits, or descriptor.".into();
                     }
                     KeyCode::Char('t' | 'T') if !has_ctrl => {
                         if state.seed.is_none() {

@@ -226,7 +226,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
             "[1] I AM THE BENEFACTOR (VAULT CREATOR)",
             "[2] I AM AN HEIR OR EXECUTOR (ESTATE RECOVERY)",
             "[3] EMERGENCY TOOLS & SEED REPAIR (SEEDFIX / WORDLIST)",
-            "[4] I HAVE AN EXISTING OFFLINE SEED PHRASE (12-WORD IMPORT)",
+            "[4] INGEST EXISTING MATERIALS (12 WORDS / COMPACTSEEDQR / DESCRIPTOR)",
         ]),
         (Page::MasterSeed, &[
             "12-WORD SEED PHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):",
@@ -412,7 +412,7 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
         crossterm::event::KeyModifiers::empty(),
     ));
     assert!(state.seed.is_none(), "Invalid checksum phrase must not set seed");
-    assert!(state.status_message.contains("IMPORT FAILED"));
+    assert!(state.status_message.contains("INGESTION FAILED"));
 
     // 5. Backspace the last 7 chars ("abandon") and type "about" (making it test vector 0)
     for _ in 0..7 {
@@ -440,7 +440,7 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
         }
         screen.push('\n');
     }
-    assert!(screen.contains("IMPORT EXISTING 12-WORD OFFLINE SEED PHRASE"));
+    assert!(screen.contains("INGESTION: 12 WORDS"));
     assert!(screen.contains("BIP-39 CHECKSUM VALID"));
 
     // 6. Press Enter -> imports seed and derives BIP-85 suite
@@ -453,6 +453,95 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
     assert_eq!(state.seed.as_ref().unwrap().fingerprint, "73c5da0a");
     assert_eq!(state.bip85_children.len(), 20);
     assert!(state.decoupled_passphrase.is_some());
-    assert!(state.status_message.contains("OFFLINE SEED IMPORTED"));
+    assert!(state.status_message.contains("MATERIALS INGESTED"));
+}
+
+#[test]
+fn test_exhaustive_compact_seed_qr_and_descriptor_ingest_flow() {
+    let mut state = AppState::new("2026-09-11 12:00:00Z".to_string(), "b0071ace".to_string());
+
+    // 1. Enter Ingestion Mode via '4'
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('4'),
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.is_importing_mnemonic);
+
+    // 2. Type 48-digit CompactSeedQR string (test vector 0: 47 zeros + '3')
+    let csqr_input = "000000000000000000000000000000000000000000000003";
+    for c in csqr_input.chars() {
+        subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::empty(),
+        ));
+    }
+    assert_eq!(state.mnemonic_import_input, csqr_input);
+
+    let backend = TestBackend::new(120, 40);
+    let mut terminal = Terminal::new(backend).expect("Failed creating TestBackend");
+    terminal.draw(|f| render_app(f, &state)).expect("Render failed with CompactSeedQR");
+    let buffer = terminal.backend().buffer();
+    let mut screen = String::new();
+    for y in 0..40 {
+        for x in 0..120 {
+            screen.push_str(buffer[(x, y)].symbol());
+        }
+        screen.push('\n');
+    }
+    assert!(screen.contains("VALID COMPACTSEEDQR"));
+
+    // Press Enter to derive keys
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.seed.is_some());
+    assert_eq!(state.seed.as_ref().unwrap().fingerprint, "73c5da0a");
+    assert!(state.seed.as_ref().unwrap().entropy_type.contains("CompactSeedQR"));
+    assert_eq!(state.bip85_children.len(), 20);
+
+    // Wipe memory and return to RoleSelect
+    state.wipe_memory();
+    state.current_page = Page::RoleSelect;
+    assert!(state.seed.is_none());
+
+    // 3. Test BIP-380 Watch-Only Descriptor Ingestion
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('4'),
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.is_importing_mnemonic);
+
+    let desc_input = "wpkh([73c5da0a/84'/1'/0']tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M/<0;1>/*)#gwycrcrh";
+    for c in desc_input.chars() {
+        subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::empty(),
+        ));
+    }
+    assert_eq!(state.mnemonic_import_input, desc_input);
+
+    terminal.draw(|f| render_app(f, &state)).expect("Render failed with descriptor");
+    let buffer2 = terminal.backend().buffer();
+    let mut screen2 = String::new();
+    for y in 0..40 {
+        for x in 0..120 {
+            screen2.push_str(buffer2[(x, y)].symbol());
+        }
+        screen2.push('\n');
+    }
+    assert!(screen2.contains("BIP-380 CHECKSUM VALID: #gwycrcrh"));
+
+    // Press Enter to load watch-only descriptor
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.seed.is_some());
+    let seed_ref = state.seed.as_ref().unwrap();
+    assert_eq!(seed_ref.fingerprint, "73c5da0a");
+    assert!(seed_ref.entropy_type.contains("Watch-Only"));
+    assert_eq!(state.bip85_children.len(), 0, "Watch-only descriptor must have 0 private child keys");
+    assert!(seed_ref.addresses[0].starts_with("tb1q"));
 }
 
