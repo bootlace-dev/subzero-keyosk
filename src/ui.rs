@@ -166,7 +166,7 @@ impl AppState {
             vault_passphrase_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
-            status_message: "[1] Benefactor  [2] Heir  [3] Tools  [4] Import Seed  [Tab] Nav".into(),
+            status_message: "[1] Benefactor  [2] Heir  [3] Tools  [Tab] Nav".into(),
             qr_mode: QrMode::BbqrAnimated,
             bbqr_frame_index: 0,
             external_export_status: "Press [E] to export descriptor to separate USB drive.".into(),
@@ -2046,7 +2046,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
             state.is_importing_mnemonic = false;
             state.mnemonic_import_input.zeroize();
             state.mnemonic_import_input.clear();
-            state.status_message = "Returned to physical entropy ingestion (coin/dice).".into();
+            state.status_message = "Returned to coin/dice physical entropy mode.".into();
             return false;
         }
         state.vault_passphrase_input.zeroize();
@@ -2104,7 +2104,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                     state.current_page = Page::MasterSeed;
                     state.is_importing_mnemonic = true;
                     state.mnemonic_import_input.clear();
-                    state.status_message = "IMPORT MODE: Type your 12 or 24-word offline seed phrase (separated by spaces).".into();
+                    state.status_message = "IMPORT MODE: Enter 12 or 24-word seed phrase.".into();
                 }
                 _ => {}
             }
@@ -2123,7 +2123,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                                 Ok(seed) => {
                                     let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
                                     state.set_seed(seed, children);
-                                    state.status_message = "[✓] OFFLINE SEED IMPORTED: Master keys and BIP-85 suite ready in RAM.".into();
+                                    state.status_message = "[✓] OFFLINE SEED IMPORTED: Keys ready in RAM.".into();
                                 }
                                 Err(e) => {
                                     state.status_message = format!("[!] IMPORT FAILED: {}", e);
@@ -2143,7 +2143,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                     KeyCode::Char('i' | 'I') if !has_ctrl && state.seed.is_none() && state.entropy_input.is_empty() => {
                         state.is_importing_mnemonic = true;
                         state.mnemonic_import_input.clear();
-                        state.status_message = "IMPORT MODE: Type your 12 or 24-word offline seed phrase (separated by spaces).".into();
+                        state.status_message = "IMPORT MODE: Enter 12 or 24-word seed phrase.".into();
                     }
                     KeyCode::Char('t' | 'T') if !has_ctrl => {
                         if state.seed.is_none() {

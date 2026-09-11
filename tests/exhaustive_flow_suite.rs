@@ -226,6 +226,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
             "[1] I AM THE BENEFACTOR (VAULT CREATOR)",
             "[2] I AM AN HEIR OR EXECUTOR (ESTATE RECOVERY)",
             "[3] EMERGENCY TOOLS & SEED REPAIR (SEEDFIX / WORDLIST)",
+            "[4] I HAVE AN EXISTING OFFLINE SEED PHRASE (IMPORT / VERIFY)",
         ]),
         (Page::MasterSeed, &[
             "12-WORD SEED PHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):",
@@ -365,3 +366,93 @@ fn test_longest_bip39_words_phrase_on_heir_keys_tab() {
         );
     }
 }
+
+#[test]
+fn test_exhaustive_offline_mnemonic_import_flow() {
+    let mut state = AppState::new("2026-09-11 12:00:00Z".to_string(), "b0071ace".to_string());
+    assert_eq!(state.current_page, Page::RoleSelect);
+    assert!(!state.is_importing_mnemonic);
+
+    // 1. Press '4' from RoleSelect -> enters MasterSeed in Mnemonic Import Mode
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('4'),
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert_eq!(state.current_page, Page::MasterSeed);
+    assert!(state.is_importing_mnemonic);
+    assert!(state.mnemonic_import_input.is_empty());
+
+    // 2. Press Esc to test cancellation back to coin/dice mode
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Esc,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert_eq!(state.current_page, Page::MasterSeed);
+    assert!(!state.is_importing_mnemonic, "Esc should exit import mode");
+
+    // 3. Press 'I' from MasterSeed to re-enter Mnemonic Import Mode
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('i'),
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.is_importing_mnemonic);
+
+    // 4. Type invalid checksum phrase and press Enter -> should fail with error message
+    let invalid_phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+    for c in invalid_phrase.chars() {
+        subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::empty(),
+        ));
+    }
+    assert_eq!(state.mnemonic_import_input, invalid_phrase);
+
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.seed.is_none(), "Invalid checksum phrase must not set seed");
+    assert!(state.status_message.contains("IMPORT FAILED"));
+
+    // 5. Backspace the last 7 chars ("abandon") and type "about" (making it test vector 0)
+    for _ in 0..7 {
+        subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Backspace,
+            crossterm::event::KeyModifiers::empty(),
+        ));
+    }
+    for c in "about".chars() {
+        subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::empty(),
+        ));
+    }
+
+    let backend = TestBackend::new(120, 40);
+    let mut terminal = Terminal::new(backend).expect("Failed creating TestBackend");
+    terminal.draw(|f| render_app(f, &state)).expect("Render failed in import mode");
+
+    let buffer = terminal.backend().buffer();
+    let mut screen = String::new();
+    for y in 0..40 {
+        for x in 0..120 {
+            screen.push_str(buffer[(x, y)].symbol());
+        }
+        screen.push('\n');
+    }
+    assert!(screen.contains("IMPORT EXISTING OFFLINE SEED PHRASE"));
+    assert!(screen.contains("BIP-39 CHECKSUM VALID"));
+
+    // 6. Press Enter -> imports seed and derives BIP-85 suite
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.seed.is_some(), "Valid phrase must set seed");
+    assert!(!state.is_importing_mnemonic);
+    assert_eq!(state.seed.as_ref().unwrap().fingerprint, "73c5da0a");
+    assert_eq!(state.bip85_children.len(), 20);
+    assert!(state.decoupled_passphrase.is_some());
+    assert!(state.status_message.contains("OFFLINE SEED IMPORTED"));
+}
+
