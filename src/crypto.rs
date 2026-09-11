@@ -662,10 +662,15 @@ pub fn parse_physical_entropy(raw_input: &str) -> Result<(Vec<u8>, &'static str)
         return Ok((hash[..16].to_vec(), "Standard Dice Rolls (50+ Rolls)"));
     }
 
-    // Hex string (16 bytes = 32 hex chars)
-    if clean.len() == 32 && clean.chars().all(|c| c.is_ascii_hexdigit()) {
+    // Hex string (16 bytes = 32 hex chars, or 32 bytes = 64 hex chars)
+    if (clean.len() == 32 || clean.len() == 64) && clean.chars().all(|c| c.is_ascii_hexdigit()) {
         let bytes = hex::decode(&clean).map_err(|_| CryptoError::InvalidEntropyLength(clean.len()))?;
-        return Ok((bytes, "Hardware TRNG / Raw Hex"));
+        let label = if clean.len() == 32 {
+            "Hardware TRNG / Raw Hex (128-bit)"
+        } else {
+            "Hardware TRNG / Raw Hex (256-bit)"
+        };
+        return Ok((bytes, label));
     }
 
     Err(CryptoError::InvalidEntropyLength(clean.len()))
@@ -776,4 +781,137 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
     }
 
     Ok(children)
+}
+
+/// Process an existing offline BIP-39 mnemonic seed phrase (12, 15, 18, 21, or 24 words) with optional passphrase.
+pub fn process_mnemonic_phrase(raw_mnemonic: &str, passphrase: &str) -> Result<GeneratedSeed, CryptoError> {
+    let clean = raw_mnemonic
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
+
+    let mnemonic = Mnemonic::from_str(&clean)?;
+    let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
+    let secp = Secp256k1::new();
+
+    let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())?;
+    let master_fingerprint = master_xprv.fingerprint(&secp).to_string();
+
+    let account_path = DerivationPath::from_str("m/84'/1'/0'")?;
+    let account_xprv = master_xprv.derive_priv(&secp, &account_path)?;
+    let account_xpub = Xpub::from_priv(&secp, &account_xprv);
+    let vpub = account_xpub.to_string();
+
+    let mut raw_bytes = account_xpub.encode();
+    raw_bytes[0] = 0x04;
+    raw_bytes[1] = 0x5f;
+    raw_bytes[2] = 0x1c;
+    raw_bytes[3] = 0xf6;
+    let vpub_slip132 = bitcoin::base58::encode_check(&raw_bytes);
+
+    let recv_branch = account_xpub.derive_pub(&secp, &DerivationPath::from_str("0")?)?;
+    let mut addresses = Vec::with_capacity(50);
+    for idx in 0..50 {
+        let child_key = recv_branch.derive_pub(&secp, &DerivationPath::from_str(&format!("{}", idx))?)?;
+        let compressed_pk = CompressedPublicKey(child_key.public_key);
+        let addr = Address::p2wpkh(&compressed_pk, KnownHrp::Testnets);
+        addresses.push(addr.to_string());
+    }
+
+    let raw_descriptor = format!("wpkh([{}/84'/1'/0']{}/<0;1>/*)", master_fingerprint, account_xpub);
+    let checksum = get_descriptor_checksum(&raw_descriptor);
+    let descriptor = if checksum.is_empty() {
+        raw_descriptor
+    } else {
+        format!("{}#{}", raw_descriptor, checksum)
+    };
+
+    let word_count = clean.split_whitespace().count();
+    let mode_str = if passphrase.is_empty() {
+        format!("Imported Offline Mnemonic ({}-word BIP-39)", word_count)
+    } else {
+        format!("Imported Offline Mnemonic ({}-word BIP-39 + Passphrase)", word_count)
+    };
+
+    Ok(GeneratedSeed {
+        mnemonic: clean,
+        fingerprint: master_fingerprint,
+        descriptor,
+        vpub,
+        vpub_slip132,
+        addresses,
+        entropy_type: mode_str,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_import_offline_mnemonic_12_words() {
+        // Test vector 0 mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let seed = process_mnemonic_phrase(phrase, "").expect("Failed to process 12-word mnemonic");
+
+        assert_eq!(seed.mnemonic, phrase);
+        assert_eq!(seed.fingerprint, "73c5da0a");
+        assert!(seed.descriptor.starts_with("wpkh([73c5da0a/84'/1'/0']tpub"));
+        assert!(seed.descriptor.contains('#'));
+        assert!(seed.vpub.starts_with("tpub"));
+        assert!(seed.vpub_slip132.starts_with("vpub"));
+        assert_eq!(seed.addresses.len(), 50);
+        assert!(seed.addresses[0].starts_with("tb1q"));
+        assert!(seed.entropy_type.contains("12-word BIP-39"));
+
+        // Derive BIP-85 children from imported seed
+        let children = derive_bip85_children(&seed.mnemonic, 5).expect("Failed to derive BIP-85");
+        assert_eq!(children.len(), 6); // Index 0 + 5 heir keys
+        assert_eq!(children[0].index, 0);
+        assert_eq!(children[0].label, "Decoupled Estate Passphrase (Index 0)");
+    }
+
+    #[test]
+    fn test_import_offline_mnemonic_with_passphrase() {
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
+        let seed_plain = process_mnemonic_phrase(phrase, "").expect("plain");
+        let seed_pass = process_mnemonic_phrase(phrase, "secret123").expect("with pass");
+
+        // Passphrase must yield distinct root keys and fingerprint
+        assert_ne!(seed_plain.fingerprint, seed_pass.fingerprint);
+        assert_ne!(seed_plain.vpub, seed_pass.vpub);
+        assert_ne!(seed_plain.addresses[0], seed_pass.addresses[0]);
+        assert!(seed_pass.entropy_type.contains("Passphrase"));
+    }
+
+    #[test]
+    fn test_import_offline_mnemonic_24_words() {
+        // 24-word standard test vector (all abandon except final art)
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+        let seed = process_mnemonic_phrase(phrase, "").expect("Failed to process 24-word mnemonic");
+
+        assert_eq!(seed.mnemonic, phrase);
+        assert_eq!(seed.fingerprint, "5436d724");
+        assert!(seed.entropy_type.contains("24-word BIP-39"));
+        assert_eq!(seed.addresses.len(), 50);
+        assert!(seed.addresses[0].starts_with("tb1q"));
+    }
+
+    #[test]
+    fn test_import_offline_mnemonic_invalid_checksum() {
+        // Change final word to invalid checksum
+        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+        let err = process_mnemonic_phrase(phrase, "");
+        assert!(err.is_err(), "Invalid checksum must fail");
+    }
+
+    #[test]
+    fn test_raw_hex_256_bit_entropy() {
+        // 64 hex chars = 32 bytes = 256-bit entropy -> 24 words (using high-entropy SHA256 string)
+        let hex_256 = "483ed0cebd5ac3dfad854b9a4a191452ad483c75f4162af60d0ff974b789b122";
+        let (bytes, label) = parse_physical_entropy(hex_256).expect("Failed 256-bit hex");
+        assert_eq!(bytes.len(), 32);
+        assert!(label.contains("256-bit"));
+    }
 }
