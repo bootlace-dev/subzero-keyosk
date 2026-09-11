@@ -639,10 +639,10 @@ fn render_role_select(frame: &mut Frame, area: Rect, _state: &AppState) {
         Span::styled("  [4] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
         Span::styled("INGEST EXISTING MATERIALS (12 WORDS / COMPACTSEEDQR / DESCRIPTOR)", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
     ]));
-    lines.push(Line::from("      • Purpose: I have an offline 12-word seed phrase, a 48-digit CompactSeedQR string,"));
-    lines.push(Line::from("        or a watch-only BIP-380 output descriptor (wpkh/tpub/vpub) to audit in RAM."));
-    lines.push(Line::from("      • Next Step: Jump to Tab 1 Ingestion Mode to verify checksums and derive keys."));
-    lines.push(Line::from("      • Action: Press key [4] or [I]"));
+    lines.push(Line::from("      • Purpose: I have an offline 12-word seed, 4-letter punch codes, CompactSeedQR,"));
+    lines.push(Line::from("        raw hex entropy, or watch-only BIP-380 output descriptor (wpkh/tpub/vpub)."));
+    lines.push(Line::from("      • Next Step: Jump to Tab 1 Universal Workspace to verify checksums and derive keys."));
+    lines.push(Line::from("      • Action: Press key [4], [1], or [I]"));
     lines.push(Line::from(""));
 
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
@@ -1021,10 +1021,10 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
     let is_descriptor = trimmed.starts_with("wpkh(") || trimmed.starts_with("tpub") || trimmed.starts_with("vpub");
 
     lines.push(Line::from(Span::styled(
-        "  INGESTION: 12 WORDS (BIP-39) | COMPACTSEEDQR (48 DIGITS) | BIP-380 DESCRIPTOR",
+        "  INGESTION: 12 WORDS | 4-LETTER PUNCH CODES | COMPACTSEEDQR | DESCRIPTOR",
         Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
     )));
-    lines.push(Line::from("  Type 12 words, 48-digit CompactSeedQR, or wpkh([fprint/path]tpub.../<0;1>/*)#checksum."));
+    lines.push(Line::from("  Type 12 words (or 4-letter punch codes), 48-digit CompactSeedQR, or wpkh(tpub...#checksum)."));
 
     // User input display box
     let char_count = state.mnemonic_import_input.len();
@@ -1123,11 +1123,23 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
                 left_spans.push(Span::raw("    "));
                 if i < words.len() {
                     let w = words[i];
-                    let is_valid = wordlist.contains(&w);
-                    let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
+                    let (resolved_w, is_valid) = if wordlist.contains(&w) {
+                        (w.to_string(), true)
+                    } else if w.len() >= 3 && w.len() <= 4 {
+                        let m: Vec<&&str> = wordlist.iter().filter(|c| c.starts_with(w)).collect();
+                        if m.len() == 1 {
+                            (m[0].to_string(), true)
+                        } else {
+                            (w.to_string(), false)
+                        }
+                    } else {
+                        (w.to_string(), false)
+                    };
+
+                    let punch = if resolved_w.len() >= 4 { &resolved_w[..4] } else { &resolved_w }.to_uppercase();
                     if is_valid {
                         left_spans.push(Span::styled(
-                            format!("Word #{:02}: {:<8} [✓ {:<4}]", i + 1, w, punch),
+                            format!("Word #{:02}: {:<8} [✓ {:<4}]", i + 1, resolved_w, punch),
                             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                         ));
                     } else {
@@ -1148,11 +1160,23 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
                 let r_idx = i + half;
                 if r_idx < words.len() {
                     let w = words[r_idx];
-                    let is_valid = wordlist.contains(&w);
-                    let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
+                    let (resolved_w, is_valid) = if wordlist.contains(&w) {
+                        (w.to_string(), true)
+                    } else if w.len() >= 3 && w.len() <= 4 {
+                        let m: Vec<&&str> = wordlist.iter().filter(|c| c.starts_with(w)).collect();
+                        if m.len() == 1 {
+                            (m[0].to_string(), true)
+                        } else {
+                            (w.to_string(), false)
+                        }
+                    } else {
+                        (w.to_string(), false)
+                    };
+
+                    let punch = if resolved_w.len() >= 4 { &resolved_w[..4] } else { &resolved_w }.to_uppercase();
                     if is_valid {
                         right_spans.push(Span::styled(
-                            format!("Word #{:02}: {:<8} [✓ {:<4}]", r_idx + 1, w, punch),
+                            format!("Word #{:02}: {:<8} [✓ {:<4}]", r_idx + 1, resolved_w, punch),
                             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                         ));
                     } else {
@@ -1177,14 +1201,33 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
 
         // Mathematical Checksum Audit
         if word_count == 12 {
-            let all_english = words.iter().all(|w| wordlist.contains(w));
-            if !all_english {
+            let mut resolved = Vec::with_capacity(12);
+            let mut all_valid = true;
+            for w in &words {
+                if wordlist.contains(w) {
+                    resolved.push(w.to_string());
+                } else if w.len() >= 3 && w.len() <= 4 {
+                    let m: Vec<&&str> = wordlist.iter().filter(|c| c.starts_with(w)).collect();
+                    if m.len() == 1 {
+                        resolved.push(m[0].to_string());
+                    } else {
+                        all_valid = false;
+                        break;
+                    }
+                } else {
+                    all_valid = false;
+                    break;
+                }
+            }
+
+            if !all_valid {
                 lines.push(Line::from(Span::styled(
-                    "  [!] UNKNOWN WORDS: One or more words not in BIP-39 English dictionary.",
+                    "  [!] UNKNOWN WORDS: One or more tokens not in BIP-39 dictionary or ambiguous prefix.",
                     Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
                 )));
             } else {
-                match bip39::Mnemonic::parse_in_normalized(bip39::Language::English, trimmed) {
+                let resolved_phrase = resolved.join(" ");
+                match bip39::Mnemonic::parse_in_normalized(bip39::Language::English, &resolved_phrase) {
                     Ok(_) => {
                         lines.push(Line::from(Span::styled(
                             "  [✓ BIP-39 CHECKSUM VALID] Press [ENTER] to derive master keys and BIP-85 suite in RAM.",

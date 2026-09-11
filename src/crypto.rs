@@ -869,8 +869,30 @@ pub fn process_mnemonic_phrase(raw_input: &str) -> Result<GeneratedSeed, CryptoE
     }
 
     let wordlist = bip39::Language::English.word_list();
+    let mut resolved_words = Vec::with_capacity(12);
+    let mut had_punch_code = false;
+
     for w in &words {
-        if !wordlist.contains(w) {
+        if wordlist.contains(w) {
+            resolved_words.push(w.to_string());
+        } else if w.len() >= 3 && w.len() <= 4 {
+            // Check if token uniquely matches a BIP-39 English word by prefix
+            let matches: Vec<&&str> = wordlist.iter().filter(|cand| cand.starts_with(w)).collect();
+            if matches.len() == 1 {
+                resolved_words.push(matches[0].to_string());
+                had_punch_code = true;
+            } else if matches.is_empty() {
+                return Err(CryptoError::InvalidMnemonic(format!(
+                    "'{}' does not match any BIP-39 English word prefix",
+                    w
+                )));
+            } else {
+                return Err(CryptoError::InvalidMnemonic(format!(
+                    "Ambiguous prefix '{}' matches multiple words: {:?}",
+                    w, matches
+                )));
+            }
+        } else {
             return Err(CryptoError::InvalidMnemonic(format!(
                 "'{}' is not a valid BIP-39 English dictionary word",
                 w
@@ -878,7 +900,8 @@ pub fn process_mnemonic_phrase(raw_input: &str) -> Result<GeneratedSeed, CryptoE
         }
     }
 
-    let mnemonic = Mnemonic::from_str(&clean)?;
+    let resolved_phrase = resolved_words.join(" ");
+    let mnemonic = Mnemonic::from_str(&resolved_phrase)?;
     let seed = Zeroizing::new(mnemonic.to_seed(""));
     let secp = Secp256k1::new();
 
@@ -916,12 +939,14 @@ pub fn process_mnemonic_phrase(raw_input: &str) -> Result<GeneratedSeed, CryptoE
 
     let mode_label = if was_compact {
         "Imported Offline CompactSeedQR (48-Digit Numeric)".to_string()
+    } else if had_punch_code {
+        "Imported Offline 4-Letter Punch Codes (BIP-39 Prefix)".to_string()
     } else {
         "Imported Offline 12-Word BIP-39 Mnemonic".to_string()
     };
 
     Ok(GeneratedSeed {
-        mnemonic: clean,
+        mnemonic: resolved_phrase,
         fingerprint: master_fingerprint,
         descriptor,
         vpub,
@@ -1147,5 +1172,16 @@ mod tests {
         let via_mnemonic_fn = process_mnemonic_phrase(&reference_seed.descriptor).expect("Failed via mnemonic dispatch");
         assert_eq!(via_mnemonic_fn.fingerprint, reference_seed.fingerprint);
         assert_eq!(via_mnemonic_fn.addresses[0], reference_seed.addresses[0]);
+    }
+
+    #[test]
+    fn test_punch_codes_12_words() {
+        // Test vector 0: 11 'abandon' + 'about'
+        // Using 4-letter punch codes: 'aban' x 11 + 'abou'
+        let punch_input = "aban aban aban aban aban aban aban aban aban aban aban abou";
+        let seed = process_mnemonic_phrase(punch_input).expect("Failed to process 4-letter punch codes");
+        assert_eq!(seed.mnemonic, "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+        assert_eq!(seed.fingerprint, "73c5da0a");
+        assert!(seed.entropy_type.contains("Punch Codes"));
     }
 }

@@ -543,5 +543,49 @@ fn test_exhaustive_compact_seed_qr_and_descriptor_ingest_flow() {
     assert!(seed_ref.entropy_type.contains("Watch-Only"));
     assert_eq!(state.bip85_children.len(), 0, "Watch-only descriptor must have 0 private child keys");
     assert!(seed_ref.addresses[0].starts_with("tb1q"));
+
+    // Wipe memory and return to RoleSelect
+    state.wipe_memory();
+    state.current_page = Page::RoleSelect;
+    assert!(state.seed.is_none());
+
+    // 4. Test 4-Letter BIP-39 Metal Punch Code Ingestion
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Char('4'),
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.is_importing_mnemonic);
+
+    let punch_input = "aban aban aban aban aban aban aban aban aban aban aban abou";
+    for c in punch_input.chars() {
+        subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+            crossterm::event::KeyCode::Char(c),
+            crossterm::event::KeyModifiers::empty(),
+        ));
+    }
+    assert_eq!(state.mnemonic_import_input, punch_input);
+
+    let mut screen3 = String::new();
+    terminal.draw(|f| render_app(f, &state)).expect("Render failed with punch codes");
+    let buffer3 = terminal.backend().buffer();
+    for y in 0..40 {
+        for x in 0..120 {
+            screen3.push_str(buffer3[(x, y)].symbol());
+        }
+        screen3.push('\n');
+    }
+    assert!(screen3.contains("BIP-39 CHECKSUM VALID"));
+
+    // Press Enter to derive keys from punch codes
+    subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
+        crossterm::event::KeyCode::Enter,
+        crossterm::event::KeyModifiers::empty(),
+    ));
+    assert!(state.seed.is_some());
+    let punch_seed = state.seed.as_ref().unwrap();
+    assert_eq!(punch_seed.fingerprint, "73c5da0a");
+    assert_eq!(punch_seed.mnemonic, "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about");
+    assert!(punch_seed.entropy_type.contains("Punch Codes"));
+    assert_eq!(state.bip85_children.len(), 20);
 }
 
