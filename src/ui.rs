@@ -138,6 +138,8 @@ pub struct AppState {
     pub jitter_samples: Vec<(char, u64)>,
     pub last_jitter_instant: Option<std::time::Instant>,
     pub is_selecting_test_vector: bool,
+    pub is_importing_mnemonic: bool,
+    pub mnemonic_import_input: String,
     pub wipe_confirmation_instant: Option<std::time::Instant>,
     pub pending_exit_instant: Option<std::time::Instant>,
     pub vault_mask_passphrase: bool,
@@ -164,7 +166,7 @@ impl AppState {
             vault_passphrase_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
-            status_message: "[1] Benefactor  [2] Heir  [3] Tools  [Tab] Nav".into(),
+            status_message: "[1] Benefactor  [2] Heir  [3] Tools  [4] Import Seed  [Tab] Nav".into(),
             qr_mode: QrMode::BbqrAnimated,
             bbqr_frame_index: 0,
             external_export_status: "Press [E] to export descriptor to separate USB drive.".into(),
@@ -172,6 +174,8 @@ impl AppState {
             jitter_samples: Vec::new(),
             last_jitter_instant: None,
             is_selecting_test_vector: false,
+            is_importing_mnemonic: false,
+            mnemonic_import_input: String::new(),
             wipe_confirmation_instant: None,
             pending_exit_instant: None,
             vault_mask_passphrase: false,
@@ -195,6 +199,9 @@ impl AppState {
         self.entropy_input.zeroize();
         self.entropy_input.clear();
         self.is_entering_entropy = false;
+        self.is_importing_mnemonic = false;
+        self.mnemonic_import_input.zeroize();
+        self.mnemonic_import_input.clear();
         self.is_harvesting_jitter = false;
         for s in &mut self.jitter_samples {
             s.0 = '\0';
@@ -225,6 +232,9 @@ impl AppState {
         self.bip85_children = children;
         self.seed = Some(seed);
         self.is_entering_entropy = false;
+        self.is_importing_mnemonic = false;
+        self.mnemonic_import_input.zeroize();
+        self.mnemonic_import_input.clear();
         self.status_message = "Keys generated securely in amnesic memory.".into();
     }
 
@@ -623,6 +633,17 @@ fn render_role_select(frame: &mut Frame, area: Rect, _state: &AppState) {
     lines.push(Line::from("      • Action: Press key [3] to open SeedFix (Tab 10)"));
     lines.push(Line::from(""));
 
+    // Option 4: Import Existing Seed
+    lines.push(Line::from(vec![
+        Span::styled("  [4] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::styled("I HAVE AN EXISTING OFFLINE SEED PHRASE (IMPORT / VERIFY)", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from("      • Purpose: I already generated an offline seed phrase (via coins, dice, or cold wallet)"));
+    lines.push(Line::from("        and want to load it into SubZero to view descriptors, optical QRs, and derive heir keys."));
+    lines.push(Line::from("      • Next Step: Jump directly to Tab 1 in Mnemonic Import Mode (12 or 24 words)."));
+    lines.push(Line::from("      • Action: Press key [4] or [I]"));
+    lines.push(Line::from(""));
+
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled("  QUICK NAVIGATION HINT:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
     lines.push(Line::from("  You can always press [Tab] or [→] to cycle forward through all tabs, or press [Home] or [ESC]"));
@@ -727,6 +748,8 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
+    } else if state.is_importing_mnemonic {
+        render_mnemonic_import_view(frame, area, state, block);
     } else {
         render_entropy_input_view(frame, area, state, block);
     }
@@ -973,7 +996,144 @@ fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, bl
     lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
     lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
     lines.push(Line::from("  - Press [K] to harvest human keystroke timing jitter (unique test seed, zero PRNG)."));
+    lines.push(Line::from("  - Press [I] to import an existing 12 or 24-word offline seed phrase."));
     lines.push(Line::from("  - Press [W] at any time to wipe and clear all input buffers."));
+
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
+
+fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
+    let mut lines = Vec::new();
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  IMPORT EXISTING OFFLINE SEED PHRASE (BIP-39 STANDARD)",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from("  Type your 12 or 24 words separated by spaces. SubZero validates each word"));
+    lines.push(Line::from("  against the 2048-word English dictionary and verifies the mathematical checksum."));
+    lines.push(Line::from(""));
+
+    // User input display box
+    let char_count = state.mnemonic_import_input.len();
+    let words: Vec<&str> = state.mnemonic_import_input.split_whitespace().collect();
+    let word_count = words.len();
+
+    let display_str = if state.mnemonic_import_input.is_empty() {
+        "Type 12 or 24 words (e.g. abandon abandon ... about)...".to_string()
+    } else {
+        state.mnemonic_import_input.clone()
+    };
+
+    lines.push(Line::from(vec![
+        Span::styled("  Mnemonic Input: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(format!("({} words | {} chars)", word_count, char_count), Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  > ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled(display_str, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(""));
+
+    // Word validation table
+    let wordlist = bip39::Language::English.word_list();
+    if !words.is_empty() {
+        lines.push(Line::from("  Word Validation & Metal Punch Breakdown:"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
+
+        let total_display = std::cmp::max(word_count, 12);
+        let half = if total_display <= 12 { 6 } else { 12 };
+
+        for i in 0..half {
+            let mut left_spans = Vec::new();
+            left_spans.push(Span::raw("    "));
+            if i < words.len() {
+                let w = words[i];
+                let is_valid = wordlist.contains(&w);
+                let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
+                if is_valid {
+                    left_spans.push(Span::styled(
+                        format!("Word #{:02}: {:<8} [✓ {:<4}]", i + 1, w, punch),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    left_spans.push(Span::styled(
+                        format!("Word #{:02}: {:<8} [? UNKNOWN]", i + 1, w),
+                        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                    ));
+                }
+            } else {
+                left_spans.push(Span::styled(
+                    format!("Word #{:02}: -------- [------]", i + 1),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+
+            let mut right_spans = Vec::new();
+            right_spans.push(Span::raw("      "));
+            let r_idx = i + half;
+            if r_idx < words.len() {
+                let w = words[r_idx];
+                let is_valid = wordlist.contains(&w);
+                let punch = if w.len() >= 4 { &w[..4] } else { w }.to_uppercase();
+                if is_valid {
+                    right_spans.push(Span::styled(
+                        format!("Word #{:02}: {:<8} [✓ {:<4}]", r_idx + 1, w, punch),
+                        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    right_spans.push(Span::styled(
+                        format!("Word #{:02}: {:<8} [? UNKNOWN]", r_idx + 1, w),
+                        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                    ));
+                }
+            } else if r_idx < total_display {
+                right_spans.push(Span::styled(
+                    format!("Word #{:02}: -------- [------]", r_idx + 1),
+                    Style::default().fg(Color::DarkGray),
+                ));
+            }
+
+            let mut combined = left_spans;
+            combined.extend(right_spans);
+            lines.push(Line::from(combined));
+        }
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
+    }
+
+    // Mathematical Checksum Audit
+    lines.push(Line::from(""));
+    let trimmed = state.mnemonic_import_input.trim();
+    if word_count == 12 || word_count == 15 || word_count == 18 || word_count == 21 || word_count == 24 {
+        match bip39::Mnemonic::parse_in_normalized(bip39::Language::English, trimmed) {
+            Ok(_) => {
+                lines.push(Line::from(Span::styled(
+                    "  [✓ BIP-39 CHECKSUM VALID] Press [ENTER] to derive master keys and BIP-85 suite in RAM.",
+                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                )));
+            }
+            Err(e) => {
+                lines.push(Line::from(Span::styled(
+                    format!("  [!] INVALID BIP-39 CHECKSUM: {} (Check final word or press [3] for SeedFix).", e),
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                )));
+            }
+        }
+    } else {
+        lines.push(Line::from(Span::styled(
+            format!("  [AWAITING WORDS] Entered {} of 12 (or 24) words. Keep typing...", word_count),
+            Style::default().fg(Color::Cyan),
+        )));
+    }
+
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  IMPORT CONTROLS & SECURITY INVARIANTS:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
+    lines.push(Line::from("  • Press [ENTER] on valid checksum to derive keys and unlock all 14 appliance tabs."));
+    lines.push(Line::from("  • Press [ESC] to cancel import mode and return to physical coin/dice entropy."));
+    lines.push(Line::from("  • Press [W] at any time to instantly zeroize all memory buffers."));
+    lines.push(Line::from("  • Amnesic Guarantee: Imported seed phrases exist 100% in RAM and are NEVER written to disk."));
 
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
@@ -1882,6 +2042,13 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
     // 5. Global Home / Esc: Return to RoleSelect and reset ephemeral input buffers
     // In input fields, Esc cancels text entry and returns to Tab 0
     if key.code == KeyCode::Esc || key.code == KeyCode::Home {
+        if state.current_page == Page::MasterSeed && state.is_importing_mnemonic && key.code == KeyCode::Esc {
+            state.is_importing_mnemonic = false;
+            state.mnemonic_import_input.zeroize();
+            state.mnemonic_import_input.clear();
+            state.status_message = "Returned to physical entropy ingestion (coin/dice).".into();
+            return false;
+        }
         state.vault_passphrase_input.zeroize();
         state.vault_passphrase_input.clear();
         state.seedfix_input.zeroize();
@@ -1889,6 +2056,9 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         state.wordlist_query.clear();
         state.is_entering_entropy = false;
         state.is_selecting_test_vector = false;
+        state.is_importing_mnemonic = false;
+        state.mnemonic_import_input.zeroize();
+        state.mnemonic_import_input.clear();
         state.current_page = Page::RoleSelect;
         return false;
     }
@@ -1922,6 +2092,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
             match key.code {
                 KeyCode::Char('1') | KeyCode::Enter => {
                     state.current_page = Page::MasterSeed;
+                    state.is_importing_mnemonic = false;
                 }
                 KeyCode::Char('2') => {
                     state.current_page = Page::VaultUnlock;
@@ -1929,64 +2100,104 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 KeyCode::Char('3') => {
                     state.current_page = Page::SeedFix;
                 }
+                KeyCode::Char('4') | KeyCode::Char('i') | KeyCode::Char('I') => {
+                    state.current_page = Page::MasterSeed;
+                    state.is_importing_mnemonic = true;
+                    state.mnemonic_import_input.clear();
+                    state.status_message = "IMPORT MODE: Type your 12 or 24-word offline seed phrase (separated by spaces).".into();
+                }
                 _ => {}
             }
         }
         Page::MasterSeed => {
             let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-            match key.code {
-                KeyCode::Char('t' | 'T') if !has_ctrl => {
-                    if state.seed.is_none() {
-                        state.is_selecting_test_vector = true;
-                        state.status_message = "SELECT TEST VECTOR: Press [0-9] (e.g. 0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney) or [Esc] to cancel:".into();
+            if state.is_importing_mnemonic {
+                match key.code {
+                    KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
+                        state.mnemonic_import_input.pop();
                     }
-                }
-                KeyCode::Char('k' | 'K') if !has_ctrl => {
-                    if state.seed.is_none() {
-                        state.is_harvesting_jitter = true;
-                        state.jitter_samples.clear();
-                        state.last_jitter_instant = Some(std::time::Instant::now());
-                        state.status_message = "Harvesting human keystroke timing jitter. Mash any keys rapidly!".into();
-                    }
-                }
-                KeyCode::Char('c' | 'C') if !has_ctrl => {
-                    if state.seed.is_none() {
-                        let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
-                        state.set_entropy_input(coin_entropy);
-                        state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
-                    }
-                }
-                KeyCode::Char('d' | 'D') if !has_ctrl => {
-                    if state.seed.is_none() {
-                        let dice_entropy = "4231246132541623514263514231652413625143625143625132";
-                        state.set_entropy_input(dice_entropy);
-                        state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
-                    }
-                }
-                KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
-                    if state.seed.is_none() {
-                        state.pop_entropy_char();
-                    }
-                }
-                KeyCode::Enter => {
-                    if state.seed.is_none() && !state.entropy_input.is_empty() {
-                        match crypto::process_physical_entropy(&state.entropy_input) {
-                            Ok(seed) => {
-                                let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                state.set_seed(seed, children);
-                            }
-                            Err(e) => {
-                                state.status_message = format!("[BLOCKED] {}", e);
+                    KeyCode::Enter => {
+                        let trimmed = state.mnemonic_import_input.trim();
+                        if !trimmed.is_empty() {
+                            match crypto::process_mnemonic_phrase(trimmed, "") {
+                                Ok(seed) => {
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                    state.set_seed(seed, children);
+                                    state.status_message = "[✓] OFFLINE SEED IMPORTED: Master keys and BIP-85 suite ready in RAM.".into();
+                                }
+                                Err(e) => {
+                                    state.status_message = format!("[!] IMPORT FAILED: {}", e);
+                                }
                             }
                         }
                     }
-                }
-                KeyCode::Char(c) if !has_ctrl && c.is_ascii_alphanumeric() => {
-                    if state.seed.is_none() {
-                        state.push_entropy_char(c);
+                    KeyCode::Char(c) if !has_ctrl && (c.is_alphabetic() || c == ' ') => {
+                        if state.mnemonic_import_input.len() < 300 {
+                            state.mnemonic_import_input.push(c.to_ascii_lowercase());
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
+            } else {
+                match key.code {
+                    KeyCode::Char('i' | 'I') if !has_ctrl && state.seed.is_none() && state.entropy_input.is_empty() => {
+                        state.is_importing_mnemonic = true;
+                        state.mnemonic_import_input.clear();
+                        state.status_message = "IMPORT MODE: Type your 12 or 24-word offline seed phrase (separated by spaces).".into();
+                    }
+                    KeyCode::Char('t' | 'T') if !has_ctrl => {
+                        if state.seed.is_none() {
+                            state.is_selecting_test_vector = true;
+                            state.status_message = "SELECT TEST VECTOR: Press [0-9] (e.g. 0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney) or [Esc] to cancel:".into();
+                        }
+                    }
+                    KeyCode::Char('k' | 'K') if !has_ctrl => {
+                        if state.seed.is_none() {
+                            state.is_harvesting_jitter = true;
+                            state.jitter_samples.clear();
+                            state.last_jitter_instant = Some(std::time::Instant::now());
+                            state.status_message = "Harvesting human keystroke timing jitter. Mash any keys rapidly!".into();
+                        }
+                    }
+                    KeyCode::Char('c' | 'C') if !has_ctrl => {
+                        if state.seed.is_none() {
+                            let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
+                            state.set_entropy_input(coin_entropy);
+                            state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
+                        }
+                    }
+                    KeyCode::Char('d' | 'D') if !has_ctrl => {
+                        if state.seed.is_none() {
+                            let dice_entropy = "4231246132541623514263514231652413625143625143625132";
+                            state.set_entropy_input(dice_entropy);
+                            state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
+                        }
+                    }
+                    KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
+                        if state.seed.is_none() {
+                            state.pop_entropy_char();
+                        }
+                    }
+                    KeyCode::Enter => {
+                        if state.seed.is_none() && !state.entropy_input.is_empty() {
+                            match crypto::process_physical_entropy(&state.entropy_input) {
+                                Ok(seed) => {
+                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                    state.set_seed(seed, children);
+                                }
+                                Err(e) => {
+                                    state.status_message = format!("[BLOCKED] {}", e);
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char(c) if !has_ctrl && c.is_ascii_alphanumeric() => {
+                        if state.seed.is_none() {
+                            state.push_entropy_char(c);
+                        }
+                    }
+                    _ => {}
+                }
             }
         }
         Page::VpubQr => {
