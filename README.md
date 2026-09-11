@@ -11,7 +11,7 @@ SubZero-rs is a pure Rust, machine-first, amnesic Bitcoin cold-storage and estat
 
 - **Testnet4 Sovereign Sandbox**: Zero financial risk rehearsal edition. Practice entropy generation, passphrases, optical QR exports, and heir recovery drills using risk-free testnet coins.
 - **100% Pure Rust**: Single static `x86_64-unknown-linux-musl` ELF binary. Zero runtime dependencies, zero Node.js, zero JavaScript.
-- **Raw TTY1 Console Engine**: Direct Ratatui terminal interface running on raw virtual terminals (`/dev/tty1`). Optimized for legacy BIOS/UEFI text mode consoles (80x24, 80x25, 100x30, 128x48) with zero line-wrapping or finder-pattern truncation.
+- **Raw TTY1 Console Engine & High-Density Typography**: Direct Ratatui terminal interface running on raw virtual terminals (`/dev/tty1`). Employs high-density Terminus 12-pixel font (`ter-v12n.psf.gz`, 6x12 pixel cell) via `setfont`, expanding vertical screen space from standard 24 rows to **45–50 text rows** and 113+ horizontal columns on standard 768p panels. Completely eliminates blank gaps and prevents optical truncation on static QR codes.
 - **Strict Physical Entropy**: 128 coin flips (4-char chunking) or 50+ dice rolls (5-char chunking). Hard-blocked at the boundary if Pearson's Chi-squared uniformity ($\chi^2 \le 10.828$ coin, $\le 20.515$ dice at $\alpha=0.001$) or Markov conditional transition audits fail.
 - **Multi-Die Rolling Guidance**: Recommends rolling 2 to 5 dice simultaneously to naturally blend out individual die defects while honoring the 50-roll floor ($6^{50} > 2^{128}$).
 - **Cross-Utility Determinism**: Pure dice/coin inputs generate identical BIP-39 mnemonic phrases byte-for-byte compatible with Coldcard, BitBox02, and standard reference tooling.
@@ -19,7 +19,9 @@ SubZero-rs is a pure Rust, machine-first, amnesic Bitcoin cold-storage and estat
 - **Dual-Partition Estate Vault**: Partition 2 (`SUBZERO_EST`) encrypted backup vault generator and offline HTML decryptor (`decrypt.html`).
 - **Amnesic Memory Hygiene**: Zeroization via `Zeroize` and `ZeroizeOnDrop` across all intermediate keys, seeds, passphrases, and decrypted buffers. One-touch `[W]` panic memory wipe and two-stroke `[Q]` exit confirmation.
 
-## Build from Source
+## Build & Deployment
+
+### Build from Source
 
 ```bash
 # Static musl build via Docker cross-compiler
@@ -27,6 +29,13 @@ docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl ca
 
 # Run test suite
 docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl cargo test
+```
+
+### Deploy to Amnesic Boot Media (SD / USB)
+
+```bash
+# Compile with build stamps, inject into Alpine squashfs, configure ter-v12n font, and update GRUB:
+./scripts/deploy_appliance.sh /dev/sdb1
 ```
 
 ## Binary Verification (Release v0.3.0)
