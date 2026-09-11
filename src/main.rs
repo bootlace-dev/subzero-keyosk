@@ -26,10 +26,27 @@ struct Cli {
     /// Run non-interactive entropy ingestion (coin flips or dice rolls)
     #[arg(short, long)]
     entropy: Option<String>,
+
+    /// Import an existing offline BIP-39 mnemonic seed phrase (12, 15, 18, 21, or 24 words)
+    #[arg(short, long)]
+    mnemonic: Option<String>,
+
+    /// Optional BIP-39 passphrase for mnemonic derivation
+    #[arg(short, long, default_value = "")]
+    passphrase: String,
 }
 
 #[derive(Subcommand, Debug)]
 enum Commands {
+    /// Import an existing offline BIP-39 seed phrase and inspect descriptors, addresses, and BIP-85 suite
+    Import {
+        /// 12, 15, 18, 21, or 24-word BIP-39 mnemonic phrase
+        #[arg(short, long)]
+        mnemonic: String,
+        /// Optional BIP-39 passphrase
+        #[arg(short, long, default_value = "")]
+        passphrase: String,
+    },
     /// Recover a 12th mnemonic word using Levenshtein distance matching
     Seedfix {
         /// First 11 words followed by optional 12th word typo
@@ -56,6 +73,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(cmd) = cli.command {
         match cmd {
+            Commands::Import { mnemonic, passphrase } => {
+                println!("SubZero-RS Offline Seed Phrase Ingestion Engine");
+                match crypto::process_mnemonic_phrase(&mnemonic, &passphrase) {
+                    Ok(seed) => {
+                        println!("=================================================================");
+                        println!(" [✓] OFFLINE SEED IMPORTED SUCCESSFULLY: TESTNET4 ONLY");
+                        println!("=================================================================");
+                        println!("  Mnemonic Phrase:     {}", seed.mnemonic);
+                        println!("  Master Fingerprint:  {}", seed.fingerprint);
+                        println!("  Derivation Path:     m/84'/1'/0'");
+                        println!("  Account Key (raw):   {}", seed.vpub);
+                        println!("  SLIP-0132 VPUB:      {}", seed.vpub_slip132);
+                        println!("  BIP-380 Descriptor:  {}", seed.descriptor);
+                        println!("  Receive Address #0:  {}", seed.addresses[0]);
+                        println!("  Receive Address #1:  {}", seed.addresses[1]);
+                        println!("-----------------------------------------------------------------");
+                        println!("  BIP-85 Derived Heir & Estate Keys:");
+                        let children = crypto::derive_bip85_children(&seed.mnemonic, 5)?;
+                        for child in children {
+                            println!("    [{}] {} -> {}", child.path, child.label, child.mnemonic);
+                        }
+                        println!("=================================================================");
+                    }
+                    Err(e) => {
+                        eprintln!("Error importing mnemonic phrase: {}", e);
+                        std::process::exit(1);
+                    }
+                }
+                return Ok(());
+            }
             Commands::Seedfix { words } => {
                 println!("SubZero-RS SeedFix Recovery Engine");
                 let word_list: Vec<&str> = words.split_whitespace().collect();
@@ -111,8 +158,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     state.wipe_confirmation_instant = None;
     state.status_message = "[✓] PROACTIVE PRE-BOOT SCRUB: RAM zeroized prior to display initialization.".into();
 
-    // If CLI provided initial entropy, process it immediately
-    if let Some(entropy_str) = cli.entropy {
+    // If CLI provided an existing offline mnemonic, import it immediately
+    if let Some(mnemonic_str) = cli.mnemonic {
+        match crypto::process_mnemonic_phrase(&mnemonic_str, &cli.passphrase) {
+            Ok(seed) => {
+                let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                state.set_seed(seed, children);
+                state.current_page = ui::Page::MasterSeed;
+                state.status_message = "[✓] OFFLINE SEED IMPORTED: Master keys and BIP-85 suite ready in RAM.".into();
+            }
+            Err(e) => {
+                eprintln!("Error importing offline mnemonic: {}", e);
+                std::process::exit(1);
+            }
+        }
+    } else if let Some(entropy_str) = cli.entropy {
         if let Ok(seed) = crypto::process_physical_entropy(&entropy_str) {
             let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
             state.set_seed(seed, children);
