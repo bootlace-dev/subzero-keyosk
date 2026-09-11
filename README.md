@@ -18,9 +18,8 @@ SubZero-rs is a pure Rust, machine-first, amnesic Bitcoin cold-storage and estat
 - **Optical Airgap Exports**: Tab 4 (BBQR animated streams, full BIP-380 output descriptors, watch-only `vpub`/`tpub`) and Tab 5 (Receive Address #0 faucet QR) with real-time 8-char SHA-256 integrity checksum badges.
 - **Dual-Partition Estate Vault**: Partition 2 (`SUBZERO_EST`) encrypted backup vault generator and offline HTML decryptor (`decrypt.html`).
 - **Amnesic Memory Hygiene**: Zeroization via `Zeroize` and `ZeroizeOnDrop` across all intermediate keys, seeds, passphrases, and decrypted buffers. One-touch `[W]` panic memory wipe and two-stroke `[Q]` exit confirmation.
-- **Offline Seed Phrase Import & Verification**: Direct ingestion of pre-existing offline seed phrases (12, 15, 18, 21, or 24 BIP-39 English words) and 256-bit (64 hex char) TRNG entropy:
-  - **Interactive TUI**: Press `[4]` from Tab 0 (Role Select) or `[I]` from Tab 1 (Master Seed) to enter dedicated Import Mode. Features live dictionary completion against the 2,048-word BIP-39 wordlist, 4-letter metal punch breakdown (`[✓ ABAN]`), and mathematical checksum validation. Press `[Esc]` to abort back to coin/dice mode.
-  - **CLI / Scripting**: Ingest offline phrases non-interactively via `subzero --mnemonic "<phrase>"` or `subzero import --mnemonic "<phrase>" --passphrase "<optional>"`.
+- **Offline Seed Phrase Ingestion & Verification**: Amnesic ingestion of pre-existing offline 12-word BIP-39 English seed phrases:
+  - **Interactive TUI Appliance**: Press `[4]` from Tab 0 (Role Select) or `[I]` from Tab 1 (Master Seed) to enter dedicated 12-word Import Mode. Features live dictionary completion against the 2,048-word BIP-39 English wordlist, 4-letter metal punch breakdown (`[✓ ABAN]`), and mathematical checksum validation. Pure in-RAM execution, zero disk writes, no passphrase requirement. Press `[Esc]` to abort back to coin/dice mode.
 
 ## Build & Deployment
 

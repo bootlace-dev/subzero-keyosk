@@ -26,6 +26,8 @@ pub enum CryptoError {
     ChiSquaredAuditFailed(String),
     #[error("Entropy contains repetitive substrings")]
     RepetitivePatternDetected,
+    #[error("Invalid mnemonic: {0}")]
+    InvalidMnemonic(String),
     #[error("BIP-39 error: {0}")]
     Bip39Error(#[from] bip39::Error),
     #[error("BIP-32 error: {0}")]
@@ -783,16 +785,34 @@ pub fn derive_bip85_children(master_mnemonic_str: &str, count: u32) -> Result<Ve
     Ok(children)
 }
 
-/// Process an existing offline BIP-39 mnemonic seed phrase (12, 15, 18, 21, or 24 words) with optional passphrase.
-pub fn process_mnemonic_phrase(raw_mnemonic: &str, passphrase: &str) -> Result<GeneratedSeed, CryptoError> {
+/// Process an existing offline 12-word BIP-39 English mnemonic seed phrase (without passphrase).
+pub fn process_mnemonic_phrase(raw_mnemonic: &str) -> Result<GeneratedSeed, CryptoError> {
     let clean = raw_mnemonic
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
         .to_lowercase();
 
+    let words: Vec<&str> = clean.split_whitespace().collect();
+    if words.len() != 12 {
+        return Err(CryptoError::InvalidMnemonic(format!(
+            "Mnemonic must be exactly 12 words (got {})",
+            words.len()
+        )));
+    }
+
+    let wordlist = bip39::Language::English.word_list();
+    for w in &words {
+        if !wordlist.contains(w) {
+            return Err(CryptoError::InvalidMnemonic(format!(
+                "'{}' is not a valid BIP-39 English dictionary word",
+                w
+            )));
+        }
+    }
+
     let mnemonic = Mnemonic::from_str(&clean)?;
-    let seed = Zeroizing::new(mnemonic.to_seed(passphrase));
+    let seed = Zeroizing::new(mnemonic.to_seed(""));
     let secp = Secp256k1::new();
 
     let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())?;
@@ -827,13 +847,6 @@ pub fn process_mnemonic_phrase(raw_mnemonic: &str, passphrase: &str) -> Result<G
         format!("{}#{}", raw_descriptor, checksum)
     };
 
-    let word_count = clean.split_whitespace().count();
-    let mode_str = if passphrase.is_empty() {
-        format!("Imported Offline Mnemonic ({}-word BIP-39)", word_count)
-    } else {
-        format!("Imported Offline Mnemonic ({}-word BIP-39 + Passphrase)", word_count)
-    };
-
     Ok(GeneratedSeed {
         mnemonic: clean,
         fingerprint: master_fingerprint,
@@ -841,7 +854,7 @@ pub fn process_mnemonic_phrase(raw_mnemonic: &str, passphrase: &str) -> Result<G
         vpub,
         vpub_slip132,
         addresses,
-        entropy_type: mode_str,
+        entropy_type: "Imported Offline 12-Word BIP-39 Mnemonic".to_string(),
     })
 }
 
@@ -853,7 +866,7 @@ mod tests {
     fn test_import_offline_mnemonic_12_words() {
         // Test vector 0 mnemonic: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
         let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let seed = process_mnemonic_phrase(phrase, "").expect("Failed to process 12-word mnemonic");
+        let seed = process_mnemonic_phrase(phrase).expect("Failed to process 12-word mnemonic");
 
         assert_eq!(seed.mnemonic, phrase);
         assert_eq!(seed.fingerprint, "73c5da0a");
@@ -863,7 +876,7 @@ mod tests {
         assert!(seed.vpub_slip132.starts_with("vpub"));
         assert_eq!(seed.addresses.len(), 50);
         assert!(seed.addresses[0].starts_with("tb1q"));
-        assert!(seed.entropy_type.contains("12-word BIP-39"));
+        assert_eq!(seed.entropy_type, "Imported Offline 12-Word BIP-39 Mnemonic");
 
         // Derive BIP-85 children from imported seed
         let children = derive_bip85_children(&seed.mnemonic, 5).expect("Failed to derive BIP-85");
@@ -873,36 +886,30 @@ mod tests {
     }
 
     #[test]
-    fn test_import_offline_mnemonic_with_passphrase() {
-        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about";
-        let seed_plain = process_mnemonic_phrase(phrase, "").expect("plain");
-        let seed_pass = process_mnemonic_phrase(phrase, "secret123").expect("with pass");
+    fn test_import_offline_mnemonic_rejects_non_12_words() {
+        // 24-word phrase must be rejected
+        let phrase_24 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
+        let err_24 = process_mnemonic_phrase(phrase_24);
+        assert!(err_24.is_err(), "24 words must be rejected");
 
-        // Passphrase must yield distinct root keys and fingerprint
-        assert_ne!(seed_plain.fingerprint, seed_pass.fingerprint);
-        assert_ne!(seed_plain.vpub, seed_pass.vpub);
-        assert_ne!(seed_plain.addresses[0], seed_pass.addresses[0]);
-        assert!(seed_pass.entropy_type.contains("Passphrase"));
+        // 11-word phrase must be rejected
+        let phrase_11 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
+        let err_11 = process_mnemonic_phrase(phrase_11);
+        assert!(err_11.is_err(), "11 words must be rejected");
     }
 
     #[test]
-    fn test_import_offline_mnemonic_24_words() {
-        // 24-word standard test vector (all abandon except final art)
-        let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon art";
-        let seed = process_mnemonic_phrase(phrase, "").expect("Failed to process 24-word mnemonic");
-
-        assert_eq!(seed.mnemonic, phrase);
-        assert_eq!(seed.fingerprint, "5436d724");
-        assert!(seed.entropy_type.contains("24-word BIP-39"));
-        assert_eq!(seed.addresses.len(), 50);
-        assert!(seed.addresses[0].starts_with("tb1q"));
+    fn test_import_offline_mnemonic_rejects_non_english_word() {
+        let phrase_non_english = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon nonbipword";
+        let err = process_mnemonic_phrase(phrase_non_english);
+        assert!(err.is_err(), "Non-English word must be rejected");
     }
 
     #[test]
     fn test_import_offline_mnemonic_invalid_checksum() {
         // Change final word to invalid checksum
         let phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
-        let err = process_mnemonic_phrase(phrase, "");
+        let err = process_mnemonic_phrase(phrase);
         assert!(err.is_err(), "Invalid checksum must fail");
     }
 

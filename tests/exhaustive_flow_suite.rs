@@ -226,7 +226,7 @@ fn test_verify_every_text_character_and_sentence_on_every_tab() {
             "[1] I AM THE BENEFACTOR (VAULT CREATOR)",
             "[2] I AM AN HEIR OR EXECUTOR (ESTATE RECOVERY)",
             "[3] EMERGENCY TOOLS & SEED REPAIR (SEEDFIX / WORDLIST)",
-            "[4] I HAVE AN EXISTING OFFLINE SEED PHRASE (IMPORT / VERIFY)",
+            "[4] I HAVE AN EXISTING OFFLINE SEED PHRASE (12-WORD IMPORT)",
         ]),
         (Page::MasterSeed, &[
             "12-WORD SEED PHRASE (SPACE-SEPARATED STRING WITH NUMBERING GUIDES):",
@@ -440,7 +440,7 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
         }
         screen.push('\n');
     }
-    assert!(screen.contains("IMPORT EXISTING OFFLINE SEED PHRASE"));
+    assert!(screen.contains("IMPORT EXISTING 12-WORD OFFLINE SEED PHRASE"));
     assert!(screen.contains("BIP-39 CHECKSUM VALID"));
 
     // 6. Press Enter -> imports seed and derives BIP-85 suite
