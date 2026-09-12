@@ -8,68 +8,60 @@
 
 ---
 
-## 1. Executive Summary: "COTS Over Honeypots"
+## 1. Design Philosophy: The Commodity Hardware (COTS) Advantage
 
-Dedicated hardware wallets and specialized security devices have become high-liability operational security hazards:
-- **E-Commerce Supply Chain Leaks:** Breaches of customer databases (Ledger, Trezor, Shopify) permanently link real-world home addresses, names, and phone numbers to Bitcoin ownership, painting high-visibility targets for physical coercion and home invasions.
-- **Physical Interdiction & Targeted Watermarks:** Custom hardware kits (e.g. Raspberry Pi Zero assemblies, custom acrylic enclosures, monocle displays) immediately flag baggage at international borders and customs inspections.
-- **Microcontroller PRNG Opacity:** Microcontroller hardware true random number generators (TRNGs) and proprietary secure element black-boxes cannot be visually audited for backdoors, silent entropy failure, or physical aging.
+SubZero is engineered around a simple premise: **enterprise-grade, airgapped Bitcoin self-custody should run on ubiquitous, generic hardware that users already own or can easily acquire locally.**
 
-**SubZero inverts this paradigm through Commercial Off-The-Shelf (COTS) ubiquity:**
-Any generic, used x86_64 laptop (purchased for $20–$40 in cash at a thrift store or secondhand market—e.g. Lenovo ThinkPad, Dell Chromebook, Acer) functions as an enterprise-grade cold-storage signing appliance. In transit or storage, a commodity laptop is completely unremarkable. When booted from an SD card, it transforms into an amnesic, airgapped Bitcoin terminal running 100% in volatile RAM with zero network drivers loaded.
+By repurposing standard off-the-shelf x86_64 laptops (such as surplus Lenovo ThinkPads, Dell Chromebooks, or Acer laptops), SubZero delivers key structural advantages:
 
----
-
-## 2. Why SubZero vs. Closest Historical Analogues
-
-| Dimension | SeedSigner (RPi Zero) | Krux (K210 RISC-V) | Dedicated HW (Coldcard / Jade / Passport) | Cold Laptop / Tails OS | **SubZero-rs v0.3.0** |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Hardware Supply Chain** | Specialized RPi Zero + Waveshare LCD Hat + camera module; online paper trail. | Specialized Chinese K210 AI board; vendor trail. | Dedicated commercial crypto device; customer database leaks (Shopify/Ledger). | Standard laptop, but general-purpose OS. | **100% COTS:** Any commodity x86_64 laptop purchased for cash. Zero crypto association. |
-| **Visual & Keyboard Surface** | 1.3"–2.0" 240x240 display, tiny 5-way joystick. High friction on seed entry. | Tiny touchscreen or 3 capacitive buttons. | Keypad or scroll-wheel on 1"–2.8" screen. | Full GUI display and keyboard, but heavy attack surface. | **Full Ergonomic TUI:** Full keyboard, 14" screen, Terminus 12px font (45–50 rows), Miller's Law chunking. |
-| **Entropy Auditing** | Dice rolls / camera hash. No real-time statistical tests. | Dice / camera. No statistical bounds enforcement. | Black-box TRNG in Secure Element; user cannot audit raw entropy bits. | Software PRNG via `/dev/urandom` / OS entropy pool. | **Physical Entropy + Audit:** 128-bit coins, 50-roll dice, raw hex, jitter; real-time Markov & Chi-squared rejection. |
-| **Kernel / Network Attack Surface** | Microcontroller Linux or bare metal; minimal. | MicroPython runtime on K210. | Microcontroller firmware with proprietary SE blobs. | Full general OS (4GB+ ISO); Wi-Fi, BT, Ethernet drivers loaded. | **Substrate Hardened:** Ephemeral Alpine Linux with `net` and `bluetooth` kernel modules physically deleted. |
-| **RAM Remanence Mitigation** | Power pull (DRAM capacitor bleed). | Power pull (0.5MB internal SRAM). | Power pull. | Standard shutdown/reboot leaves DRAM pages readable for minutes. | **Active `kexec` Wiper:** `[Q][Q]` executes `kexec` into `memtest86+` v8.10, systematically zeroing all RAM banks. |
-| **PSBT Inspection Depth** | Basic summary (amount, fee, outputs). | Basic summary. | Standard summary; limited derivation path audit. | Full Sparrow/Electrum GUI, but requires active OS and display stack. | **5-Section Deep Ledger:** Multi-level gap limits, offline address reuse, RFC 6979 nonce badge, USD conversion. |
-| **Deterministic Builds** | Yes (Buildroot). | Yes (Docker). | Vendor reproducible builds. | Debian reproducible builds. | **100% Byte-for-Byte:** Static musl binary via Docker with fixed `SOURCE_DATE_EPOCH` and path remapping. |
+- **Universal Hardware Availability:** Millions of reliable commodity laptops exist worldwide. SubZero allows anyone to stand up an airgapped cold vault immediately using standard USB or SD boot media, without waiting for or relying on specialized hardware shipments.
+- **Natural Hardware Discretion:** A standard commodity laptop is entirely generic and non-descript. It carries no outward markers, branding, or indicators associated with cryptocurrency storage.
+- **Human-Scale Ergonomics:** Real-world custody security fundamentally depends on human verification. Full-size physical keyboards and standard laptop displays eliminate the cognitive fatigue and input friction often encountered when managing complex cryptographic material on miniature screens.
+- **Physical Amnesia:** Running as a purely ephemeral live system entirely in volatile memory (`toram`), SubZero leaves zero persistent data on disk, converting commodity laptops into dedicated, single-purpose signing appliances for the duration of a session.
 
 ---
 
-## 3. Major Features in v0.3.0
+## 2. Core Architectural Benefits of SubZero
 
-### A. Stateless Two-Way Optical Airgap (Tab 14: `PsbtSigner`)
-- **Native Webcam Ingestion:** Auto-detects laptop camera (`/dev/video*`) via `zbarcam` runtime, reading PSBT QR codes from Sparrow, Nunchuk, Specter, or BlueWallet without physical cables or USB mounts.
-- **Multiframe BBQR Reassembly:** Reassembles animated high-density BBQR frames in real-time with frame-progress indicators.
-- **Animated BBQR Export:** Upon signing, displays high-contrast animated BBQR on the laptop screen for the coordinator wallet to scan back.
-- **Optical Scan Hygiene:** Clean buffer clearing (`[N]` for Next, `[X]` for Clear) prevents cross-transaction confusion on screen.
+### A. Ergonomic Visual Space & Miller's Law Chunking
+- **High-Density Typography:** Bundles the Terminus 12-pixel font (`ter-v12n`, 6x12 pixel cell), providing 45–50 text rows and 113+ columns on standard laptop screens.
+- **Cognitive Verification:** Full addresses, derivation paths, and entropy streams are formatted in 4-character and 5-character blocks (Miller's Law) for easy, error-free visual cross-checking against paper records.
+- **Full Tactile Keyboard Input:** Fast, fluid, and accurate entry of 12-word seeds, 4-letter punch codes, 128 binary coin flips, or 50+ dice rolls without joystick navigation or touchscreen inaccuracy.
 
-### B. 5-Section Deep Transaction Ledger & Footgun Prevention
-1. **Transaction Overview & Metrics:** Total inputs, total outputs, miner fee, fee rate (sat/vB), fee percentage of input, sequence/RBF status, and locktime.
-2. **Offline USD Fiat Estimator (`[P]`):** Press `[P]` anytime to enter the current BTC spot price (e.g. `$60,000`). Immediately computes estimated fiat conversions across all inputs, outputs, and fees.
-3. **Destination Outputs Ledger:** Categorizes all outputs into `[INTERNAL CHANGE]`, `[EXTERNAL RECIPIENT]`, and `[SELF-SEND]` with 4-character Miller's Law visual chunking.
-4. **Granular Address Gap Limit Auditing:**
-   - Indices $1..20$: Displays `[GAP CAUTION]` to alert user to skipped change indices.
-   - Indices $>20$: Hard-flags `[CRITICAL GAP EXCEEDED]` warning that standard BIP-44 recovery scans will miss funds.
-5. **Offline Address Reuse Detection:**
-   - Flags intra-transaction input-to-output address reuse.
-   - Flags duplicate recipient outputs within the same transaction.
-   - Tracks external recipient addresses in volatile RAM across the signing session to detect address reuse across multiple sequential transactions.
-6. **Anti-Kleptography Verification:** Displays explicit RFC 6979 deterministic nonce badge, mathematically certifying that private keys cannot be leaked through biased signature nonces.
-7. **Derivation Path Coin Type Enforcement:** Inspects derivation position 1 (`coin_type`) on all inputs and outputs; hard-blocks any transaction containing Mainnet coin type (`m/84'/0'/...`) on the Testnet4 appliance.
+### B. Observable Physical Entropy with Real-Time Mathematical Audits
+- **Beyond Black-Box Randomness:** Allows users to supply verifiable physical entropy directly via coins, dice, raw hex, or nanosecond keyboard timing jitter.
+- **Cryptographic Boundary Audits:** Real-time Markov transition matrix analysis and Chi-squared uniformity tests actively verify incoming entropy streams, blocking biased, skewed, or repetitive inputs before any key derivation can occur.
 
-### C. Multi-Vector Physical Entropy Intake Engine (Tab 1: `MasterSeed`)
-- **[1] Physical Coin Flips:** 128 binary flips (`0` = Heads, `1` = Tails) with real-time Markov transition matrix audit, Chi-squared uniformity test, and repetitive pattern blocking.
-- **[2] Physical Dice Rolls:** 50+ six-sided rolls (`1`–`6`) arranged in a 6x10 visual grid with live uniformity auditing.
-- **[3] Raw Hexadecimal:** 32 bytes (64 hex characters) formatted in an 8-byte hex editor view.
-- **[4] CompactSeedQR Digits:** 48 decimal digits (4-digit BIP-39 word indices).
-- **[5] 12 BIP-39 English Words:** Full words or 4-letter punch codes with autocomplete.
-- **[6] Watch-Only Descriptor:** Ingestion of `wpkh(tpub...#checksum)` for airgapped audit workflows without private keys.
-- **[7] Keystroke Jitter Harvester:** 32 nanosecond keyboard timing interval samples utilizing human physiological variability with zero reliance on hardware PRNGs.
-- **[8] Deterministic Test Vectors:** BIP-39 canonical vectors (All-Zeros, Satoshi Genesis, Hal Finney First TX).
+### C. Stateless Two-Way Optical Airgap Loop
+- **Webcam Ingestion (`zbarcam`):** Auto-detects integrated laptop webcams across `/dev/video*`, ingesting PSBT QR codes directly from Sparrow, Nunchuk, Specter, or BlueWallet without physical data cables.
+- **Continuous BBQR Reassembly:** Seamlessly reconstructs multiframe animated BBQRs with real-time frame-tracking metrics.
+- **Animated BBQR Export:** Displays high-contrast animated BBQR on the laptop screen for the software coordinator to scan back, completing a 100% cable-free signing loop.
 
-### D. Substrate Hardening & Anti-Cold-Boot Remanence
-- **Stripped Kernel Drivers:** OS build pipeline (`scripts/deploy_appliance.sh`) removes all `kernel/net`, `drivers/net`, and `bluetooth` kernel modules from the Alpine root squashfs image.
-- **Active Memory Wiper on Exit:** Pressing `[Q][Q]` triggers `kexec` directly into a statically packaged `memtest86+` v8.10 kernel, systematically writing bit patterns and zeros across all physical DRAM channels before powering off the motherboard.
-- **High-Density Typography:** Bundles Terminus 12px font (`ter-v12n`), providing 45–50 text rows and 113+ horizontal columns on standard 768p panels for full descriptor and QR display without line wrapping.
+### D. Comprehensive 5-Section Transaction Ledger
+- **Transaction Metrics:** Explicit overview of total inputs, total outputs, miner fees, fee rate (sat/vB), fee percentage of input, sequence/RBF status, and locktime.
+- **Offline USD Fiat Estimator (`[P]`):** Press `[P]` anytime to input a reference BTC spot price (e.g. `$60,000`), calculating estimated fiat values for all inputs, outputs, and miner fees.
+- **Destination Categorization:** Output ledger clearly differentiates `[INTERNAL CHANGE]`, `[EXTERNAL RECIPIENT]`, and `[SELF-SEND]` destinations.
+- **Granular Gap Limit Auditing:** Warns on change derivation indices $1..20$ (`[GAP CAUTION]`) and alerts on indices $>20$ (`[CRITICAL GAP EXCEEDED]`) to prevent fund invisibility during standard BIP-44 wallet recoveries.
+- **Offline Address Reuse Interception:** Detects intra-transaction input-to-output address reuse, duplicate recipient outputs in a single transaction, and tracks external recipients in volatile RAM across sequential transactions during a session.
+- **Anti-Kleptography Verification:** Prominently badges RFC 6979 deterministic nonce enforcement, verifying that private keys cannot be exfiltrated via signature nonces.
+- **Derivation Path Coin Type Guard:** Enforces strict derivation path network alignment (hard-blocks Mainnet `m/84'/0'/...` coin types on Testnet4 appliances).
+
+### E. Substrate Hardening & Active DRAM Remanence Protection
+- **Stripped Network Drivers:** OS build pipeline removes all `kernel/net`, `drivers/net`, and `bluetooth` kernel modules from the Alpine squashfs image, ensuring the kernel boots physically unable to load networking stacks.
+- **Active Memory Scrubbing on Exit:** Pressing `[Q][Q]` triggers `kexec` directly into `memtest86+` v8.10, systematically writing bit patterns and zeros across all physical DRAM channels before cutting motherboard power, mitigating cold-boot memory remanence.
+
+---
+
+## 3. Supported Intake Vectors in v0.3.0
+
+1. **Physical Coin Flips:** 128 binary flips (`0` = Heads, `1` = Tails) with real-time statistical audits.
+2. **Physical Dice Rolls:** 50+ six-sided rolls (`1`–`6`) formatted in a 6x10 visual grid.
+3. **Raw Hexadecimal:** 32 bytes (64 hex characters) formatted in an 8-byte hex editor view.
+4. **CompactSeedQR Digits:** 48 decimal digits (4-digit BIP-39 word indices).
+5. **12 BIP-39 English Words:** Full word entry or 4-letter punch codes with autocomplete.
+6. **Watch-Only Descriptor:** Ingestion of `wpkh(tpub...#checksum)` for airgapped audit workflows.
+7. **Keystroke Jitter Harvester:** 32 nanosecond keyboard interval samples utilizing human physiological variability.
+8. **Deterministic Test Vectors:** BIP-39 canonical vectors (All-Zeros, Satoshi Genesis, Hal Finney First TX).
 
 ---
 
