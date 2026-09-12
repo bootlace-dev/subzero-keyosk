@@ -109,7 +109,7 @@ sync
 echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 printf \"\033[2J\033[H\033[3J\" > /dev/tty1 2>/dev/null || true
 
-echo ">>> INITIATING KEXEC RAM ZEROIZATION PAYLOAD <<<" > /dev/tty1
+echo '>>> INITIATING KEXEC RAM ZEROIZATION PAYLOAD <<<' > /dev/tty1
 if [ -f /opt/subzero/memtest.bin ]; then
     kexec -l /opt/subzero/memtest.bin
     kexec -e
