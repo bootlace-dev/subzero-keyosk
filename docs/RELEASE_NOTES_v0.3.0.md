@@ -34,6 +34,8 @@ To maximize auditability, eliminate footguns, and keep the reachable code surfac
   Matches the exact 128-bit symmetric security level of the secp256k1 elliptic curve. Eliminates the cognitive fatigue, transposition errors, and redundant user friction of 24 words. Multi-lingual wordlists are omitted to prevent character-encoding and Unicode normalization pitfalls in amnesic console environments.
 - **Account 0 Strictly Enforced (`m/84'/1'/0'/...`):**
   Focuses the appliance strictly on standard primary accounts, eliminating accidental multi-account fragmentation or derivation traps during recovery.
+- **Strictly Zero Custom Cryptography (No "Roll-Your-Own" Crypto):**
+  SubZero invents zero novel cryptographic algorithms, zero custom elliptic curves, and zero proprietary ciphers. All elliptic curve operations, ECDSA signing, and public key mathematics are strictly delegated to Bitcoin Core's battle-tested `libsecp256k1` via the official `rust-secp256k1` bindings. Standard derivations use `rust-bitcoin` (BIP-32/84/85/174/380) and official RustCrypto primitives (FIPS 180-4 SHA-256, RFC 2104 HMAC, RFC 6979 deterministic nonces, NIST SP 800-38D AES-256-GCM). The code functions purely as an amnesic, airgapped orchestrator around established cryptographic standards.
 - **Zero Unchecksummed Passphrases on Master Seed:**
   BIP-39 "13th word" passphrases are omitted on raw seed generation to prevent unchecksummed typos from silently creating phantom, unrecoverable wallet states. (Encrypted estate vaults on Tab 10 utilize strong Argon2/PBKDF2 + AES-GCM encryption with visual confirmation).
 

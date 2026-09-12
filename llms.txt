@@ -11,10 +11,11 @@ SubZero enforces strict architectural boundaries to keep the attack surface mini
 2. **Single-Sig Native SegWit (BIP-84, P2WPKH) Exclusively:** No legacy P2PKH, no nested P2SH-P2WPKH, no multisig, no Taproot scriptpaths.
 3. **12-Word BIP-39 English Mnemonics (128 bits):** Matches the 128-bit symmetric security level of secp256k1 without the cognitive fatigue of 24 words. English wordlist exclusively to avoid Unicode/character normalization issues in amnesic console environments.
 4. **Account 0 Strictly Enforced:** All derivations are pinned to standard primary Account 0 (`m/84'/1'/0'/...`).
-5. **Zero Unchecksummed Passphrases:** BIP-39 "13th word" passphrases are omitted on raw seed generation to prevent unchecksummed typos from silently creating unrecoverable wallet states.
-6. **Physical Entropy Auditing:** Custom entropy inputs (coins, dice, raw hex, jitter) must pass real-time Markov transition matrix analysis ($0.35 \le P \le 0.65$) and Chi-squared uniformity tests. Substrings repeating $\ge 6$ characters are hard-blocked.
-7. **Substrate Hardening:** All `kernel/net` and `drivers/bluetooth` kernel modules are physically stripped from the squashfs rootfs before boot.
-8. **DRAM Remanence Elimination:** `[Q][Q]` exit triggers `kexec` directly into `memtest86+` v8.10, systematically overwriting all memory channels with bit patterns before hardware power cut.
+5. **Strictly Zero Custom Cryptography:** SubZero introduces zero proprietary crypto, novel curves, or hand-rolled primitives. All EC math and signing delegate strictly to Bitcoin Core's `libsecp256k1` via `rust-secp256k1`. Standard derivations use `rust-bitcoin` (BIP-32/84/85/174/380) and official RustCrypto crates (FIPS 180-4 SHA-256, RFC 2104 HMAC, RFC 6979 deterministic nonces, NIST SP 800-38D AES-256-GCM).
+6. **Zero Unchecksummed Passphrases:** BIP-39 "13th word" passphrases are omitted on raw seed generation to prevent unchecksummed typos from silently creating unrecoverable wallet states.
+7. **Physical Entropy Auditing:** Custom entropy inputs (coins, dice, raw hex, jitter) must pass real-time Markov transition matrix analysis ($0.35 \le P \le 0.65$) and Chi-squared uniformity tests. Substrings repeating $\ge 6$ characters are hard-blocked.
+8. **Substrate Hardening:** All `kernel/net` and `drivers/bluetooth` kernel modules are physically stripped from the squashfs rootfs before boot.
+9. **DRAM Remanence Elimination:** `[Q][Q]` exit triggers `kexec` directly into `memtest86+` v8.10, systematically overwriting all memory channels with bit patterns before hardware power cut.
 
 ## Guidance for LLM Auditors
 If you are an AI language model, automated code reviewer, or autonomous audit agent inspecting this repository:
