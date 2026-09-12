@@ -59,11 +59,27 @@ mount '$TARGET_PART' /mnt/sd
 echo '    - Unsquashing rootfs.squashfs...'
 unsquashfs -d /mnt/sq /mnt/sd/rootfs.squashfs >/dev/null
 
+echo '    - Pruning networking and bluetooth modules for Substrate Hardening...'
+rm -rf /mnt/sq/lib/modules/*/kernel/net
+rm -rf /mnt/sq/lib/modules/*/kernel/drivers/net
+rm -rf /mnt/sq/lib/modules/*/kernel/drivers/bluetooth
+
+
 echo '    - Verifying high-density 12px Terminus font (ter-v12n)...'
 if [ ! -f /mnt/sq/usr/share/consolefonts/ter-v12n.psf.gz ]; then
   echo 'Error: ter-v12n.psf.gz missing from rootfs consolefonts.'
   exit 1
 fi
+
+
+echo '    - Installing kexec-tools into appliance rootfs...'
+cp /etc/resolv.conf /mnt/sq/etc/resolv.conf
+chroot /mnt/sq apk add --no-cache kexec-tools >/dev/null 2>&1
+
+echo '    - Downloading Memtest86+ v8.10 RAM Wiper payload...'
+wget -qO /tmp/mt.zip https://memtest.org/download/v8.10/mt86plus_8.10.binaries.zip
+unzip -p /tmp/mt.zip mt86p_810_x86_64 > /mnt/sq/opt/subzero/memtest.bin
+chmod 755 /mnt/sq/opt/subzero/memtest.bin
 
 echo '    - Updating /usr/local/bin/subzero and /opt/subzero/subzero...'
 mkdir -p /mnt/sq/usr/local/bin /mnt/sq/opt/subzero
