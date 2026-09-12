@@ -3,6 +3,7 @@ mod qr;
 mod seedfix;
 mod storage;
 mod ui;
+mod psbt;
 
 use clap::{Parser, Subcommand};
 use crossterm::{

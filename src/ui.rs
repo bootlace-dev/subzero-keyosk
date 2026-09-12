@@ -39,11 +39,13 @@ pub enum Page {
     WordlistInspector,
     DrillGuide,
     Provenance,
+    PsbtSigner,
 }
 
 impl Page {
-    pub const ALL: [Page; 14] = [
+    pub const ALL: [Page; 15] = [
         Page::RoleSelect,
+        Page::PsbtSigner,
         Page::MasterSeed,
         Page::Passphrase,
         Page::Descriptor,
@@ -76,6 +78,7 @@ impl Page {
             Page::WordlistInspector => "Tab 11. BIP-39 Canonical English Wordlist Inspector",
             Page::DrillGuide => "Tab 12. Metal Punch Grid",
             Page::Provenance => "Tab 13. Provenance & Spec",
+            Page::PsbtSigner => "Tab 14. PSBT Signer",
         }
     }
 
@@ -96,6 +99,7 @@ impl Page {
             Page::WordlistInspector => "Wordlist",
             Page::DrillGuide => "Metal Grid",
             Page::Provenance => "Provenance",
+            Page::PsbtSigner => "PSBT",
         }
     }
 
@@ -141,6 +145,8 @@ pub struct AppState {
     pub seedfix_input: String,
     pub wordlist_query: String,
     pub vault_passphrase_input: String,
+    pub scanned_psbt: Option<String>,
+    pub is_scanning_camera: bool,
     pub decrypted_vault: Option<DecryptedVaultPayload>,
     pub vault_status_msg: String,
     pub status_message: String,
@@ -176,6 +182,8 @@ impl AppState {
             seedfix_input: "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about".to_string(),
             wordlist_query: String::new(),
             vault_passphrase_input: String::new(),
+            scanned_psbt: None,
+            is_scanning_camera: false,
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
             status_message: "[1] Benefactor  [2] Heir  [3] Tools  [Tab] Nav".into(),
@@ -463,6 +471,37 @@ impl AppState {
     }
 }
 
+
+fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
+    let block = ratatui::widgets::Block::default();
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [OPTICAL AIRGAP] PSBT Signer & BBQR Camera Ingestion",
+        Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    
+    if state.is_scanning_camera {
+        lines.push(Line::from(Span::styled("  [CAMERA ACTIVE] Awaiting animated BBQR payload via /dev/video0...", Style::default().fg(Color::Yellow))));
+        lines.push(Line::from(Span::styled("  (Hold QR up to laptop webcam. Press [ESC] to stop scanning)", Style::default().fg(Color::DarkGray))));
+    } else if let Some(ref psbt) = state.scanned_psbt {
+        lines.push(Line::from(Span::styled("  [✓] PSBT INGESTED SUCCESSFULLY", Style::default().fg(Color::Green))));
+        lines.push(Line::from(Span::styled(format!("  Raw Data: {}...", &psbt[0..std::cmp::min(psbt.len(), 50)]), Style::default().fg(Color::White))));
+        lines.push(Line::from(""));
+        lines.push(Line::from("  [ENTER] Sign PSBT & Generate BBQR Response"));
+        lines.push(Line::from("  [X] Clear PSBT"));
+    } else {
+        lines.push(Line::from(Span::styled("  No PSBT loaded.", Style::default().fg(Color::Gray))));
+        lines.push(Line::from(""));
+        lines.push(Line::from("  [S] Scan PSBT via Camera (zbarcam)"));
+        lines.push(Line::from("  [M] Manual Entry"));
+    }
+
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
+
 pub fn render_app(frame: &mut Frame, state: &AppState) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -599,6 +638,7 @@ fn render_content(frame: &mut Frame, area: Rect, state: &AppState) {
         Page::WordlistInspector => render_wordlist_inspector(frame, area, state),
         Page::DrillGuide => render_drill_guide(frame, area, state),
         Page::Provenance => render_provenance(frame, area, state),
+        Page::PsbtSigner => render_psbt_signer(frame, area, state),
     }
 }
 
@@ -2479,6 +2519,34 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 _ => {}
             }
         }
+
+        Page::PsbtSigner => {
+            let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+            match key.code {
+                KeyCode::Char('s' | 'S') if !has_ctrl => {
+                    if state.scanned_psbt.is_none() {
+                        state.is_scanning_camera = true;
+                        state.status_message = "Camera ingestion started...".into();
+                    }
+                }
+                KeyCode::Char('x' | 'X') if !has_ctrl => {
+                    state.scanned_psbt = None;
+                    state.is_scanning_camera = false;
+                    state.status_message = "PSBT cleared.".into();
+                }
+                KeyCode::Esc => {
+                    state.is_scanning_camera = false;
+                    state.status_message = "Camera scanning stopped.".into();
+                }
+                KeyCode::Enter => {
+                    if state.scanned_psbt.is_some() {
+                        state.status_message = "Signing PSBT... (Feature stubbed for next release)".into();
+                    }
+                }
+                _ => {}
+            }
+        }
+
         Page::MasterSeed => {
             let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 

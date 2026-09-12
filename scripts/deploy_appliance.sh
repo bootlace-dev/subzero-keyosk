@@ -104,10 +104,18 @@ echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
 # Execute SubZero Pure Rust TUI directly on physical console
 /usr/local/bin/subzero < /dev/tty1 > /dev/tty1 2>&1
 
-# When SubZero exits ([Q][Q] confirmed), immediately purge RAM and power off hardware
+# When SubZero exits ([Q][Q] confirmed), immediately trigger kexec RAM wiper (Memtest86+)
 sync
 echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
 printf \"\033[2J\033[H\033[3J\" > /dev/tty1 2>/dev/null || true
+
+echo ">>> INITIATING KEXEC RAM ZEROIZATION PAYLOAD <<<" > /dev/tty1
+if [ -f /opt/subzero/memtest.bin ]; then
+    kexec -l /opt/subzero/memtest.bin
+    kexec -e
+fi
+
+# Fallback if kexec fails
 /sbin/poweroff -f >/dev/null 2>&1 || /bin/busybox poweroff -f >/dev/null 2>&1 || /sbin/reboot -f >/dev/null 2>&1 || true
 LAUNCH_EOF
 chmod 755 /mnt/sq/opt/subzero/launch.sh
