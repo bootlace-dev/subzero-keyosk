@@ -96,7 +96,7 @@ To maximize auditability, eliminate footguns, and keep the reachable code surfac
 SubZero v0.4.0 runs directly in volatile memory on commodity x86_64 laptop hardware, rendering a high-density Terminus 12px console (`110x40`) with full optical airgap inputs and outputs.
 
 ### Continuous Workflow Animation (COTS Lifecycle)
-![SubZero v0.4.0 Visual Walkthrough](screenshots/subzero_v0.4.0_walkthrough.gif)
+![SubZero v0.4.0 Visual Walkthrough](https://raw.githubusercontent.com/bootlace-dev/subzero-keyosk/v0.4.0-testnet4/docs/screenshots/subzero_v0.4.0_walkthrough.gif)
 
 ### Key Milestones & Security Invariant Screens
 
