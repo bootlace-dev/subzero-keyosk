@@ -156,6 +156,7 @@ pub struct AppState {
     pub psbt_fee_sat: Option<u64>,
     pub is_scanning_camera: bool,
     pub camera_scanner: Option<CameraScanner>,
+    pub bbqr_joiner: bbqr::continuous_join::ContinuousJoiner,
     pub camera_live_feed: Vec<String>,
     pub psbt_bbqr_frame_index: usize,
     pub decrypted_vault: Option<DecryptedVaultPayload>,
@@ -202,6 +203,7 @@ impl AppState {
             psbt_fee_sat: None,
             is_scanning_camera: false,
             camera_scanner: None,
+            bbqr_joiner: bbqr::continuous_join::ContinuousJoiner::new(),
             camera_live_feed: Vec::new(),
             psbt_bbqr_frame_index: 0,
             decrypted_vault: None,
@@ -265,6 +267,7 @@ impl AppState {
         if let Some(mut cam) = self.camera_scanner.take() {
             cam.stop();
         }
+        self.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
         self.camera_live_feed.clear();
         self.psbt_bbqr_frame_index = 0;
         self.vault_status_msg = "Enter 12-word passphrase or 'test0'..'test9' / 't0'..'t9'.".into();
@@ -274,6 +277,23 @@ impl AppState {
         self.external_export_status = "Press [E] to export descriptor to separate USB drive.".into();
         self.wipe_confirmation_instant = Some(std::time::Instant::now());
         self.status_message = "[✓] MEMORY WIPED: All private keys and entropy zeroized in RAM.".into();
+    }
+
+    pub fn apply_scanned_psbt(&mut self, parsed: bitcoin::psbt::Psbt, source_label: &str) {
+        let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
+        let fee = parsed.fee().ok().map(|f| f.to_sat());
+        self.psbt_inputs_count = parsed.inputs.len();
+        self.psbt_outputs_count = parsed.unsigned_tx.output.len();
+        self.psbt_total_out_sat = total_out;
+        self.psbt_fee_sat = fee;
+        self.scanned_psbt = Some(crate::psbt::serialize_psbt_base64(&parsed));
+        self.psbt_source_label = source_label.into();
+        self.is_scanning_camera = false;
+        if let Some(mut cam) = self.camera_scanner.take() {
+            cam.stop();
+        }
+        self.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
+        self.status_message = "[✓] PSBT captured! Review details and press [ENTER] to sign.".into();
     }
 
     pub fn set_seed(&mut self, seed: GeneratedSeed, mut children: Vec<Bip85Child>) {
@@ -2750,12 +2770,15 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                         if let Some(mut cam) = state.camera_scanner.take() {
                             cam.stop();
                         }
+                        state.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
                         state.status_message = "Camera scanning stopped.".into();
                     } else if state.scanned_psbt.is_none() && state.signed_psbt_base64.is_none() {
                         let cam = CameraScanner::spawn();
+                        let dev = cam.device_path.clone();
                         state.camera_scanner = Some(cam);
                         state.is_scanning_camera = true;
-                        state.status_message = "Camera scanning active on /dev/video0. Hold up PSBT QR.".into();
+                        state.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
+                        state.status_message = format!("Camera scanning active on {dev}. Hold up PSBT QR.");
                     }
                 }
 
@@ -2766,15 +2789,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                         Ok((label, bytes)) => {
                             match psbt::parse_psbt_bytes(&bytes) {
                                 Ok(parsed) => {
-                                    let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
-                                    let fee = parsed.fee().ok().map(|f| f.to_sat());
-                                    state.psbt_inputs_count = parsed.inputs.len();
-                                    state.psbt_outputs_count = parsed.unsigned_tx.output.len();
-                                    state.psbt_total_out_sat = total_out;
-                                    state.psbt_fee_sat = fee;
-                                    state.scanned_psbt = Some(String::from_utf8_lossy(&bytes).trim().to_string());
-                                    state.psbt_source_label = label;
-                                    state.status_message = "PSBT imported successfully! Review details and press [ENTER] to sign.".into();
+                                    state.apply_scanned_psbt(parsed, &label);
                                 }
                                 Err(e) => {
                                     state.status_message = format!("Failed to parse PSBT from {label}: {e}");

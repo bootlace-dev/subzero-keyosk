@@ -40,16 +40,48 @@ pub fn parse_psbt(input: &str) -> Result<Psbt, String> {
     parse_psbt_bytes(input.trim().as_bytes())
 }
 
+#[derive(Debug, Clone)]
+pub enum CameraEvent {
+    QrData(String),
+    Diagnostic(String),
+    FatalError(String),
+}
+
 pub struct CameraScanner {
     pub child: Option<Child>,
-    pub receiver: Receiver<String>,
+    pub receiver: Receiver<CameraEvent>,
+    pub device_path: String,
 }
 
 impl CameraScanner {
     pub fn spawn() -> Self {
         let (tx, rx) = mpsc::channel();
+
+        // 1. Attempt to ensure uvcvideo driver is loaded and device nodes exist
+        let _ = Command::new("modprobe").arg("uvcvideo").status();
+        let _ = Command::new("mdev").arg("-s").status();
+
+        // 2. Locate available video capture device (/dev/video0 through /dev/video9)
+        let dev_opt = (0..=9)
+            .map(|i| format!("/dev/video{i}"))
+            .find(|p| std::path::Path::new(p).exists());
+
+        let device_path = match dev_opt {
+            Some(p) => p,
+            None => {
+                let _ = tx.send(CameraEvent::FatalError(
+                    "No video capture device found (/dev/video*). Camera hardware missing or disabled.".into(),
+                ));
+                return Self {
+                    child: None,
+                    receiver: rx,
+                    device_path: "/dev/video0".into(),
+                };
+            }
+        };
+
         let mut cmd = Command::new("zbarcam");
-        cmd.args(["--raw", "--nodisplay", "/dev/video0"])
+        cmd.args(["--raw", "--nodisplay", &device_path])
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -66,7 +98,7 @@ impl CameraScanner {
                             if let Ok(l) = line {
                                 let trimmed = l.trim().to_string();
                                 if !trimmed.is_empty() {
-                                    let _ = tx_out.send(trimmed);
+                                    let _ = tx_out.send(CameraEvent::QrData(trimmed));
                                 }
                             }
                         }
@@ -81,7 +113,7 @@ impl CameraScanner {
                             if let Ok(l) = line {
                                 let trimmed = l.trim().to_string();
                                 if !trimmed.is_empty() {
-                                    let _ = tx_err.send(format!("DIAG: {trimmed}"));
+                                    let _ = tx_err.send(CameraEvent::Diagnostic(trimmed));
                                 }
                             }
                         }
@@ -91,7 +123,9 @@ impl CameraScanner {
                 Some(c)
             }
             Err(e) => {
-                let _ = tx.send(format!("ERROR: Failed to launch zbarcam on /dev/video0: {e}"));
+                let _ = tx.send(CameraEvent::FatalError(format!(
+                    "Failed to launch zbarcam on {device_path}: {e}"
+                )));
                 None
             }
         };
@@ -99,6 +133,7 @@ impl CameraScanner {
         Self {
             child,
             receiver: rx,
+            device_path,
         }
     }
 

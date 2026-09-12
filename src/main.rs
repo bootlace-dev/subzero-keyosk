@@ -216,49 +216,71 @@ fn run_event_loop(
 
         // Poll camera receiver if camera scanning is active
         if state.is_scanning_camera {
-            let mut detected_lines = Vec::new();
+            let mut events = Vec::new();
             if let Some(ref scanner) = state.camera_scanner {
-                while let Ok(line) = scanner.receiver.try_recv() {
-                    detected_lines.push(line);
+                while let Ok(evt) = scanner.receiver.try_recv() {
+                    events.push(evt);
                 }
             }
 
-            for line in detected_lines {
-                if line.starts_with("ERROR:") {
-                    state.status_message = format!("[!] {line}");
-                    state.is_scanning_camera = false;
-                    if let Some(mut cam) = state.camera_scanner.take() {
-                        cam.stop();
-                    }
-                    break;
-                } else {
-                    // Record to live feed history for user visibility
-                    state.camera_live_feed.push(line.clone());
-                    if state.camera_live_feed.len() > 50 {
-                        state.camera_live_feed.remove(0);
-                    }
-
-                    // Attempt to parse line as PSBT
-                    match psbt::parse_psbt(&line) {
-                        Ok(parsed) => {
-                            let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
-                            let fee = parsed.fee().ok().map(|f| f.to_sat());
-                            state.psbt_inputs_count = parsed.inputs.len();
-                            state.psbt_outputs_count = parsed.unsigned_tx.output.len();
-                            state.psbt_total_out_sat = total_out;
-                            state.psbt_fee_sat = fee;
-                            state.scanned_psbt = Some(line);
-                            state.psbt_source_label = "Webcam QR (/dev/video0)".into();
-                            state.is_scanning_camera = false;
-                            if let Some(mut cam) = state.camera_scanner.take() {
-                                cam.stop();
-                            }
-                            state.status_message = "[✓] PSBT captured from camera! Review and press [ENTER] to sign.".into();
-                            break;
+            for evt in events {
+                match evt {
+                    psbt::CameraEvent::FatalError(err) => {
+                        state.status_message = format!("[!] Camera error: {err}");
+                        state.is_scanning_camera = false;
+                        if let Some(mut cam) = state.camera_scanner.take() {
+                            cam.stop();
                         }
-                        Err(_) => {
-                            // Line wasn't a valid complete PSBT yet (or intermediate chunk)
-                            state.status_message = format!("Camera: Read {} chars (aligning QR)...", line.len());
+                        break;
+                    }
+                    psbt::CameraEvent::Diagnostic(diag) => {
+                        state.camera_live_feed.push(format!("DIAG: {diag}"));
+                        if state.camera_live_feed.len() > 50 {
+                            state.camera_live_feed.remove(0);
+                        }
+                        if diag.contains("error") || diag.contains("Error") || diag.contains("failed") {
+                            state.status_message = format!("[!] Camera: {diag}");
+                        }
+                    }
+                    psbt::CameraEvent::QrData(line) => {
+                        state.camera_live_feed.push(format!("QR: {line}"));
+                        if state.camera_live_feed.len() > 50 {
+                            state.camera_live_feed.remove(0);
+                        }
+
+                        // Check if line is an animated BBQr part
+                        if line.starts_with("B$") {
+                            match state.bbqr_joiner.add_part(line) {
+                                Ok(bbqr::continuous_join::ContinuousJoinResult::Complete(joined)) => {
+                                    match psbt::parse_psbt_bytes(&joined.data) {
+                                        Ok(parsed) => {
+                                            state.apply_scanned_psbt(parsed, "Webcam BBQr");
+                                            break;
+                                        }
+                                        Err(e) => {
+                                            state.status_message = format!("[!] BBQr PSBT parse error: {e}");
+                                        }
+                                    }
+                                }
+                                Ok(bbqr::continuous_join::ContinuousJoinResult::InProgress { parts_left }) => {
+                                    state.status_message = format!("Camera: BBQr frame captured ({} parts remaining)...", parts_left);
+                                }
+                                Ok(bbqr::continuous_join::ContinuousJoinResult::NotStarted) => {}
+                                Err(e) => {
+                                    state.status_message = format!("Camera: BBQr error: {e}");
+                                }
+                            }
+                        } else {
+                            // Single QR (Base64, Hex, or raw wire format)
+                            match psbt::parse_psbt(&line) {
+                                Ok(parsed) => {
+                                    state.apply_scanned_psbt(parsed, "Webcam QR");
+                                    break;
+                                }
+                                Err(_) => {
+                                    state.status_message = format!("Camera: Read {} chars (aligning QR)...", line.len());
+                                }
+                            }
                         }
                     }
                 }

@@ -66,27 +66,55 @@ if [ ! -f /mnt/sq/usr/share/consolefonts/ter-v12n.psf.gz ]; then
 fi
 
 
-echo '    - Installing kexec-tools, v4l-utils, libjpeg, and kmod into appliance rootfs...'
-apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo kmod >/dev/null 2>&1
+echo '    - Installing kexec-tools, v4l-utils-libs, libjpeg-turbo, and kmod into appliance rootfs...'
+apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo kmod >/dev/null
 
 echo '    - Injecting pre-packaged media/video drivers (uvcvideo) from assets...'
-cp -a /src/assets/media_modules/lib/modules/* /mnt/sq/lib/modules/ 2>/dev/null || true
-for kdir in /mnt/sq/lib/modules/*; do
-  if [ -d "$kdir" ]; then
-    kver="$(basename "$kdir")"
-    depmod -b /mnt/sq "$kver" 2>/dev/null || true
-  fi
-done
+cp -a /src/assets/media_modules/lib/modules/* /mnt/sq/lib/modules/
 
 echo '    - Pruning networking and bluetooth modules for Substrate Hardening...'
 rm -rf /mnt/sq/lib/modules/*/kernel/net
 rm -rf /mnt/sq/lib/modules/*/kernel/drivers/net
 rm -rf /mnt/sq/lib/modules/*/kernel/drivers/bluetooth
 
+echo '    - Re-indexing kernel modules with depmod...'
+for kdir in /mnt/sq/lib/modules/*; do
+  if [ -d "$kdir" ]; then
+    kver="$(basename "$kdir")"
+    depmod -b /mnt/sq "$kver"
+  fi
+done
+
+echo '    - Registering camera modules in /etc/modules for OpenRC auto-load...'
+grep -q "^videodev" /mnt/sq/etc/modules 2>/dev/null || echo "videodev" >> /mnt/sq/etc/modules
+grep -q "^uvcvideo" /mnt/sq/etc/modules 2>/dev/null || echo "uvcvideo" >> /mnt/sq/etc/modules
+
 echo '    - Injecting native zbarcam and libzbar video binaries...'
 cp -a /src/assets/zbar_dist/usr/bin/zbarcam /mnt/sq/usr/bin/zbarcam
 cp -a /src/assets/zbar_dist/usr/lib/libzbar* /mnt/sq/usr/lib/
 chmod 755 /mnt/sq/usr/bin/zbarcam
+
+echo '    - Verifying camera drivers, shared libraries, and manifests in appliance rootfs...'
+if [ ! -f /mnt/sq/lib/modules/6.6.142-0-lts/kernel/drivers/media/usb/uvc/uvcvideo.ko.gz ]; then
+  echo 'Error: uvcvideo.ko.gz missing from /mnt/sq/lib/modules!'
+  exit 1
+fi
+if ! grep -q "uvcvideo" /mnt/sq/lib/modules/6.6.142-0-lts/modules.dep; then
+  echo 'Error: uvcvideo missing from modules.dep!'
+  exit 1
+fi
+if [ ! -f /mnt/sq/usr/bin/zbarcam ]; then
+  echo 'Error: /mnt/sq/usr/bin/zbarcam missing!'
+  exit 1
+fi
+if [ ! -f /mnt/sq/usr/lib/libv4l2.so.0 ]; then
+  echo 'Error: /mnt/sq/usr/lib/libv4l2.so.0 missing!'
+  exit 1
+fi
+if [ ! -f /mnt/sq/usr/lib/libjpeg.so.8 ]; then
+  echo 'Error: /mnt/sq/usr/lib/libjpeg.so.8 missing!'
+  exit 1
+fi
 
 echo '    - Downloading Memtest86+ v8.10 RAM Wiper payload...'
 wget -qO /tmp/mt.zip https://memtest.org/download/v8.10/mt86plus_8.10.binaries.zip
@@ -106,8 +134,10 @@ export TERM=linux
 export HOME=/root
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-# Load USB video class kernel driver for laptop webcam optical airgap
+# Load USB video class kernel driver and populate device nodes for webcam
+modprobe videodev 2>/dev/null || true
 modprobe uvcvideo 2>/dev/null || true
+mdev -s 2>/dev/null || true
 
 # High-Density Typography: Set Terminus 12-pixel font for 45-50 console text rows
 /usr/sbin/setfont /usr/share/consolefonts/ter-v12n.psf.gz > /dev/tty1 2>&1 || true
@@ -202,6 +232,7 @@ GCONF
 echo '>>> [4/4] Updating SHA256SUMS and flushing device cache...'
 cd /mnt/sd
 sha256sum rootfs.squashfs EFI/BOOT/BOOTX64.EFI EFI/BOOT/grub.cfg startup.nsh > SHA256SUMS
+sha256sum -c SHA256SUMS
 cat SHA256SUMS
 
 cd /
