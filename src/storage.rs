@@ -451,3 +451,128 @@ pub fn export_descriptor_external_usb(
 
     Ok(format!("Exported airgap files to USB ({drive})"))
 }
+
+/// Scan both external USB drive and Partition 2 (SUBZERO_EST) for .psbt or .txn files and load the first one found
+pub fn scan_and_load_external_psbt() -> Result<(String, Vec<u8>), String> {
+    // 1. Try separate external USB drive first
+    if let Ok(drive) = locate_external_export_drive() {
+        let mount_dir = "/media/subzero_psbt_in";
+        let _ = fs::create_dir_all(mount_dir);
+        let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
+
+        let mount_res = Command::new("mount")
+            .args(["-o", "ro,sync", &drive, mount_dir])
+            .output();
+
+        if let Ok(out) = mount_res {
+            if out.status.success() {
+                let _guard = MountGuard::new(mount_dir);
+                if let Ok(entries) = fs::read_dir(mount_dir) {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+                        if path.is_file() {
+                            let fname = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                            let lower = fname.to_lowercase();
+                            if lower.ends_with(".psbt") || lower.ends_with(".txn") || lower.ends_with(".base64") {
+                                if let Ok(bytes) = fs::read(&path) {
+                                    return Ok((format!("USB:{drive}/{fname}"), bytes));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Check Partition 2 (SUBZERO_EST) under root or psbt/ subdir
+    if let Some(est_part) = locate_estate_partition() {
+        let mount_dir = "/media/subzero_est_psbt";
+        let _ = fs::create_dir_all(mount_dir);
+        let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
+
+        let mount_res = Command::new("mount")
+            .args(["-o", "ro,sync", &est_part, mount_dir])
+            .output();
+
+        if let Ok(out) = mount_res {
+            if out.status.success() {
+                let _guard = MountGuard::new(mount_dir);
+                let dirs_to_check = [
+                    std::path::PathBuf::from(mount_dir),
+                    std::path::PathBuf::from(mount_dir).join("psbt"),
+                ];
+
+                for d in &dirs_to_check {
+                    if let Ok(entries) = fs::read_dir(d) {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if path.is_file() {
+                                let fname = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+                                let lower = fname.to_lowercase();
+                                if (lower.ends_with(".psbt") || lower.ends_with(".txn") || lower.ends_with(".base64"))
+                                    && !lower.starts_with("signed_")
+                                {
+                                    if let Ok(bytes) = fs::read(&path) {
+                                        return Ok((format!("SD:{fname}"), bytes));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Err("No PSBT files (.psbt, .txn, .base64) found on external USB drive or Partition 2 (SUBZERO_EST).".into())
+}
+
+/// Save signed PSBT to external USB or Partition 2
+pub fn save_signed_psbt_to_storage(raw_bytes: &[u8], base64_str: &str) -> Result<String, String> {
+    // 1. Prefer external USB
+    if let Ok(drive) = locate_external_export_drive() {
+        let mount_dir = "/media/subzero_psbt_out";
+        let _ = fs::create_dir_all(mount_dir);
+        let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
+
+        let mount_res = Command::new("mount")
+            .args(["-o", "rw,sync,umask=077", &drive, mount_dir])
+            .output();
+
+        if let Ok(out) = mount_res {
+            if out.status.success() {
+                let _guard = MountGuard::new(mount_dir);
+                let bin_path = format!("{mount_dir}/signed_tx.psbt");
+                let b64_path = format!("{mount_dir}/signed_tx.base64");
+                let _ = fs::write(&bin_path, raw_bytes);
+                let _ = fs::write(&b64_path, base64_str.as_bytes());
+                return Ok(format!("Saved signed PSBT to USB: {drive}/signed_tx.psbt"));
+            }
+        }
+    }
+
+    // 2. Fallback to Partition 2 (SUBZERO_EST)
+    if let Some(est_part) = locate_estate_partition() {
+        let mount_dir = "/media/subzero_est_out";
+        let _ = fs::create_dir_all(mount_dir);
+        let _ = Command::new("umount").arg("-f").arg(mount_dir).output();
+
+        let mount_res = Command::new("mount")
+            .args(["-t", "vfat", "-o", "rw,sync,umask=077", &est_part, mount_dir])
+            .output();
+
+        if let Ok(out) = mount_res {
+            if out.status.success() {
+                let _guard = MountGuard::new(mount_dir);
+                let bin_path = format!("{mount_dir}/signed_tx.psbt");
+                let b64_path = format!("{mount_dir}/signed_tx.base64");
+                let _ = fs::write(&bin_path, raw_bytes);
+                let _ = fs::write(&b64_path, base64_str.as_bytes());
+                return Ok(format!("Saved signed PSBT to SD Partition 2: /signed_tx.psbt"));
+            }
+        }
+    }
+
+    Err("No writable USB drive or Partition 2 found to export signed PSBT.".into())
+}

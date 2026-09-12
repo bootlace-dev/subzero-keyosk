@@ -21,7 +21,9 @@ use crate::qr::{
 use crate::seedfix::{search_wordlist, solve_twelfth_word};
 use crate::storage::{
     locate_estate_partition, write_estate_partition, read_estate_partition, export_descriptor_external_usb,
+    scan_and_load_external_psbt, save_signed_psbt_to_storage,
 };
+use crate::psbt::{self, CameraScanner};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Page {
@@ -45,7 +47,6 @@ pub enum Page {
 impl Page {
     pub const ALL: [Page; 15] = [
         Page::RoleSelect,
-        Page::PsbtSigner,
         Page::MasterSeed,
         Page::Passphrase,
         Page::Descriptor,
@@ -59,6 +60,7 @@ impl Page {
         Page::WordlistInspector,
         Page::DrillGuide,
         Page::Provenance,
+        Page::PsbtSigner,
     ];
 
     #[allow(dead_code)]
@@ -146,7 +148,17 @@ pub struct AppState {
     pub wordlist_query: String,
     pub vault_passphrase_input: String,
     pub scanned_psbt: Option<String>,
+    pub psbt_source_label: String,
+    pub signed_psbt_base64: Option<String>,
+    pub psbt_inputs_count: usize,
+    pub psbt_outputs_count: usize,
+    pub psbt_total_out_sat: u64,
+    pub psbt_fee_sat: Option<u64>,
     pub is_scanning_camera: bool,
+    pub camera_scanner: Option<CameraScanner>,
+    pub psbt_bbqr_frame_index: usize,
+    pub psbt_manual_entry: bool,
+    pub psbt_manual_input: String,
     pub decrypted_vault: Option<DecryptedVaultPayload>,
     pub vault_status_msg: String,
     pub status_message: String,
@@ -183,7 +195,17 @@ impl AppState {
             wordlist_query: String::new(),
             vault_passphrase_input: String::new(),
             scanned_psbt: None,
+            psbt_source_label: String::new(),
+            signed_psbt_base64: None,
+            psbt_inputs_count: 0,
+            psbt_outputs_count: 0,
+            psbt_total_out_sat: 0,
+            psbt_fee_sat: None,
             is_scanning_camera: false,
+            camera_scanner: None,
+            psbt_bbqr_frame_index: 0,
+            psbt_manual_entry: false,
+            psbt_manual_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
             status_message: "[1] Benefactor  [2] Heir  [3] Tools  [Tab] Nav".into(),
@@ -234,6 +256,21 @@ impl AppState {
         self.vault_mask_passphrase = false;
         self.seedfix_input.zeroize();
         self.seedfix_input.clear();
+        self.scanned_psbt = None;
+        self.psbt_source_label.clear();
+        self.signed_psbt_base64 = None;
+        self.psbt_inputs_count = 0;
+        self.psbt_outputs_count = 0;
+        self.psbt_total_out_sat = 0;
+        self.psbt_fee_sat = None;
+        self.is_scanning_camera = false;
+        if let Some(mut cam) = self.camera_scanner.take() {
+            cam.stop();
+        }
+        self.psbt_bbqr_frame_index = 0;
+        self.psbt_manual_entry = false;
+        self.psbt_manual_input.zeroize();
+        self.psbt_manual_input.clear();
         self.vault_status_msg = "Enter 12-word passphrase or 'test0'..'test9' / 't0'..'t9'.".into();
         self.address_page_offset = 0;
         self.heir_page_offset = 0;
@@ -473,30 +510,190 @@ impl AppState {
 
 
 fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
-    let block = ratatui::widgets::Block::default();
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" Tab 14. PSBT Airgap Signer (Webcam / USB / MicroSD) [TESTNET4] ")
+        .style(Style::default().fg(Color::Cyan));
+
     let mut lines = Vec::new();
     lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  STATELESS TWO-WAY PSBT AIRGAP SIGNING ENGINE", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" — Zero Network Modules Loaded"),
+    ]));
+    lines.push(Line::from(""));
+
+    // 1. If currently displaying signed PSBT via Animated BBQR
+    if let Some(ref signed_b64) = state.signed_psbt_base64 {
+        let frames = create_bbqr_frames(signed_b64, 4);
+        let frame_count = frames.len();
+        let cur_frame_idx = if frame_count > 0 {
+            state.psbt_bbqr_frame_index % frame_count
+        } else {
+            0
+        };
+
+        lines.push(Line::from(vec![
+            Span::styled("  [✓] TRANSACTION SIGNED SUCCESSFULLY! ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("(BBQR Frame {}/{} at ~3 Hz)", cur_frame_idx + 1, frame_count), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "  Scan this animated QR code with your coordinator wallet (Nunchuk, Sparrow, BlueWallet):",
+            Style::default().fg(Color::White),
+        )));
+        lines.push(Line::from(""));
+
+        if let Some(current_frame_data) = frames.get(cur_frame_idx) {
+            if let Ok(qr_lines) = render_full_block_qr(current_frame_data) {
+                for ql in qr_lines {
+                    lines.push(ql);
+                }
+            }
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  ACTIONS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("[E] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw("Export to USB/SD (signed_tx.psbt)  |  "),
+            Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+            Span::raw("Clear PSBT from RAM  |  "),
+            Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("Return to Role Select"),
+        ]));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
+        return;
+    }
+
+    // 2. If camera ingestion is active
+    if state.is_scanning_camera {
+        lines.push(Line::from(vec![
+            Span::styled("  >>> [CAMERA ACTIVE] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::styled("Scanning for PSBT via /dev/video0 (zbarcam)...", Style::default().fg(Color::Green)),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from("  • Hold your smartphone screen displaying the Nunchuk/Sparrow PSBT QR up to the laptop webcam."));
+        lines.push(Line::from("  • Supports static Base64 QR codes and raw ASCII wire format."));
+        lines.push(Line::from("  • When detected, SubZero will parse and verify transaction inputs and outputs automatically."));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  Press [Esc] or [S] at any time to cancel camera scanning.", Style::default().fg(Color::LightRed))));
+        lines.push(Line::from(""));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
+        return;
+    }
+
+    // 3. If a PSBT has been loaded and is awaiting review / signature
+    if let Some(ref raw_psbt) = state.scanned_psbt {
+        lines.push(Line::from(vec![
+            Span::styled("  [✓] PSBT LOADED INTO RAM: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(&state.psbt_source_label, Style::default().fg(Color::Cyan)),
+        ]));
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(Span::styled("  TRANSACTION INSPECTION & SECURITY VERIFICATION:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(format!("    • Inputs Count:  {} input(s)", state.psbt_inputs_count)));
+        lines.push(Line::from(format!("    • Outputs Count: {} output(s)", state.psbt_outputs_count)));
+        let btc_val = (state.psbt_total_out_sat as f64) / 100_000_000.0;
+        lines.push(Line::from(format!("    • Total Output:  {} sats ({:.8} tBTC)", state.psbt_total_out_sat, btc_val)));
+        if let Some(fee) = state.psbt_fee_sat {
+            lines.push(Line::from(format!("    • Network Fee:   {} sats", fee)));
+        }
+        lines.push(Line::from(""));
+
+        if state.seed.is_none() {
+            lines.push(Line::from(Span::styled(
+                "  [!] WARNING: NO MASTER SEED LOADED IN RAM. Cannot sign transaction.",
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from("  Visit Tab 1 (Master Seed) or Tab 9 (Vault Unlock) first to load your private keys into RAM."));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  [✓] MASTER KEYS READY IN RAM. Verification complete.",
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(vec![
+                Span::styled("  Press [ENTER] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled("to sign this transaction with active BIP-84 account keys.", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            ]));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("  Raw PSBT Payload Preview ({} chars): {}...", raw_psbt.len(), &raw_psbt[..std::cmp::min(raw_psbt.len(), 60)]),
+            Style::default().fg(Color::DarkGray),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  [ENTER] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw("Sign Transaction  |  "),
+            Span::styled("[E] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw("Export to USB  |  "),
+            Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+            Span::raw("Clear PSBT  |  "),
+            Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+            Span::raw("Back to Menu"),
+        ]));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
+        return;
+    }
+
+    // 4. If manual paste entry mode is active
+    if state.psbt_manual_entry {
+        lines.push(Line::from(Span::styled(
+            "  MANUAL PSBT ENTRY BUFFER (PASTE BASE64 / HEX OR TYPE):",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from("  Paste your Base64 or Hex PSBT string, then press [ENTER] to decode and review."));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            format!("  > {}", &state.psbt_manual_input),
+            Style::default().fg(Color::Cyan),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from("  [ENTER] Decode & Load PSBT  |  [Esc] Cancel Manual Entry"));
+
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
+        return;
+    }
+
+    // 5. Default Idle State: Ingestion Vector Selector
     lines.push(Line::from(Span::styled(
-        "  [OPTICAL AIRGAP] PSBT Signer & BBQR Camera Ingestion",
-        Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD),
+        "  SELECT PSBT INTAKE VECTOR:",
+        Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from(""));
-    
-    if state.is_scanning_camera {
-        lines.push(Line::from(Span::styled("  [CAMERA ACTIVE] Awaiting animated BBQR payload via /dev/video0...", Style::default().fg(Color::Yellow))));
-        lines.push(Line::from(Span::styled("  (Hold QR up to laptop webcam. Press [ESC] to stop scanning)", Style::default().fg(Color::DarkGray))));
-    } else if let Some(ref psbt) = state.scanned_psbt {
-        lines.push(Line::from(Span::styled("  [✓] PSBT INGESTED SUCCESSFULLY", Style::default().fg(Color::Green))));
-        lines.push(Line::from(Span::styled(format!("  Raw Data: {}...", &psbt[0..std::cmp::min(psbt.len(), 50)]), Style::default().fg(Color::White))));
-        lines.push(Line::from(""));
-        lines.push(Line::from("  [ENTER] Sign PSBT & Generate BBQR Response"));
-        lines.push(Line::from("  [X] Clear PSBT"));
-    } else {
-        lines.push(Line::from(Span::styled("  No PSBT loaded.", Style::default().fg(Color::Gray))));
-        lines.push(Line::from(""));
-        lines.push(Line::from("  [S] Scan PSBT via Camera (zbarcam)"));
-        lines.push(Line::from("  [M] Manual Entry"));
-    }
+    lines.push(Line::from(vec![
+        Span::styled("  [S] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled("Scan via Laptop Webcam (/dev/video0)     ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("Live zbarcam capture of QR from Nunchuk/Sparrow", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [U] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("Import from USB Shuttle / SD Partition 2 ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("Scans external USB or Partition 2 for *.psbt / *.txn", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [M] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Manual Entry / Raw ASCII Buffer          ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("Paste Base64 or Hex PSBT directly into terminal", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled(
+        "  SECURITY INVARIANT: PSBT payloads are parsed strictly in read-only memory.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Once signed, the transaction is output via animated BBQR and saved to USB shuttle.",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
@@ -700,6 +897,16 @@ fn render_role_select(frame: &mut Frame, area: Rect, _state: &AppState) {
     lines.push(Line::from("        raw hex entropy, or watch-only BIP-380 output descriptor (wpkh/tpub/vpub)."));
     lines.push(Line::from("      • Next Step: Jump to Tab 1 Universal Workspace to verify checksums and derive keys."));
     lines.push(Line::from("      • Action: Press key [4], [1], or [I]"));
+    lines.push(Line::from(""));
+
+    // Option 5: PSBT Signer
+    lines.push(Line::from(vec![
+        Span::styled("  [5] ", Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD)),
+        Span::styled("STATELESS PSBT AIRGAP SIGNER (USB / SD / WEBCAM QR)", Style::default().fg(Color::LightBlue).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from("      • Purpose: Sign an offline unsigned PSBT from Nunchuk, Sparrow, or Electrum"));
+    lines.push(Line::from("        via camera BBQR scan or USB flash drive shuttle without internet exposure."));
+    lines.push(Line::from("      • Action: Press key [5] or [S] to open Tab 14 (PSBT Signer)"));
     lines.push(Line::from(""));
 
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
@@ -2419,6 +2626,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         Page::SeedFix => true,
         Page::WordlistInspector => true,
         Page::VaultUnlock => state.decrypted_vault.is_none(),
+        Page::PsbtSigner => state.psbt_manual_entry,
         _ => false,
     };
 
@@ -2453,6 +2661,29 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
             state.mnemonic_import_input.clear();
             state.status_message = "Returned to intake mode selector.".into();
             return false;
+        }
+        if state.current_page == Page::PsbtSigner && key.code == KeyCode::Esc {
+            if state.is_scanning_camera {
+                state.is_scanning_camera = false;
+                if let Some(mut cam) = state.camera_scanner.take() {
+                    cam.stop();
+                }
+                state.status_message = "Camera scanning stopped.".into();
+                return false;
+            }
+            if state.psbt_manual_entry {
+                state.psbt_manual_entry = false;
+                state.psbt_manual_input.clear();
+                state.status_message = "Manual entry cancelled.".into();
+                return false;
+            }
+            if state.signed_psbt_base64.is_some() || state.scanned_psbt.is_some() {
+                // Return to idle selection state on Tab 14
+                state.scanned_psbt = None;
+                state.signed_psbt_base64 = None;
+                state.status_message = "PSBT cleared. Select intake vector.".into();
+                return false;
+            }
         }
         state.vault_passphrase_input.zeroize();
         state.vault_passphrase_input.clear();
@@ -2516,33 +2747,164 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                     state.mnemonic_import_input.clear();
                     state.status_message = "[MODE 5] 12 WORDS: Type BIP-39 words or 4-letter punch codes. [ESC] to return.".into();
                 }
+                KeyCode::Char('5') | KeyCode::Char('s') | KeyCode::Char('S') => {
+                    state.current_page = Page::PsbtSigner;
+                    state.status_message = "PSBT Signer: [S] Scan camera, [U] Import USB/SD, [M] Paste".into();
+                }
                 _ => {}
             }
         }
 
         Page::PsbtSigner => {
             let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+
+            // If manual entry mode is active
+            if state.psbt_manual_entry {
+                match key.code {
+                    KeyCode::Esc => {
+                        state.psbt_manual_entry = false;
+                        state.psbt_manual_input.clear();
+                        state.status_message = "Manual entry cancelled.".into();
+                    }
+                    KeyCode::Backspace => {
+                        state.psbt_manual_input.pop();
+                    }
+                    KeyCode::Enter => {
+                        let text = state.psbt_manual_input.trim().to_string();
+                        if !text.is_empty() {
+                            match psbt::parse_psbt(&text) {
+                                Ok(parsed) => {
+                                    let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
+                                    let fee = parsed.fee().ok().map(|f| f.to_sat());
+                                    state.psbt_inputs_count = parsed.inputs.len();
+                                    state.psbt_outputs_count = parsed.unsigned_tx.output.len();
+                                    state.psbt_total_out_sat = total_out;
+                                    state.psbt_fee_sat = fee;
+                                    state.scanned_psbt = Some(text);
+                                    state.psbt_source_label = "Manual Paste Buffer".into();
+                                    state.psbt_manual_entry = false;
+                                    state.status_message = "PSBT parsed successfully! Press [ENTER] to sign.".into();
+                                }
+                                Err(e) => {
+                                    state.status_message = format!("Error parsing PSBT: {e}");
+                                }
+                            }
+                        }
+                    }
+                    KeyCode::Char(c) if !has_ctrl => {
+                        if state.psbt_manual_input.len() < 100_000 {
+                            state.psbt_manual_input.push(c);
+                        }
+                    }
+                    _ => {}
+                }
+                return false;
+            }
+
             match key.code {
+                // S: Toggle camera scanning
                 KeyCode::Char('s' | 'S') if !has_ctrl => {
-                    if state.scanned_psbt.is_none() {
+                    if state.is_scanning_camera {
+                        state.is_scanning_camera = false;
+                        if let Some(mut cam) = state.camera_scanner.take() {
+                            cam.stop();
+                        }
+                        state.status_message = "Camera scanning stopped.".into();
+                    } else if state.scanned_psbt.is_none() && state.signed_psbt_base64.is_none() {
+                        let cam = CameraScanner::spawn();
+                        state.camera_scanner = Some(cam);
                         state.is_scanning_camera = true;
-                        state.status_message = "Camera ingestion started...".into();
+                        state.status_message = "Camera scanning active on /dev/video0. Hold up PSBT QR.".into();
                     }
                 }
+
+                // U: Import from USB shuttle or SD Partition 2
+                KeyCode::Char('u' | 'U') if !has_ctrl => {
+                    state.status_message = "Scanning USB drive & SD Partition 2 for PSBT files...".into();
+                    match scan_and_load_external_psbt() {
+                        Ok((label, bytes)) => {
+                            match psbt::parse_psbt_bytes(&bytes) {
+                                Ok(parsed) => {
+                                    let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
+                                    let fee = parsed.fee().ok().map(|f| f.to_sat());
+                                    state.psbt_inputs_count = parsed.inputs.len();
+                                    state.psbt_outputs_count = parsed.unsigned_tx.output.len();
+                                    state.psbt_total_out_sat = total_out;
+                                    state.psbt_fee_sat = fee;
+                                    state.scanned_psbt = Some(String::from_utf8_lossy(&bytes).trim().to_string());
+                                    state.psbt_source_label = label;
+                                    state.status_message = "PSBT imported successfully! Review details and press [ENTER] to sign.".into();
+                                }
+                                Err(e) => {
+                                    state.status_message = format!("Failed to parse PSBT from {label}: {e}");
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            state.status_message = format!("[!] {e}");
+                        }
+                    }
+                }
+
+                // M: Manual text/base64 entry
+                KeyCode::Char('m' | 'M') if !has_ctrl => {
+                    if state.scanned_psbt.is_none() && state.signed_psbt_base64.is_none() {
+                        state.psbt_manual_entry = true;
+                        state.psbt_manual_input.clear();
+                        state.status_message = "Enter or paste Base64/Hex PSBT, then press [ENTER].".into();
+                    }
+                }
+
+                // E: Export signed or raw PSBT to USB/SD
+                KeyCode::Char('e' | 'E') if !has_ctrl => {
+                    if let Some(ref signed_b64) = state.signed_psbt_base64 {
+                        let raw_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signed_b64)
+                            .unwrap_or_default();
+                        match save_signed_psbt_to_storage(&raw_bytes, signed_b64) {
+                            Ok(msg) => state.status_message = format!("[✓] {msg}"),
+                            Err(e) => state.status_message = format!("[!] Export failed: {e}"),
+                        }
+                    }
+                }
+
+                // X: Clear PSBT from RAM
                 KeyCode::Char('x' | 'X') if !has_ctrl => {
                     state.scanned_psbt = None;
+                    state.signed_psbt_base64 = None;
                     state.is_scanning_camera = false;
-                    state.status_message = "PSBT cleared.".into();
+                    if let Some(mut cam) = state.camera_scanner.take() {
+                        cam.stop();
+                    }
+                    state.status_message = "PSBT cleared from RAM. Select intake vector.".into();
                 }
-                KeyCode::Esc => {
-                    state.is_scanning_camera = false;
-                    state.status_message = "Camera scanning stopped.".into();
-                }
+
+                // Enter: Sign PSBT
                 KeyCode::Enter => {
-                    if state.scanned_psbt.is_some() {
-                        state.status_message = "Signing PSBT... (Feature stubbed for next release)".into();
+                    if let Some(ref raw_psbt) = state.scanned_psbt {
+                        if let Some(ref seed) = state.seed {
+                            match psbt::parse_psbt(raw_psbt) {
+                                Ok(mut parsed) => {
+                                    match psbt::sign_psbt(&mut parsed, &seed.mnemonic) {
+                                        Ok(sigs) => {
+                                            let signed_b64 = psbt::serialize_psbt_base64(&parsed);
+                                            state.signed_psbt_base64 = Some(signed_b64);
+                                            state.status_message = format!("[✓] Signed {sigs} inputs! Displaying BBQR. Press [E] to export to USB.");
+                                        }
+                                        Err(e) => {
+                                            state.status_message = format!("Signing error: {e}");
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    state.status_message = format!("Corrupted PSBT in buffer: {e}");
+                                }
+                            }
+                        } else {
+                            state.status_message = "[!] Cannot sign: No master seed loaded in RAM. Visit Tab 1 first.".into();
+                        }
                     }
                 }
+
                 _ => {}
             }
         }

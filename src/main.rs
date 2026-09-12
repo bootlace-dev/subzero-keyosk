@@ -195,6 +195,7 @@ fn run_event_loop(
     state: &mut ui::AppState,
 ) -> io::Result<()> {
     let mut last_bbqr_tick = std::time::Instant::now();
+    let mut last_psbt_bbqr_tick = std::time::Instant::now();
 
     loop {
         // Advance BBQR frame animation (~350ms per frame) if active on VpubQr tab
@@ -202,6 +203,57 @@ fn run_event_loop(
             if last_bbqr_tick.elapsed() >= Duration::from_millis(350) {
                 state.bbqr_frame_index = state.bbqr_frame_index.wrapping_add(1);
                 last_bbqr_tick = std::time::Instant::now();
+            }
+        }
+
+        // Advance PSBT BBQR frame animation (~300ms per frame) if displaying signed PSBT on PsbtSigner tab
+        if state.current_page == ui::Page::PsbtSigner && state.signed_psbt_base64.is_some() {
+            if last_psbt_bbqr_tick.elapsed() >= Duration::from_millis(300) {
+                state.psbt_bbqr_frame_index = state.psbt_bbqr_frame_index.wrapping_add(1);
+                last_psbt_bbqr_tick = std::time::Instant::now();
+            }
+        }
+
+        // Poll camera receiver if camera scanning is active
+        if state.is_scanning_camera {
+            let mut detected_line = None;
+            if let Some(ref scanner) = state.camera_scanner {
+                while let Ok(line) = scanner.receiver.try_recv() {
+                    detected_line = Some(line);
+                }
+            }
+
+            if let Some(line) = detected_line {
+                if line.starts_with("ERROR:") {
+                    state.status_message = format!("[!] {line}");
+                    state.is_scanning_camera = false;
+                    if let Some(mut cam) = state.camera_scanner.take() {
+                        cam.stop();
+                    }
+                } else {
+                    // Attempt to parse line as PSBT
+                    match psbt::parse_psbt(&line) {
+                        Ok(parsed) => {
+                            let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
+                            let fee = parsed.fee().ok().map(|f| f.to_sat());
+                            state.psbt_inputs_count = parsed.inputs.len();
+                            state.psbt_outputs_count = parsed.unsigned_tx.output.len();
+                            state.psbt_total_out_sat = total_out;
+                            state.psbt_fee_sat = fee;
+                            state.scanned_psbt = Some(line);
+                            state.psbt_source_label = "Webcam QR (/dev/video0)".into();
+                            state.is_scanning_camera = false;
+                            if let Some(mut cam) = state.camera_scanner.take() {
+                                cam.stop();
+                            }
+                            state.status_message = "[✓] PSBT captured from camera! Review and press [ENTER] to sign.".into();
+                        }
+                        Err(_) => {
+                            // Line wasn't a valid complete PSBT yet (or intermediate chunk)
+                            state.status_message = format!("Camera: Read {} chars (aligning QR)...", line.len());
+                        }
+                    }
+                }
             }
         }
 
