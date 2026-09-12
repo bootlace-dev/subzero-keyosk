@@ -59,12 +59,6 @@ mount '$TARGET_PART' /mnt/sd
 echo '    - Unsquashing rootfs.squashfs...'
 unsquashfs -d /mnt/sq /mnt/sd/rootfs.squashfs >/dev/null
 
-echo '    - Pruning networking and bluetooth modules for Substrate Hardening...'
-rm -rf /mnt/sq/lib/modules/*/kernel/net
-rm -rf /mnt/sq/lib/modules/*/kernel/drivers/net
-rm -rf /mnt/sq/lib/modules/*/kernel/drivers/bluetooth
-
-
 echo '    - Verifying high-density 12px Terminus font (ter-v12n)...'
 if [ ! -f /mnt/sq/usr/share/consolefonts/ter-v12n.psf.gz ]; then
   echo 'Error: ter-v12n.psf.gz missing from rootfs consolefonts.'
@@ -72,8 +66,21 @@ if [ ! -f /mnt/sq/usr/share/consolefonts/ter-v12n.psf.gz ]; then
 fi
 
 
-echo '    - Installing kexec-tools, v4l-utils, libjpeg, and kmod into appliance rootfs...'
-apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo kmod >/dev/null 2>&1
+echo '    - Installing kexec-tools, v4l-utils, libjpeg, kmod, and linux-lts modules into appliance rootfs...'
+apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo kmod linux-lts >/dev/null 2>&1
+
+echo '    - Pruning networking and bluetooth modules for Substrate Hardening...'
+rm -rf /mnt/sq/lib/modules/*/kernel/net
+rm -rf /mnt/sq/lib/modules/*/kernel/drivers/net
+rm -rf /mnt/sq/lib/modules/*/kernel/drivers/bluetooth
+
+echo '    - Re-indexing kernel modules with depmod...'
+for kdir in /mnt/sq/lib/modules/*; do
+  if [ -d "$kdir" ]; then
+    kver="$(basename "$kdir")"
+    depmod -b /mnt/sq "$kver" 2>/dev/null || true
+  fi
+done
 
 echo '    - Injecting native zbarcam and libzbar video binaries...'
 cp -a /src/assets/zbar_dist/usr/bin/zbarcam /mnt/sq/usr/bin/zbarcam
