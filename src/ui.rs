@@ -683,7 +683,7 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
             if let Some(price) = state.btc_usd_price {
                 Span::styled(format!("BTC Price: ${:.2} USD [P to edit]", price), Style::default().fg(Color::Green))
             } else {
-                Span::styled("BTC Price: Unset [Press P to enter USD price]", Style::default().fg(Color::DarkGray))
+                Span::styled("BTC Price: Unset [Press P to enter USD price]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))
             },
         ]));
 
@@ -917,7 +917,9 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
                 Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(vec![
-                Span::styled("  [N] / [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::styled("  [P] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("Set BTC/USD  |  "),
+                Span::styled("[N] / [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
                 Span::raw("Scan Next PSBT  |  "),
                 Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
                 Span::raw("Clear  |  "),

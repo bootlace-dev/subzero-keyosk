@@ -388,10 +388,22 @@ pub fn inspect_psbt(
         let sequence = txin.sequence.0;
         let rbf_enabled = sequence < 0xffff_fffe;
 
-        // Check bip32_derivation for Mainnet coin type
+        // Check bip32_derivation for Mainnet coin type (coin_type at index 1 in BIP44/84)
         for (_pk, (fp, path)) in &input.bip32_derivation {
             let path_str = path.to_string();
-            if path_str.contains("/0'/") {
+            let is_mainnet_coin_type = match path.into_iter().nth(1) {
+                Some(bitcoin::bip32::ChildNumber::Hardened { index: 0 }) => true,
+                Some(bitcoin::bip32::ChildNumber::Normal { index: 0 }) => true,
+                _ => false,
+            } || path_str.starts_with("84'/0'/")
+              || path_str.starts_with("m/84'/0'/")
+              || path_str.starts_with("44'/0'/")
+              || path_str.starts_with("m/44'/0'/")
+              || path_str.starts_with("49'/0'/")
+              || path_str.starts_with("m/49'/0'/")
+              || path_str.starts_with("86'/0'/")
+              || path_str.starts_with("m/86'/0'/");
+            if is_mainnet_coin_type {
                 fatal_blocks.push(format!(
                     "[CRITICAL FOOTGUN] MAINNET COIN TYPE (m/.../0'/...) DETECTED ON INPUT #{i}! Path: {path_str} (Fingerprint: {fp}). Signing is blocked on Testnet4 appliance."
                 ));
@@ -523,11 +535,23 @@ pub fn inspect_psbt(
             seen_output_scripts.insert(script.clone(), j);
         }
 
-        // Check bip32_derivation for Mainnet coin type
+        // Check bip32_derivation for Mainnet coin type (coin_type at index 1 in BIP44/84)
         if let Some(out_psbt) = psbt.outputs.get(j) {
             for (_pk, (fp, path)) in &out_psbt.bip32_derivation {
                 let path_str = path.to_string();
-                if path_str.contains("/0'/") {
+                let is_mainnet_coin_type = match path.into_iter().nth(1) {
+                    Some(bitcoin::bip32::ChildNumber::Hardened { index: 0 }) => true,
+                    Some(bitcoin::bip32::ChildNumber::Normal { index: 0 }) => true,
+                    _ => false,
+                } || path_str.starts_with("84'/0'/")
+                  || path_str.starts_with("m/84'/0'/")
+                  || path_str.starts_with("44'/0'/")
+                  || path_str.starts_with("m/44'/0'/")
+                  || path_str.starts_with("49'/0'/")
+                  || path_str.starts_with("m/49'/0'/")
+                  || path_str.starts_with("86'/0'/")
+                  || path_str.starts_with("m/86'/0'/");
+                if is_mainnet_coin_type {
                     fatal_blocks.push(format!(
                         "[CRITICAL FOOTGUN] MAINNET COIN TYPE (m/.../0'/...) ON OUTPUT #{j}! Path: {path_str} (Fingerprint: {fp}). Signing blocked."
                     ));
@@ -591,7 +615,13 @@ pub fn inspect_psbt(
                             bitcoin::bip32::ChildNumber::Hardened { index } => *index,
                         });
                         deriv_idx = last_idx;
-                        if p_str.contains("/1/") {
+                        let change_comp = path.into_iter().nth(3);
+                        let is_internal = change_comp == Some(&bitcoin::bip32::ChildNumber::Normal { index: 1 })
+                            || (p_str.contains("/1/") && !p_str.contains("/0/"));
+                        let is_external = change_comp == Some(&bitcoin::bip32::ChildNumber::Normal { index: 0 })
+                            || (p_str.contains("/0/") && !is_internal);
+
+                        if is_internal {
                             is_change = true;
                             has_internal_change = true;
                             bip32_path = Some(p_str);
@@ -606,7 +636,7 @@ pub fn inspect_psbt(
                                     ));
                                 }
                             }
-                        } else if p_str.contains("/0/") {
+                        } else if is_external {
                             is_self_receive = true;
                             bip32_path = Some(p_str);
                             if let Some(idx) = last_idx {
@@ -861,5 +891,71 @@ mod tests {
         let inspection = inspect_psbt(&psbt, None, Some(&session_addrs));
 
         assert!(inspection.warnings.iter().any(|w| w.contains("[SESSION ADDRESS REUSE]")));
+    }
+
+    #[test]
+    fn test_coin_type_detection_no_false_positive_on_testnet_account_zero() {
+        use std::collections::BTreeMap;
+        let secp = Secp256k1::new();
+        let mnemonic = Mnemonic::from_str(dummy_mnemonic()).unwrap();
+        let seed = mnemonic.to_seed("");
+        let master_xprv = Xpriv::new_master(Network::Testnet4, &seed).unwrap();
+
+        // 1. Testnet4 path: m/84'/1'/0'/1/3 (Account 0', change 1, index 3)
+        let testnet_path = DerivationPath::from_str("m/84'/1'/0'/1/3").unwrap();
+        let testnet_child = master_xprv.derive_priv(&secp, &testnet_path).unwrap();
+        let testnet_pk = bitcoin::bip32::Xpub::from_priv(&secp, &testnet_child).to_pub();
+
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![
+                TxOut {
+                    value: Amount::from_sat(50_000),
+                    script_pubkey: bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros()),
+                },
+            ],
+        };
+
+        let mut psbt = Psbt::from_unsigned_tx(tx.clone()).unwrap();
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros()),
+        });
+        let mut in_deriv = BTreeMap::new();
+        in_deriv.insert(testnet_pk.0, (master_xprv.fingerprint(&secp), testnet_path));
+        psbt.inputs[0].bip32_derivation = in_deriv;
+
+        let inspection = inspect_psbt(&psbt, Some(dummy_mnemonic()), None);
+        // Must NOT have MAINNET COIN TYPE fatal block on Testnet4 Account 0
+        assert!(
+            !inspection.fatal_blocks.iter().any(|b| b.contains("MAINNET COIN TYPE")),
+            "False positive on Testnet4 Account 0! Blocks: {:?}",
+            inspection.fatal_blocks
+        );
+
+        // 2. Mainnet path: m/84'/0'/0'/1/3 (Coin type 0') MUST trigger fatal block
+        let mainnet_path = DerivationPath::from_str("m/84'/0'/0'/1/3").unwrap();
+        let mut psbt_mainnet = Psbt::from_unsigned_tx(tx).unwrap();
+        psbt_mainnet.inputs[0].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros()),
+        });
+        let mut in_deriv_main = BTreeMap::new();
+        in_deriv_main.insert(testnet_pk.0, (master_xprv.fingerprint(&secp), mainnet_path));
+        psbt_mainnet.inputs[0].bip32_derivation = in_deriv_main;
+
+        let insp_main = inspect_psbt(&psbt_mainnet, Some(dummy_mnemonic()), None);
+        assert!(
+            insp_main.fatal_blocks.iter().any(|b| b.contains("MAINNET COIN TYPE")),
+            "Failed to flag Mainnet coin type 0'! Blocks: {:?}",
+            insp_main.fatal_blocks
+        );
     }
 }
