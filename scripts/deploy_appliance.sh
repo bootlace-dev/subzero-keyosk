@@ -72,8 +72,8 @@ if [ ! -f /mnt/sq/usr/share/consolefonts/ter-v12n.psf.gz ]; then
 fi
 
 
-echo '    - Installing kexec-tools, v4l-utils, and libjpeg into appliance rootfs...'
-apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo >/dev/null 2>&1
+echo '    - Installing kexec-tools, v4l-utils, libjpeg, and kmod into appliance rootfs...'
+apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo kmod >/dev/null 2>&1
 
 echo '    - Injecting native zbarcam and libzbar video binaries...'
 cp -a /src/assets/zbar_dist/usr/bin/zbarcam /mnt/sq/usr/bin/zbarcam
@@ -98,11 +98,14 @@ export TERM=linux
 export HOME=/root
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
+# Load USB video class kernel driver for laptop webcam optical airgap
+modprobe uvcvideo 2>/dev/null || true
+
 # High-Density Typography: Set Terminus 12-pixel font for 45-50 console text rows
 /usr/sbin/setfont /usr/share/consolefonts/ter-v12n.psf.gz > /dev/tty1 2>&1 || true
 
 # Clear VT1 and reset cursor
-printf \"\033[2J\033[H\033[3J\" > /dev/tty1 2>/dev/null || true
+printf "\033[2J\033[H\033[3J" > /dev/tty1 2>/dev/null || true
 echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
 
 # Execute SubZero Pure Rust TUI directly on physical console

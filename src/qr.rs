@@ -45,11 +45,16 @@ use bbqr::file_type::FileType;
 
 /// Official BBQr frame encoder (Coinkite / SatoshiPortal specification)
 pub fn create_bbqr_frames(payload: &str, min_parts: usize) -> Vec<String> {
+    create_bbqr_frames_bytes(payload.as_bytes(), FileType::UnicodeText, min_parts)
+}
+
+/// Official BBQr binary frame encoder with explicit FileType
+pub fn create_bbqr_frames_bytes(payload: &[u8], file_type: FileType, min_parts: usize) -> Vec<String> {
     let mut opts = SplitOptions::default();
     opts.min_split_number = min_parts;
-    match Split::try_from_data(payload.as_bytes(), FileType::UnicodeText, opts) {
+    match Split::try_from_data(payload, file_type, opts) {
         Ok(split) => split.parts,
-        Err(_) => vec![payload.to_string()],
+        Err(_) => vec![String::from_utf8_lossy(payload).to_string()],
     }
 }
 

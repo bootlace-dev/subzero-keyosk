@@ -16,7 +16,7 @@ use crate::crypto::{
     compact_seed_qr_to_mnemonic, get_descriptor_checksum,
 };
 use crate::qr::{
-    create_bbqr_frames, render_full_block_qr, QrMode,
+    create_bbqr_frames, create_bbqr_frames_bytes, render_full_block_qr, QrMode,
 };
 use crate::seedfix::{search_wordlist, solve_twelfth_word};
 use crate::storage::{
@@ -513,7 +513,9 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
 
     // 1. If currently displaying signed PSBT via Animated BBQR
     if let Some(ref signed_b64) = state.signed_psbt_base64 {
-        let frames = create_bbqr_frames(signed_b64, 8);
+        let psbt_bytes = base64::Engine::decode(&base64::engine::general_purpose::STANDARD, signed_b64)
+            .unwrap_or_else(|_| signed_b64.as_bytes().to_vec());
+        let frames = create_bbqr_frames_bytes(&psbt_bytes, bbqr::file_type::FileType::Psbt, 8);
         let frame_count = frames.len();
         let cur_frame_idx = if frame_count > 0 {
             state.psbt_bbqr_frame_index % frame_count
