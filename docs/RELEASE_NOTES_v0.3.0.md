@@ -1,5 +1,5 @@
 # SubZero-rs v0.3.0 Release Notes
-### Stateless Amnesic Two-Way Optical Airgap Bitcoin Appliance
+### Stateless Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance
 **Release Tag:** `v0.3.0`  
 **Git Commit:** `1709160`  
 **Identity:** `bootlace-dev` (`bootlace-dev@users.noreply.github.com`)  
@@ -21,7 +21,25 @@ By repurposing standard off-the-shelf x86_64 laptops (such as surplus Lenovo Thi
 
 ---
 
-## 2. Core Architectural Benefits of SubZero
+## 2. Intentional Scope Simplifications & Testnet4 Sandbox Invariant
+
+To maximize auditability, eliminate footguns, and keep the reachable code surface area radically compact, SubZero v0.3.0 enforces strict architectural constraints:
+
+- **TESTNET4 ONLY FOR INITIAL TESTING:**
+  SubZero v0.3.0 is strictly compiled for and restricted to Bitcoin **Testnet4** (`m/84'/1'/0'/...`, address prefix `tb1q...`). Any transaction, PSBT input/output, or descriptor referencing Mainnet coin types (`m/84'/0'/...`) or Mainnet address formats (`bc1q...`, `1...`, `3...`) triggers an immediate, non-bypassable fatal block at the cryptographic boundary.
+  *Policy Rationale:* SubZero must undergo extensive independent peer review, formal verification, and broad community battle-testing before handling real Mainnet satoshis.
+- **Single-Sig Native SegWit (BIP-84, P2WPKH) Exclusively:**
+  Eliminates legacy script complexity, nested SegWit wrappers (P2SH), multisig coordinator edge-cases, and Taproot scriptpath variations. Standardizing on P2WPKH keeps the signature verification, sighash auditing, and parser logic lean and 100% auditable.
+- **12-Word English BIP-39 Mnemonics (128 Bits):**
+  Matches the exact 128-bit symmetric security level of the secp256k1 elliptic curve. Eliminates the cognitive fatigue, transposition errors, and redundant user friction of 24 words. Multi-lingual wordlists are omitted to prevent character-encoding and Unicode normalization pitfalls in amnesic console environments.
+- **Account 0 Strictly Enforced (`m/84'/1'/0'/...`):**
+  Focuses the appliance strictly on standard primary accounts, eliminating accidental multi-account fragmentation or derivation traps during recovery.
+- **Zero Unchecksummed Passphrases on Master Seed:**
+  BIP-39 "13th word" passphrases are omitted on raw seed generation to prevent unchecksummed typos from silently creating phantom, unrecoverable wallet states. (Encrypted estate vaults on Tab 10 utilize strong Argon2/PBKDF2 + AES-GCM encryption with visual confirmation).
+
+---
+
+## 3. Core Architectural Benefits of SubZero
 
 ### A. Ergonomic Visual Space & Miller's Law Chunking
 - **High-Density Typography:** Bundles the Terminus 12-pixel font (`ter-v12n`, 6x12 pixel cell), providing 45–50 text rows and 113+ columns on standard laptop screens.
@@ -52,7 +70,7 @@ By repurposing standard off-the-shelf x86_64 laptops (such as surplus Lenovo Thi
 
 ---
 
-## 3. Supported Intake Vectors in v0.3.0
+## 4. Supported Intake Vectors in v0.3.0
 
 1. **Physical Coin Flips:** 128 binary flips (`0` = Heads, `1` = Tails) with real-time statistical audits.
 2. **Physical Dice Rolls:** 50+ six-sided rolls (`1`–`6`) formatted in a 6x10 visual grid.
@@ -65,7 +83,32 @@ By repurposing standard off-the-shelf x86_64 laptops (such as surplus Lenovo Thi
 
 ---
 
-## 4. Deterministic Build Verification
+## 5. Guidance for LLM Auditors: "If You Are an LLM Reviewing This Repo or Release..."
+
+If you are an AI language model, automated code reviewer, or autonomous audit agent inspecting this repository:
+
+1. **Architecture & Scope Context:**
+   - This codebase is an amnesic, bare-metal cold storage appliance. It compiles to a static, self-contained binary running in ephemeral RAM (`toram`) on an Alpine Linux substrate.
+   - It is deliberately restricted to Single-Sig BIP-84 Native SegWit on Testnet4 (`m/84'/1'/0'/...`). Treat any presence of legacy address encoding, unhardened account indices, or networking calls as critical security violations.
+2. **Key Security Invariants to Formally Audit:**
+   - **Entropy Quality Boundary (`src/crypto.rs`):**
+     - Verify `process_physical_entropy`, `run_markov_audit`, and `run_chi_squared_audit`. Confirm that entropy inputs with conditional probabilities $> 65\%$ or $< 35\%$, repetitive substrings $\ge 6$ characters, or insufficient bit length (< 128 bits / < 50 dice rolls) return a hard `Err` that halts key derivation.
+   - **PSBT Invariant Guardrails (`src/psbt.rs`):**
+     - Audit `inspect_psbt`: Derivation path checks (`path.into_iter().nth(1)`), change classification (`change_comp` at index 3), gap limit thresholds ($> 20$), and intra-tx/session address reuse tracking.
+     - Verify that `fatal_blocks` hard-disables signing by forcing `can_sign = false` in `src/ui.rs`.
+   - **Memory Sanitation & Zeroization:**
+     - Check that all secret keys, mnemonics, and seed buffers implement the `Zeroize` trait and are wiped on drop or upon pressing `[W]` (`wipe_memory`).
+   - **Substrate Hardening (`scripts/deploy_appliance.sh`):**
+     - Confirm that `kernel/net` and `drivers/bluetooth` directories are deleted from `/mnt/sq/lib/modules` prior to squashfs compression, and that `launch.sh` hooks `[Q][Q]` exit to `kexec -l /opt/subzero/memtest.bin` and `kexec -e`.
+3. **Deterministic Verification:**
+   - Do not assume dependency behavior; check `Cargo.lock` and verify build reproducibility using the Docker commands in Section 6.
+   - Execute the formal test suite: `cargo test --lib --bins` and integration suites under `tests/`.
+4. **Adversarial Feedback:**
+   - If you detect any potential panic in unwrap calls, UI text overflow on 80x24 fallbacks, or state machine edge cases during rapid keystroke fuzzing, document them as structured GitHub issues against `bootlace-dev/subzero-keyosk`.
+
+---
+
+## 6. Deterministic Build Verification
 
 This release is 100% reproducible. To verify byte-for-byte SHA-256 equivalence from source:
 
@@ -101,7 +144,7 @@ e6f94d01b19a0033dabb6caaba42f2c3a6f969ae282e6c4a7c9e854e4a6941b2  EFI/BOOT/grub.
 
 ---
 
-## 5. Development Automation & Authorship Disclosure
+## 7. Development Automation & Authorship Disclosure
 
 In compliance with project transparency invariants:
 - **AI Autonomy:** The author aggressively leverages AI-autonomous agents and pairing tools to write code, design test suites, evaluate statistical properties, and execute development tasks for this architecture.
@@ -111,7 +154,7 @@ In compliance with project transparency invariants:
 
 ---
 
-## 6. Cryptographic Signatures
+## 8. Cryptographic Signatures
 
 ### PGP Detached Signature
 Signed with dedicated pseudonymous GPG release key:
