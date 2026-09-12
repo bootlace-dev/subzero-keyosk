@@ -16,7 +16,7 @@ use crate::crypto::{
     compact_seed_qr_to_mnemonic, get_descriptor_checksum,
 };
 use crate::qr::{
-    create_bbqr_frames, render_full_block_qr, render_half_block_qr, QrMode,
+    create_bbqr_frames, render_full_block_qr, QrMode,
 };
 use crate::seedfix::{search_wordlist, solve_twelfth_word};
 use crate::storage::{
@@ -511,15 +511,9 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
         .title(" Tab 14. PSBT Airgap Signer (Webcam / USB / MicroSD) [TESTNET4] ")
         .style(Style::default().fg(Color::Cyan));
 
-    let mut lines = Vec::new();
-    lines.push(Line::from(""));
-    lines.push(Line::from(vec![
-        Span::styled("  STATELESS TWO-WAY PSBT AIRGAP SIGNING ENGINE", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw(" — Zero Network Modules Loaded"),
-    ]));
     // 1. If currently displaying signed PSBT via Animated BBQR
     if let Some(ref signed_b64) = state.signed_psbt_base64 {
-        let frames = create_bbqr_frames(signed_b64, 6);
+        let frames = create_bbqr_frames(signed_b64, 8);
         let frame_count = frames.len();
         let cur_frame_idx = if frame_count > 0 {
             state.psbt_bbqr_frame_index % frame_count
@@ -527,37 +521,45 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
             0
         };
 
-        lines.push(Line::from(vec![
-            Span::styled("  [✓] TRANSACTION SIGNED SUCCESSFULLY! ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::styled(format!("(BBQR Frame {}/{} at ~3 Hz)", cur_frame_idx + 1, frame_count), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        ]));
-        lines.push(Line::from(Span::styled(
-            "  Scan animated QR with coordinator (Nunchuk, Sparrow, BlueWallet):",
-            Style::default().fg(Color::White),
-        )));
+        let signed_block = Block::default()
+            .borders(Borders::ALL)
+            .title(format!(" Tab 14. PSBT Signed [BBQR Frame {}/{}] ", cur_frame_idx + 1, frame_count))
+            .style(Style::default().fg(Color::Green));
+
+        let sub_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(10),   // Full-block QR code centered
+                Constraint::Length(1), // Compact action footer (no wasted lines)
+            ])
+            .split(signed_block.inner(area));
 
         if let Some(current_frame_data) = frames.get(cur_frame_idx) {
-            if let Ok(qr_lines) = render_half_block_qr(current_frame_data) {
-                for ql in qr_lines {
-                    lines.push(ql);
-                }
+            if let Ok(qr_lines) = render_full_block_qr(current_frame_data) {
+                let p_qr = Paragraph::new(qr_lines).alignment(Alignment::Center);
+                frame.render_widget(p_qr, sub_chunks[0]);
             }
         }
 
-        lines.push(Line::from(vec![
-            Span::styled("  ACTIONS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("[E] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::raw("Export to USB/SD (signed_tx.psbt)  |  "),
+        let action_line = Line::from(vec![
+            Span::styled(" [E] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::raw("Export to USB/SD  |  "),
             Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
             Span::raw("Clear PSBT  |  "),
             Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Return to Menu"),
-        ]));
-
-        let p = Paragraph::new(lines).block(block);
-        frame.render_widget(p, area);
+            Span::raw("Back"),
+        ]);
+        frame.render_widget(Paragraph::new(action_line).alignment(Alignment::Center), sub_chunks[1]);
+        frame.render_widget(signed_block, area);
         return;
     }
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  STATELESS TWO-WAY PSBT AIRGAP SIGNING ENGINE", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw(" — Zero Network Modules Loaded"),
+    ]));
 
     // 2. If camera ingestion is active
     if state.is_scanning_camera {
