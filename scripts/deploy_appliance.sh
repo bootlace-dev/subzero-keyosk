@@ -88,9 +88,11 @@ echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
 # Execute SubZero Pure Rust TUI directly on physical console
 /usr/local/bin/subzero < /dev/tty1 > /dev/tty1 2>&1
 
-# When SubZero exits ([Q][Q] confirmed), immediately power off hardware to purge RAM
+# When SubZero exits ([Q][Q] confirmed), immediately purge RAM and power off hardware
 sync
-/sbin/poweroff -f >/dev/null 2>&1 || /sbin/reboot -f >/dev/null 2>&1 || true
+echo 3 > /proc/sys/vm/drop_caches 2>/dev/null || true
+printf \"\033[2J\033[H\033[3J\" > /dev/tty1 2>/dev/null || true
+/sbin/poweroff -f >/dev/null 2>&1 || /bin/busybox poweroff -f >/dev/null 2>&1 || /sbin/reboot -f >/dev/null 2>&1 || true
 LAUNCH_EOF
 chmod 755 /mnt/sq/opt/subzero/launch.sh
 
