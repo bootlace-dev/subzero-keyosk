@@ -114,6 +114,18 @@ impl Page {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum IntakeMode {
+    Coins,         // [1] 128 binary coin flips (0/1)
+    Dice,          // [2] 50+ six-sided dice rolls (1-6)
+    RawHex,        // [3] 32-byte raw hex (64 chars, 0-9 a-f)
+    CompactSeedQR, // [4] 48-decimal-digit CompactSeedQR index stream
+    Words,         // [5] 12 BIP-39 English words or 4-letter punch codes
+    Descriptor,    // [6] Watch-only BIP-380 descriptor (wpkh/tpub/vpub)
+    Jitter,        // [7] Human keystroke timing jitter (32 delta-t samples)
+    TestVector,    // [8] Deterministic test vector (0-9)
+}
+
 pub struct AppState {
     pub current_page: Page,
     pub seed: Option<GeneratedSeed>,
@@ -121,8 +133,8 @@ pub struct AppState {
     pub bip85_children: Vec<Bip85Child>,
     pub build_timestamp: String,
     pub git_commit: String,
+    pub intake_mode: Option<IntakeMode>,
     pub entropy_input: String,
-    pub is_entering_entropy: bool,
     pub address_page_offset: usize,
     pub heir_page_offset: usize,
     pub estate_write_status: String,
@@ -139,7 +151,6 @@ pub struct AppState {
     pub jitter_samples: Vec<(char, u64)>,
     pub last_jitter_instant: Option<std::time::Instant>,
     pub is_selecting_test_vector: bool,
-    pub is_importing_mnemonic: bool,
     pub mnemonic_import_input: String,
     pub wipe_confirmation_instant: Option<std::time::Instant>,
     pub pending_exit_instant: Option<std::time::Instant>,
@@ -157,8 +168,8 @@ impl AppState {
             bip85_children: Vec::new(),
             build_timestamp,
             git_commit,
+            intake_mode: None,
             entropy_input: String::new(),
-            is_entering_entropy: false,
             address_page_offset: 0,
             heir_page_offset: 0,
             estate_write_status: "Press [P] to provision Partition 2 (SUBZERO_EST).".into(),
@@ -175,7 +186,6 @@ impl AppState {
             jitter_samples: Vec::new(),
             last_jitter_instant: None,
             is_selecting_test_vector: false,
-            is_importing_mnemonic: false,
             mnemonic_import_input: String::new(),
             wipe_confirmation_instant: None,
             pending_exit_instant: None,
@@ -199,8 +209,7 @@ impl AppState {
         self.bip85_children.clear();
         self.entropy_input.zeroize();
         self.entropy_input.clear();
-        self.is_entering_entropy = false;
-        self.is_importing_mnemonic = false;
+        self.intake_mode = None;
         self.mnemonic_import_input.zeroize();
         self.mnemonic_import_input.clear();
         self.is_harvesting_jitter = false;
@@ -232,8 +241,7 @@ impl AppState {
         }
         self.bip85_children = children;
         self.seed = Some(seed);
-        self.is_entering_entropy = false;
-        self.is_importing_mnemonic = false;
+        self.intake_mode = None;
         self.mnemonic_import_input.zeroize();
         self.mnemonic_import_input.clear();
         self.status_message = "Keys generated securely in amnesic memory.".into();
@@ -259,37 +267,48 @@ impl AppState {
     pub fn update_entropy_status(&mut self) {
         let len = self.entropy_input.len();
         if len == 0 {
-            self.status_message = "Enter coin flips (0/1) or dice rolls (1-6)...".into();
+            self.status_message = "Enter entropy for selected mode...".into();
             return;
         }
 
-        let is_bin = self.entropy_input.chars().all(|c| c == '0' || c == '1');
-        let is_dice = self.entropy_input.chars().all(|c| ('1'..='6').contains(&c));
-
-        if is_bin {
-            let markov = run_markov_audit(&self.entropy_input);
-            let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
-            let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
-            if len >= 128 && markov.passed && chi2_pass && !repeats {
-                self.status_message = "Entropy 128-bit threshold valid! Press [ENTER] to derive keys.".into();
-            } else if len >= 128 {
-                self.status_message = "[BLOCKED] 128 bits met, but failed Markov, Chi-squared, or repeat checks!".into();
-            } else {
-                self.status_message = format!("Collecting coin flips: {}/128 bits...", len);
+        match self.intake_mode {
+            Some(IntakeMode::Coins) => {
+                let markov = run_markov_audit(&self.entropy_input);
+                let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
+                let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
+                if len >= 128 && markov.passed && chi2_pass && !repeats {
+                    self.status_message = "Coin entropy valid (128-bit)! Press [ENTER] to derive keys.".into();
+                } else if len >= 128 {
+                    self.status_message = "[BLOCKED] 128 bits met but failed Markov/Chi-squared/repeat checks!".into();
+                } else {
+                    self.status_message = format!("Collecting coin flips: {}/128 bits...", len);
+                }
             }
-        } else if is_dice {
-            let markov = run_markov_audit(&self.entropy_input);
-            let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
-            let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
-            if len >= 50 && markov.passed && chi2_pass && !repeats {
-                self.status_message = format!("Dice entropy valid ({}/50 rolls)! Tip: Rolling multiple dice blends out individual defect bias. Press [ENTER] to derive.", len);
-            } else if len >= 50 {
-                self.status_message = "[BLOCKED] 50 rolls met, but failed Markov, Chi-squared, or repeat checks!".into();
-            } else {
-                self.status_message = format!("Collecting dice rolls: {}/50 rolls (Tip: Roll 2-5 dice together to soften physical bias)...", len);
+            Some(IntakeMode::Dice) => {
+                let markov = run_markov_audit(&self.entropy_input);
+                let (chi2_pass, _, _) = run_chi_squared_audit(&self.entropy_input);
+                let repeats = has_repetitive_substrings(&self.entropy_input, 3, 6);
+                if len >= 50 && markov.passed && chi2_pass && !repeats {
+                    self.status_message = format!("Dice entropy valid ({}/50 rolls)! Press [ENTER] to derive.", len);
+                } else if len >= 50 {
+                    self.status_message = "[BLOCKED] 50 rolls met but failed audits!".into();
+                } else {
+                    self.status_message = format!("Collecting dice rolls: {}/50 rolls...", len);
+                }
             }
-        } else {
-            self.status_message = "Mixed entropy input detected. Use only 0/1 or 1-6.".into();
+            Some(IntakeMode::RawHex) => {
+                let valid_hex = self.entropy_input.chars().all(|c| c.is_ascii_hexdigit());
+                if len >= 64 && valid_hex {
+                    self.status_message = "Hex entropy valid (32 bytes)! Press [ENTER] to derive keys.".into();
+                } else if !valid_hex {
+                    self.status_message = "[INVALID] Non-hex character detected. Only 0-9 and a-f allowed.".into();
+                } else {
+                    self.status_message = format!("Collecting hex: {}/64 chars...", len);
+                }
+            }
+            _ => {
+                self.status_message = format!("{} chars entered...", len);
+            }
         }
     }
 
@@ -529,10 +548,8 @@ fn render_footer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::raw(" Prev "),
         Span::styled("[Home/Esc]", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         Span::raw(" Tab 0 "),
-        Span::styled("[C/D]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::raw(" Coins/Dice "),
-        Span::styled("[T]", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-        Span::raw(" Test "),
+        Span::styled("[1-8]", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::raw(" Tab1 Mode "),
         Span::styled("[W]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
         Span::raw(" Wipe "),
         Span::styled("[Q]", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
@@ -757,256 +774,438 @@ fn render_master_seed(frame: &mut Frame, area: Rect, state: &AppState) {
 
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
-    } else if state.is_importing_mnemonic {
-        render_mnemonic_import_view(frame, area, state, block);
     } else {
-        render_entropy_input_view(frame, area, state, block);
+        match state.intake_mode {
+            None => render_intake_mode_selector(frame, area, state, block),
+            Some(IntakeMode::Coins) => render_coins_input_view(frame, area, state, block),
+            Some(IntakeMode::Dice) => render_dice_input_view(frame, area, state, block),
+            Some(IntakeMode::RawHex) => render_hex_input_view(frame, area, state, block),
+            Some(IntakeMode::CompactSeedQR) | Some(IntakeMode::Words) | Some(IntakeMode::Descriptor) => render_mnemonic_import_view(frame, area, state, block),
+            Some(IntakeMode::Jitter) => render_jitter_view(frame, area, state, block),
+            Some(IntakeMode::TestVector) => render_test_vector_selector_view(frame, area, state, block),
+        }
     }
 }
 
-fn render_entropy_input_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
+
+fn render_intake_mode_selector(frame: &mut Frame, area: Rect, _state: &AppState, block: Block) {
     let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  SELECT MASTER ENTROPY / INTAKE FORMAT:",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  [1] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled("Physical Coin Flips       ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(128 binary flips: 0=Heads, 1=Tails)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [2] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+        Span::styled("Physical Dice Rolls       ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(50+ six-sided rolls: 1-6)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [3] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("Raw Hexadecimal           ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(32 bytes / 64 hex chars: 0-9, a-f)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [4] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::styled("CompactSeedQR Digits      ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(48 decimal digits: 4-digit BIP-39 word indices)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [5] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("12 BIP-39 English Words   ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(Full words or 4-letter punch codes)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [6] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Watch-Only Descriptor     ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(wpkh(tpub...#checksum) — no private keys)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [7] ", Style::default().fg(Color::Magenta).add_modifier(Modifier::BOLD)),
+        Span::styled("Keystroke Jitter Harvest  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(32 delta-t samples, zero hardware PRNG)", Style::default().fg(Color::DarkGray)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [8] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+        Span::styled("Deterministic Test Vector ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("(0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney — NEVER FUND)", Style::default().fg(Color::Yellow)),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled(
+        "  Modes 1-2 (physical) run real-time Markov, Chi-squared, and repeat audits.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  [ESC] or [Home] returns here. [W] wipes all RAM. [Tab] navigates tabs.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
 
-    if state.is_harvesting_jitter {
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            "  ╔══════════════════════════════════════════════════════════════════════════════╗",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  ║  HUMAN KEYSTROKE JITTER HARVESTER — HARDWARE PRNG PURGED                     ║",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  ║  Mash any keys on your keyboard rapidly! Watch nanosecond timing deltas.     ║",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(Span::styled(
-            "  ╚══════════════════════════════════════════════════════════════════════════════╝",
-            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from(""));
-
-        let count = state.jitter_samples.len();
-        let target = 32;
-        let filled = (count * 30) / target;
-        let empty = 30usize.saturating_sub(filled);
-        let bar = format!("[{}{}] {} / {} Keystrokes", "█".repeat(filled), "░".repeat(empty), count, target);
-        
-        lines.push(Line::from(vec![
-            Span::styled("  Harvest Progress: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            Span::styled(bar, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        ]));
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("  Live Keystroke Micro-Timing Telemetry (Nanosecond Clock Jitter):", Style::default().fg(Color::Cyan))));
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
-
-        let start_idx = state.jitter_samples.len().saturating_sub(6);
-        for (i, (ch, nanos)) in state.jitter_samples[start_idx..].iter().enumerate() {
-            let ms = (*nanos as f64) / 1_000_000.0;
-            let display_ch = if *ch == '\'' { "'''".to_string() } else { format!("'{}'", ch) };
-            let line_str = format!(
-                "    Sample #{:02}:  Key: {:<5}  |  Interval: {:>12} ns ({:>6.2} ms)",
-                start_idx + i + 1,
-                display_ch,
-                nanos,
-                ms
-            );
-            lines.push(Line::from(Span::styled(line_str, Style::default().fg(Color::Yellow))));
-        }
-        for _ in (state.jitter_samples.len() - start_idx)..6 {
-            lines.push(Line::from(Span::styled("    Sample --:  Key: --     |  Interval: ------------ ns (------ ms)", Style::default().fg(Color::DarkGray))));
-        }
-
-        lines.push(Line::from("  --------------------------------------------------------------------------------"));
-        lines.push(Line::from(Span::styled("  WHY THIS WORKS & ELIMINATES HARDWARE SILICON TRUST:", Style::default().fg(Color::White).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from("  Even when you try to type at a fixed rhythm, human neuromuscular jitter varies by"));
-        lines.push(Line::from("  millions of nanoseconds between keys. SubZero hashes these micro-timing intervals"));
-        lines.push(Line::from("  into 128 binary coin flips via SHA-256 with ZERO hardware or kernel PRNG queries."));
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled("  Keep typing rapidly on any keys... (or press [ESC] to cancel)", Style::default().fg(Color::LightCyan))));
-
-        let p = Paragraph::new(lines).block(block);
-        frame.render_widget(p, area);
-        return;
-    }
+fn render_coins_input_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
+    let mut lines = Vec::new();
     let raw = &state.entropy_input;
     let len = raw.len();
 
-    let is_bin = !raw.is_empty() && raw.chars().all(|c| c == '0' || c == '1');
-    let is_dice = !raw.is_empty() && raw.chars().all(|c| ('1'..='6').contains(&c));
-
-
-    let mode_str = if is_bin {
-        "BINARY COIN FLIPS (0/1)"
-    } else if is_dice {
-        "STANDARD DICE ROLLS (1-6)"
-    } else if raw.is_empty() {
-        "AWAITING INPUT (Coin 0/1, Dice 1-6, [T] Test Vector, or [C/D/K])"
-    } else {
-        "TEST VECTOR OR ARBITRARY STREAM"
-    };
-
     let markov = run_markov_audit(raw);
     let repeats = has_repetitive_substrings(raw, 3, 6);
+    let (chi2_pass, chi2_val, _) = run_chi_squared_audit(raw);
 
     lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [MODE 1] COIN FLIPS — 128 Binary Bits (0=Heads, 1=Tails)",
+        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+    )));
     lines.push(Line::from(vec![
-        Span::styled("  Entropy Ingestion Mode: ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled(mode_str, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::raw("  Collected Count:        "),
-        Span::styled(format!("{} chars", len), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::raw("  Collected: "),
+        Span::styled(format!("{}/128 bits", len), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
     ]));
 
-    let markov_style = if len < 16 {
-        Style::default().fg(Color::DarkGray)
-    } else if markov.passed {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
-    };
+    let markov_style = if len < 16 { Style::default().fg(Color::DarkGray) }
+        else if markov.passed { Style::default().fg(Color::Green) }
+        else { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) };
     lines.push(Line::from(vec![
-        Span::raw("  Markov Transition Audit: "),
-        Span::styled(if len < 16 { "Awaiting 16+ chars..." } else if markov.passed { "[PASS - ENTROPY HEALTHY]" } else { "[FAIL - BIASED TRANSITIONS]" }, markov_style),
+        Span::raw("  Markov Transition Audit:  "),
+        Span::styled(if len < 16 { "Awaiting 16+ bits..." } else if markov.passed { "[PASS]" } else { "[FAIL - BIASED]" }, markov_style),
         Span::styled(format!(" (Max cond prob: {:.1}%)", markov.max_cond_prob * 100.0), Style::default().fg(Color::DarkGray)),
     ]));
 
-    let (chi2_pass, chi2_val, _) = run_chi_squared_audit(raw);
-    let chi2_style = if len < 16 {
-        Style::default().fg(Color::DarkGray)
-    } else if chi2_pass {
-        Style::default().fg(Color::Green)
-    } else {
-        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
-    };
+    let chi2_style = if len < 16 { Style::default().fg(Color::DarkGray) }
+        else if chi2_pass { Style::default().fg(Color::Green) }
+        else { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) };
     lines.push(Line::from(vec![
-        Span::raw("  Chi-Squared Uniformity:  "),
-        Span::styled(if len < 16 { "Awaiting 16+ chars..." } else if chi2_pass { "[PASS - FREQUENCY UNIFORM]" } else { "[FAIL - SKEWED FREQUENCY]" }, chi2_style),
+        Span::raw("  Chi-Squared Uniformity:   "),
+        Span::styled(if len < 16 { "Awaiting 16+ bits..." } else if chi2_pass { "[PASS]" } else { "[FAIL - SKEWED]" }, chi2_style),
         Span::styled(format!(" (χ² = {:.2})", chi2_val), Style::default().fg(Color::DarkGray)),
     ]));
 
-    let repeat_style = if len < 16 {
-        Style::default().fg(Color::DarkGray)
-    } else if repeats {
-        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
-    } else {
-        Style::default().fg(Color::Green)
-    };
+    let repeat_style = if len < 16 { Style::default().fg(Color::DarkGray) }
+        else if repeats { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) }
+        else { Style::default().fg(Color::Green) };
     lines.push(Line::from(vec![
         Span::raw("  Repetitive Pattern Block: "),
         Span::styled(
-            if len < 16 {
-                "Awaiting 16+ chars..."
-            } else if repeats {
-                "[FAIL - REPEATING CHUNKS DETECTED]"
-            } else {
-                "[PASS - NO REPEATS]"
-            },
+            if len < 16 { "Awaiting 16+ bits..." } else if repeats { "[FAIL - REPEATS]" } else { "[PASS]" },
             repeat_style,
         ),
     ]));
 
     lines.push(Line::from("  -----------------------------------------------------------------------"));
-    lines.push(Line::from(Span::styled("  MILLER'S LAW CHUNKING & REAL-TIME INPUT STREAM:", Style::default().fg(Color::Cyan))));
+    lines.push(Line::from(Span::styled("  MILLER'S LAW CHUNKING (11 bits per BIP-39 word):", Style::default().fg(Color::Cyan))));
     lines.push(Line::from(""));
 
-    if is_bin {
-        let mut words = Vec::new();
-        for i in 0..11 {
-            let start = i * 11;
-            if start < len {
-                let end = std::cmp::min(len, start + 11);
-                let chunk = &raw[start..end];
-                let c1 = &chunk[0..std::cmp::min(4, chunk.len())];
-                let c2 = if chunk.len() > 4 { &chunk[4..std::cmp::min(8, chunk.len())] } else { "" };
-                let c3 = if chunk.len() > 8 { &chunk[8..chunk.len()] } else { "" };
-                let formatted = format!("{:<4} {:<4} {:<3}", c1, c2, c3);
-                words.push(format!("W{:02}: {}", i + 1, formatted));
-            } else {
-                words.push(format!("W{:02}: ---- ---- ---", i + 1));
-            }
-        }
-        if len > 121 {
-            let chunk12 = &raw[121..std::cmp::min(128, len)];
-            let c1 = &chunk12[0..std::cmp::min(4, chunk12.len())];
-            let c2 = if chunk12.len() > 4 { &chunk12[4..chunk12.len()] } else { "" };
-            let formatted = format!("{:<4} {:<3} [chk]", c1, c2);
-            words.push(format!("W12: {}", formatted));
+    // Binary chunking grid
+    let mut words = Vec::new();
+    for i in 0..11 {
+        let start = i * 11;
+        if start < len {
+            let end = std::cmp::min(len, start + 11);
+            let chunk = &raw[start..end];
+            let c1 = &chunk[0..std::cmp::min(4, chunk.len())];
+            let c2 = if chunk.len() > 4 { &chunk[4..std::cmp::min(8, chunk.len())] } else { "" };
+            let c3 = if chunk.len() > 8 { &chunk[8..chunk.len()] } else { "" };
+            let formatted = format!("{:<4} {:<4} {:<3}", c1, c2, c3);
+            words.push(format!("W{:02}: {}", i + 1, formatted));
         } else {
-            words.push("W12: ---- --- [chk]".to_string());
+            words.push(format!("W{:02}: ---- ---- ---", i + 1));
         }
-
-        for r in 0..6 {
-            let left = words.get(r).cloned().unwrap_or_default();
-            let right = words.get(r + 6).cloned().unwrap_or_default();
-            lines.push(Line::from(vec![
-                Span::raw("    "),
-                Span::styled(format!("{:<26}", left), Style::default().fg(Color::Yellow)),
-                Span::raw("    "),
-                Span::styled(right, Style::default().fg(Color::Yellow)),
-            ]));
-        }
-    } else if is_dice {
-        let chars: Vec<char> = raw.chars().collect();
-        for row in 0..6 {
-            let mut spans = vec![Span::raw("    ")];
-            for col in 0..10 {
-                let idx = row * 10 + col;
-                if idx < 60 {
-                    if idx < chars.len() {
-                        spans.push(Span::styled(format!("{} ", chars[idx]), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
-                    } else {
-                        spans.push(Span::styled("- ", Style::default().fg(Color::DarkGray)));
-                    }
-                    if col == 4 {
-                        spans.push(Span::raw("  "));
-                    }
-                }
-            }
-            lines.push(Line::from(spans));
-        }
+    }
+    if len > 121 {
+        let chunk12 = &raw[121..std::cmp::min(128, len)];
+        let c1 = &chunk12[0..std::cmp::min(4, chunk12.len())];
+        let c2 = if chunk12.len() > 4 { &chunk12[4..chunk12.len()] } else { "" };
+        let formatted = format!("{:<4} {:<3} [chk]", c1, c2);
+        words.push(format!("W12: {}", formatted));
     } else {
-        lines.push(Line::from(Span::styled(
-            format!("  Buffer: {}", if raw.is_empty() { "[EMPTY]" } else { raw }),
-            Style::default().fg(Color::Yellow),
-        )));
+        words.push("W12: ---- --- [chk]".to_string());
+    }
+    for r in 0..6 {
+        let left = words.get(r).cloned().unwrap_or_default();
+        let right = words.get(r + 6).cloned().unwrap_or_default();
+        lines.push(Line::from(vec![
+            Span::raw("    "),
+            Span::styled(format!("{:<26}", left), Style::default().fg(Color::Yellow)),
+            Span::raw("    "),
+            Span::styled(right, Style::default().fg(Color::Yellow)),
+        ]));
     }
 
     lines.push(Line::from(""));
-    if (is_bin && len >= 128 && markov.passed && chi2_pass && !repeats) || (is_dice && len >= 50 && markov.passed && chi2_pass && !repeats) {
+    if len >= 128 && markov.passed && chi2_pass && !repeats {
         lines.push(Line::from(Span::styled(
-            "  [CRITERIA MET] Press [ENTER] to derive master keys and BIP-85 suite.",
+            "  [READY] Press [ENTER] to derive master keys.",
             Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
         )));
     } else if !raw.is_empty() {
-        let needed = if is_dice {
-            format!("{} rolls (50 min floor)", 50usize.saturating_sub(len))
-        } else {
-            format!("{} bits", 128usize.saturating_sub(len))
-        };
         lines.push(Line::from(Span::styled(
-            format!("  Awaiting physical entropy ({} needed)...", needed),
+            format!("  Awaiting {} more bits...", 128usize.saturating_sub(len)),
             Style::default().fg(Color::Cyan),
         )));
     }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [ESC] Back to mode selector | [BACKSPACE] Delete | [ENTER] Derive",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
+
+fn render_dice_input_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
+    let mut lines = Vec::new();
+    let raw = &state.entropy_input;
+    let len = raw.len();
+
+    let markov = run_markov_audit(raw);
+    let repeats = has_repetitive_substrings(raw, 3, 6);
+    let (chi2_pass, chi2_val, _) = run_chi_squared_audit(raw);
 
     lines.push(Line::from(""));
-    lines.push(Line::from("  --------------------------------------------------------------------------------"));
-    lines.push(Line::from(Span::styled("  HOW THIS WORKS (PURE PHYSICAL ENTROPY):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  1. Flip a coin 128 times (type '0' for Heads, '1' for Tails) or roll a 6-sided die 50+ times."));
-    lines.push(Line::from("  2. Zero Hardware PRNG: Your private keys come 100% from physical chance, not a computer chip."));
-    lines.push(Line::from("  3. Real-Time Math Audit: SubZero monitors Markov transitions, Chi-squared uniformity, and blocks repeats."));
-    lines.push(Line::from("  4. Dice Hashing: 50+ rolls are hashed with SHA-256. Tip: Rolling 2-5 dice together blends out individual die flaws."));
+    lines.push(Line::from(Span::styled(
+        "  [MODE 2] DICE ROLLS — 50+ Six-Sided Rolls (1-6)",
+        Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Tip: Roll 2-5 dice simultaneously to soften individual die bias.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(vec![
+        Span::raw("  Collected: "),
+        Span::styled(format!("{}/50 rolls", len), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+    ]));
+
+    let markov_style = if len < 16 { Style::default().fg(Color::DarkGray) }
+        else if markov.passed { Style::default().fg(Color::Green) }
+        else { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) };
+    lines.push(Line::from(vec![
+        Span::raw("  Markov Transition Audit:  "),
+        Span::styled(if len < 16 { "Awaiting 16+ rolls..." } else if markov.passed { "[PASS]" } else { "[FAIL - BIASED]" }, markov_style),
+        Span::styled(format!(" (Max cond prob: {:.1}%)", markov.max_cond_prob * 100.0), Style::default().fg(Color::DarkGray)),
+    ]));
+
+    let chi2_style = if len < 16 { Style::default().fg(Color::DarkGray) }
+        else if chi2_pass { Style::default().fg(Color::Green) }
+        else { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) };
+    lines.push(Line::from(vec![
+        Span::raw("  Chi-Squared Uniformity:   "),
+        Span::styled(if len < 16 { "Awaiting 16+ rolls..." } else if chi2_pass { "[PASS]" } else { "[FAIL - SKEWED]" }, chi2_style),
+        Span::styled(format!(" (χ² = {:.2})", chi2_val), Style::default().fg(Color::DarkGray)),
+    ]));
+
+    let repeat_style = if len < 16 { Style::default().fg(Color::DarkGray) }
+        else if repeats { Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD) }
+        else { Style::default().fg(Color::Green) };
+    lines.push(Line::from(vec![
+        Span::raw("  Repetitive Pattern Block: "),
+        Span::styled(
+            if len < 16 { "Awaiting 16+ rolls..." } else if repeats { "[FAIL - REPEATS]" } else { "[PASS]" },
+            repeat_style,
+        ),
+    ]));
+
+    lines.push(Line::from("  -----------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled("  DICE STREAM (6x10 grid, 60-roll capacity):", Style::default().fg(Color::Cyan))));
     lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled("  TEST VECTORS & HUMAN JITTER HARVESTER (Amnesic RAM Testing Only):", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD))));
-    lines.push(Line::from("  - Press [T] to select a deterministic test vector (0=All-Zeros, 8=Genesis Lore, 9=Hal Finney)."));
-    lines.push(Line::from("  - Press [C] to load 128 real coin flips into the buffer for instant review."));
-    lines.push(Line::from("  - Press [D] to load 52 real dice rolls into the buffer for instant review."));
-    lines.push(Line::from("  - Press [K] to harvest human keystroke timing jitter (unique test seed, zero PRNG)."));
-    lines.push(Line::from("  - Press [I] to import an existing 12 or 24-word offline seed phrase."));
-    lines.push(Line::from("  - Press [W] at any time to wipe and clear all input buffers."));
+
+    let chars: Vec<char> = raw.chars().collect();
+    for row in 0..6 {
+        let mut spans = vec![Span::raw("    ")];
+        for col in 0..10 {
+            let idx = row * 10 + col;
+            if idx < 60 {
+                if idx < chars.len() {
+                    spans.push(Span::styled(format!("{} ", chars[idx]), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+                } else {
+                    spans.push(Span::styled("- ", Style::default().fg(Color::DarkGray)));
+                }
+                if col == 4 { spans.push(Span::raw("  ")); }
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+
+    lines.push(Line::from(""));
+    if len >= 50 && markov.passed && chi2_pass && !repeats {
+        lines.push(Line::from(Span::styled(
+            "  [READY] Press [ENTER] to derive master keys.",
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        )));
+    } else if !raw.is_empty() {
+        lines.push(Line::from(Span::styled(
+            format!("  Awaiting {} more rolls...", 50usize.saturating_sub(len)),
+            Style::default().fg(Color::Cyan),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [ESC] Back to mode selector | [BACKSPACE] Delete | [ENTER] Derive",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
+
+fn render_hex_input_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
+    let mut lines = Vec::new();
+    let raw = &state.entropy_input;
+    let len = raw.len();
+    let valid_hex = raw.chars().all(|c| c.is_ascii_hexdigit());
+
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [MODE 3] RAW HEXADECIMAL — 32 Bytes / 64 Hex Chars (0-9, a-f)",
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  WARNING: Ensure this hex was generated by a physically trusted entropy source.",
+        Style::default().fg(Color::LightRed),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::raw("  Input Buffer: "),
+        Span::styled(format!("{}/64 chars", len), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+    ]));
+    // Display hex in 8-byte rows (16 chars each)
+    lines.push(Line::from(Span::styled("  ─────────────────────────────────────────────────────", Style::default().fg(Color::DarkGray))));
+    let padded = format!("{:0<64}", raw);
+    for row in 0..4 {
+        let start = row * 16;
+        let end = start + 16;
+        let chunk = &padded[start..end];
+        let c1 = &chunk[0..4];
+        let c2 = &chunk[4..8];
+        let c3 = &chunk[8..12];
+        let c4 = &chunk[12..16];
+        let offset_style = Style::default().fg(Color::DarkGray);
+        let data_style = if len > start + 16 { Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD) }
+            else if len > start { Style::default().fg(Color::Cyan) }
+            else { Style::default().fg(Color::DarkGray) };
+        lines.push(Line::from(vec![
+            Span::styled(format!("  {:02x}h: ", row * 8), offset_style),
+            Span::styled(format!("{} {} {} {}", c1, c2, c3, c4), data_style),
+        ]));
+    }
+    lines.push(Line::from(Span::styled("  ─────────────────────────────────────────────────────", Style::default().fg(Color::DarkGray))));
+
+    if !valid_hex && !raw.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "  [INVALID] Non-hex character detected. Only 0-9, a-f allowed.",
+            Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+        )));
+    } else if len >= 64 {
+        lines.push(Line::from(Span::styled(
+            "  [READY] 32 bytes collected. Press [ENTER] to derive master keys.",
+            Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+        )));
+    } else {
+        lines.push(Line::from(Span::styled(
+            format!("  Awaiting {} more chars...", 64usize.saturating_sub(len)),
+            Style::default().fg(Color::Cyan),
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [ESC] Back to mode selector | [BACKSPACE] Delete | [ENTER] Derive",
+        Style::default().fg(Color::DarkGray),
+    )));
+
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
+
+fn render_jitter_view(frame: &mut Frame, area: Rect, state: &AppState, block: Block) {
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [MODE 7] HUMAN KEYSTROKE JITTER HARVESTER — Zero Hardware PRNG",
+        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  Mash any keys on your keyboard rapidly! Nanosecond timing deltas become entropy.",
+        Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    let count = state.jitter_samples.len();
+    let target = 32;
+    let filled = (count * 30) / target;
+    let empty = 30usize.saturating_sub(filled);
+    let bar = format!("[{}{}] {} / {} Keystrokes", "█".repeat(filled), "░".repeat(empty), count, target);
+    lines.push(Line::from(vec![
+        Span::styled("  Harvest Progress: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled(bar, Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled("  Live Nanosecond Keystroke Timing Deltas:", Style::default().fg(Color::Cyan))));
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+
+    let start_idx = state.jitter_samples.len().saturating_sub(6);
+    for (i, (ch, nanos)) in state.jitter_samples[start_idx..].iter().enumerate() {
+        let ms = (*nanos as f64) / 1_000_000.0;
+        let display_ch = if *ch == '\'' { "'''".to_string() } else { format!("'{}'", ch) };
+        let line_str = format!(
+            "    Sample #{:02}:  Key: {:<5}  |  Interval: {:>12} ns ({:>6.2} ms)",
+            start_idx + i + 1, display_ch, nanos, ms
+        );
+        lines.push(Line::from(Span::styled(line_str, Style::default().fg(Color::Yellow))));
+    }
+    for _ in (state.jitter_samples.len() - start_idx)..6 {
+        lines.push(Line::from(Span::styled("    Sample --:  Key: --     |  Interval: ------------ ns (------ ms)", Style::default().fg(Color::DarkGray))));
+    }
+    lines.push(Line::from("  --------------------------------------------------------------------------------"));
+    lines.push(Line::from(Span::styled(
+        "  Keep typing rapidly on any keys... (or press [ESC] to cancel and return to selector)",
+        Style::default().fg(Color::LightCyan),
+    )));
+
+    let p = Paragraph::new(lines).block(block);
+    frame.render_widget(p, area);
+}
+
+fn render_test_vector_selector_view(frame: &mut Frame, area: Rect, _state: &AppState, block: Block) {
+    let mut lines = Vec::new();
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [MODE 8] DETERMINISTIC TEST VECTOR — NEVER FUND ON MAINNET",
+        Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  Press a digit [0-9] to load a deterministic test seed:",
+        Style::default().fg(Color::White),
+    )));
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  [0] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw("All-Zeros (000...000 — canonical BIP-39 baseline)"),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [1-7] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw("Additional test vectors"),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [8] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw("Satoshi Genesis Lore"),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [9] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+        Span::raw("Hal Finney First Bitcoin TX Lore"),
+    ]));
+    lines.push(Line::from(""));
+    lines.push(Line::from(Span::styled(
+        "  [ESC] Back to mode selector",
+        Style::default().fg(Color::DarkGray),
+    )));
 
     let p = Paragraph::new(lines).block(block);
     frame.render_widget(p, area);
@@ -1017,7 +1216,9 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
 
     let trimmed = state.mnemonic_import_input.trim();
     let digits_only: String = trimmed.chars().filter(|c| !c.is_whitespace() && *c != '-').collect();
-    let is_compact = digits_only.len() == 48 && digits_only.chars().all(|c| c.is_ascii_digit());
+    let is_all_digits = !digits_only.is_empty() && digits_only.chars().all(|c| c.is_ascii_digit());
+    let is_compact = digits_only.len() == 48 && is_all_digits;
+    let is_compact_in_progress = is_all_digits && digits_only.len() <= 48;
     let is_descriptor = trimmed.starts_with("wpkh(") || trimmed.starts_with("tpub") || trimmed.starts_with("vpub");
 
     lines.push(Line::from(Span::styled(
@@ -1039,7 +1240,7 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
 
     let input_label = if is_descriptor {
         format!("(Descriptor | {} chars)", char_count)
-    } else if is_compact {
+    } else if is_compact_in_progress {
         format!("(CompactSeedQR | {} / 48 digits)", digits_only.len())
     } else {
         format!("({} / 12 words | {} chars)", word_count, char_count)
@@ -1095,13 +1296,23 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
         match compact_seed_qr_to_mnemonic(&digits_only) {
             Ok(recovered_phrase) => {
                 lines.push(Line::from(Span::styled(
-                    format!("  [✓ VALID COMPACTSEEDQR]: Decoded to 12 valid BIP-39 words."),
+                    "  [✓ VALID COMPACTSEEDQR]: Decoded to 12 valid BIP-39 words. Press [ENTER] to lock into RAM.",
                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                 )));
-                lines.push(Line::from(Span::styled(
-                    format!("  Words: {}", recovered_phrase),
-                    Style::default().fg(Color::Cyan),
-                )));
+                let decoded_words: Vec<&str> = recovered_phrase.split_whitespace().collect();
+                let half = 6;
+                for i in 0..half {
+                    let w1 = decoded_words.get(i).unwrap_or(&"");
+                    let w2 = decoded_words.get(i + 6).unwrap_or(&"");
+                    let p1 = if w1.len() >= 4 { &w1[..4] } else { w1 }.to_uppercase();
+                    let p2 = if w2.len() >= 4 { &w2[..4] } else { w2 }.to_uppercase();
+                    let left = format!("    Word #{:02}: {:<8} [Punch: {:<4}]", i + 1, w1, p1);
+                    let right = format!("    Word #{:02}: {:<8} [Punch: {:<4}]", i + 7, w2, p2);
+                    lines.push(Line::from(vec![
+                        Span::styled(left, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled(right, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    ]));
+                }
             }
             Err(e) => {
                 lines.push(Line::from(Span::styled(
@@ -1110,6 +1321,30 @@ fn render_mnemonic_import_view(frame: &mut Frame, area: Rect, state: &AppState, 
                 )));
             }
         }
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
+    } else if is_compact_in_progress {
+        lines.push(Line::from("  CompactSeedQR Numeric Stream:"));
+        lines.push(Line::from("  --------------------------------------------------------------------------"));
+        let completed_words = digits_only.len() / 4;
+        let partial_digits = digits_only.len() % 4;
+        lines.push(Line::from(vec![
+            Span::styled("  Progress: ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("{}/48 digits ({} complete words, {}/4 digits in current word)", digits_only.len(), completed_words, partial_digits),
+                Style::default().fg(Color::Cyan),
+            ),
+        ]));
+        let mut sample_spans = Vec::new();
+        sample_spans.push(Span::raw("  Decoded so far: "));
+        for i in 0..completed_words {
+            let chunk = &digits_only[i*4..(i+1)*4];
+            if let Ok(idx) = chunk.parse::<usize>() {
+                if idx < wordlist.len() {
+                    sample_spans.push(Span::styled(format!("#{}:{} ", i + 1, wordlist[idx]), Style::default().fg(Color::Yellow)));
+                }
+            }
+        }
+        lines.push(Line::from(sample_spans));
         lines.push(Line::from("  --------------------------------------------------------------------------"));
     } else {
         // Standard 12-word validation table
@@ -2064,6 +2299,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
     if state.is_harvesting_jitter {
         if key.code == KeyCode::Esc {
             state.is_harvesting_jitter = false;
+            state.intake_mode = None;
             for s in &mut state.jitter_samples {
                 s.0 = '\0';
                 s.1.zeroize();
@@ -2093,6 +2329,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 state.jitter_samples.clear();
                 state.last_jitter_instant = None;
                 state.is_harvesting_jitter = false;
+                state.intake_mode = None;
 
                 match crypto::process_physical_entropy(&bits) {
                     Ok(seed) => {
@@ -2116,6 +2353,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
             KeyCode::Char(c) if ('0'..='9').contains(&c) => {
                 let digit = c.to_digit(10).unwrap() as u8;
                 state.is_selecting_test_vector = false;
+                state.intake_mode = None;
                 if let Ok((_bytes, label)) = crypto::get_test_vector(digit) {
                     let seed = crypto::process_physical_entropy(&format!("test{}", digit)).unwrap();
                     let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
@@ -2125,6 +2363,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
             }
             KeyCode::Esc => {
                 state.is_selecting_test_vector = false;
+                state.intake_mode = None;
                 state.status_message = "Test vector selection canceled.".into();
             }
             _ => {
@@ -2136,7 +2375,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
 
     // Helper: Determine if user is in an active typing input field
     let is_typing_input = match state.current_page {
-        Page::MasterSeed => state.seed.is_none(),
+        Page::MasterSeed => state.seed.is_none() && state.intake_mode.is_some(),
         Page::SeedFix => true,
         Page::WordlistInspector => true,
         Page::VaultUnlock => state.decrypted_vault.is_none(),
@@ -2168,11 +2407,11 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
     // 5. Global Home / Esc: Return to RoleSelect and reset ephemeral input buffers
     // In input fields, Esc cancels text entry and returns to Tab 0
     if key.code == KeyCode::Esc || key.code == KeyCode::Home {
-        if state.current_page == Page::MasterSeed && state.is_importing_mnemonic && key.code == KeyCode::Esc {
-            state.is_importing_mnemonic = false;
+        if state.current_page == Page::MasterSeed && state.intake_mode.is_some() && key.code == KeyCode::Esc {
+            state.intake_mode = None;
             state.mnemonic_import_input.zeroize();
             state.mnemonic_import_input.clear();
-            state.status_message = "Returned to coin/dice physical entropy mode.".into();
+            state.status_message = "Returned to intake mode selector.".into();
             return false;
         }
         state.vault_passphrase_input.zeroize();
@@ -2180,9 +2419,9 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         state.seedfix_input.zeroize();
         state.seedfix_input.clear();
         state.wordlist_query.clear();
-        state.is_entering_entropy = false;
+        state.intake_mode = None;
         state.is_selecting_test_vector = false;
-        state.is_importing_mnemonic = false;
+        state.intake_mode = None;
         state.mnemonic_import_input.zeroize();
         state.mnemonic_import_input.clear();
         state.current_page = Page::RoleSelect;
@@ -2191,7 +2430,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
 
     // 6. Global Tab Navigation
     // INVARIANT: When entering mnemonic/materials or entropy, Tab and arrow keys must NOT navigate away.
-    if state.current_page == Page::MasterSeed && (state.is_importing_mnemonic || state.is_entering_entropy) {
+    if state.current_page == Page::MasterSeed && state.intake_mode.is_some() {
         // Suppress Tab and arrow navigation while actively typing in MasterSeed
     } else {
         match key.code {
@@ -2223,7 +2462,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
             match key.code {
                 KeyCode::Char('1') | KeyCode::Enter => {
                     state.current_page = Page::MasterSeed;
-                    state.is_importing_mnemonic = false;
+                    state.intake_mode = None;
                 }
                 KeyCode::Char('2') => {
                     state.current_page = Page::VaultUnlock;
@@ -2233,108 +2472,234 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 }
                 KeyCode::Char('4') | KeyCode::Char('i') | KeyCode::Char('I') => {
                     state.current_page = Page::MasterSeed;
-                    state.is_importing_mnemonic = true;
+                    state.intake_mode = Some(IntakeMode::Words);
                     state.mnemonic_import_input.clear();
-                    state.status_message = "INGESTION MODE: Enter 12 words, 48 digits, or descriptor.".into();
+                    state.status_message = "[MODE 5] 12 WORDS: Type BIP-39 words or 4-letter punch codes. [ESC] to return.".into();
                 }
                 _ => {}
             }
         }
         Page::MasterSeed => {
             let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-            if state.is_importing_mnemonic {
-                match key.code {
-                    KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
-                        state.mnemonic_import_input.pop();
-                    }
-                    KeyCode::Enter => {
-                        let trimmed = state.mnemonic_import_input.trim();
-                        if !trimmed.is_empty() {
-                            match crypto::process_mnemonic_phrase(trimmed) {
-                                Ok(seed) => {
-                                    let children = if seed.mnemonic.starts_with("[WATCH-ONLY") {
-                                        Vec::new()
-                                    } else {
-                                        crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default()
-                                    };
-                                    state.set_seed(seed, children);
-                                    state.status_message = "[✓] MATERIALS INGESTED: Ready in amnesic RAM.".into();
-                                }
-                                Err(e) => {
-                                    state.status_message = format!("[!] INGESTION FAILED: {}", e);
-                                }
+
+            // Sub-dispatch based on intake_mode
+            match state.intake_mode {
+                // ── MODE SELECTOR: no mode chosen yet ──────────────────────────
+                None => {
+                    match key.code {
+                        KeyCode::Char('1') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::Coins);
+                                state.entropy_input.clear();
+                                state.status_message = "[MODE 1] COIN FLIPS: Type '0' (Heads) or '1' (Tails). [ESC] to return.".into();
                             }
                         }
-                    }
-                    KeyCode::Char(c) if !has_ctrl => {
-                        // Allow letters, digits, spaces, and BIP-380 descriptor characters (including < and > for multipath)
-                        if state.mnemonic_import_input.len() < 300
-                            && (c.is_alphanumeric() || c == ' ' || "[]/'*()#;:-_.<>{}".contains(c))
-                        {
-                            state.mnemonic_import_input.push(c);
+                        KeyCode::Char('2') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::Dice);
+                                state.entropy_input.clear();
+                                state.status_message = "[MODE 2] DICE ROLLS: Type 1-6 for each roll. [ESC] to return.".into();
+                            }
                         }
+                        KeyCode::Char('3') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::RawHex);
+                                state.entropy_input.clear();
+                                state.status_message = "[MODE 3] RAW HEX: Type 64 hex chars (0-9, a-f). [ESC] to return.".into();
+                            }
+                        }
+                        KeyCode::Char('4') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::CompactSeedQR);
+                                state.mnemonic_import_input.clear();
+                                state.status_message = "[MODE 4] COMPACTSEEDQR: Type 48 decimal digits (4-digit word indices). [ESC] to return.".into();
+                            }
+                        }
+                        KeyCode::Char('5') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::Words);
+                                state.mnemonic_import_input.clear();
+                                state.status_message = "[MODE 5] 12 WORDS: Type BIP-39 words or 4-letter punch codes. [ESC] to return.".into();
+                            }
+                        }
+                        KeyCode::Char('6') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::Descriptor);
+                                state.mnemonic_import_input.clear();
+                                state.status_message = "[MODE 6] DESCRIPTOR: Paste wpkh(tpub...#checksum). [ESC] to return.".into();
+                            }
+                        }
+                        KeyCode::Char('7') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::Jitter);
+                                state.is_harvesting_jitter = true;
+                                state.jitter_samples.clear();
+                                state.last_jitter_instant = Some(std::time::Instant::now());
+                                state.status_message = "[MODE 7] JITTER: Mash any keys rapidly! (32 keystrokes needed) [ESC] cancel.".into();
+                            }
+                        }
+                        KeyCode::Char('8') if !has_ctrl => {
+                            if state.seed.is_none() {
+                                state.intake_mode = Some(IntakeMode::TestVector);
+                                state.is_selecting_test_vector = true;
+                                state.status_message = "[MODE 8] TEST VECTOR: Press [0-9] (0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney) or [ESC] cancel.".into();
+                            }
+                        }
+                        KeyCode::Esc => {
+                            // Already at selector — Esc goes to Tab 0
+                            state.current_page = Page::RoleSelect;
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            } else {
-                match key.code {
-                    KeyCode::Char('i' | 'I') if !has_ctrl && state.seed.is_none() && state.entropy_input.is_empty() => {
-                        state.is_importing_mnemonic = true;
-                        state.mnemonic_import_input.clear();
-                        state.status_message = "INGESTION MODE: Enter 12 words, 48 digits, or descriptor.".into();
-                    }
-                    KeyCode::Char('t' | 'T') if !has_ctrl => {
-                        if state.seed.is_none() {
-                            state.is_selecting_test_vector = true;
-                            state.status_message = "SELECT TEST VECTOR: Press [0-9] (e.g. 0=All-Zeros, 8=Satoshi Lore, 9=Hal Finney) or [Esc] to cancel:".into();
+
+                // ── MODE 1: COINS ───────────────────────────────────────────────
+                Some(IntakeMode::Coins) => {
+                    match key.code {
+                        KeyCode::Esc => {
+                            state.intake_mode = None;
+                            state.entropy_input.clear();
+                            state.status_message = "Returned to intake mode selector.".into();
                         }
-                    }
-                    KeyCode::Char('k' | 'K') if !has_ctrl => {
-                        if state.seed.is_none() {
-                            state.is_harvesting_jitter = true;
-                            state.jitter_samples.clear();
-                            state.last_jitter_instant = Some(std::time::Instant::now());
-                            state.status_message = "Harvesting human keystroke timing jitter. Mash any keys rapidly!".into();
-                        }
-                    }
-                    KeyCode::Char('c' | 'C') if !has_ctrl => {
-                        if state.seed.is_none() {
-                            let coin_entropy = "10100110110010111000101011110011011110100010101101111010101100111000101011110011011110100010101101111010101100111000101011110011";
-                            state.set_entropy_input(coin_entropy);
-                            state.status_message = "[COIN VECTOR LOADED] 128 physical coin flips populated. Review & press [ENTER].".into();
-                        }
-                    }
-                    KeyCode::Char('d' | 'D') if !has_ctrl => {
-                        if state.seed.is_none() {
-                            let dice_entropy = "4231246132541623514263514231652413625143625143625132";
-                            state.set_entropy_input(dice_entropy);
-                            state.status_message = "[DICE VECTOR LOADED] 52 dice rolls populated. Review & press [ENTER].".into();
-                        }
-                    }
-                    KeyCode::Backspace | KeyCode::Char('h') if key.code == KeyCode::Backspace || has_ctrl => {
-                        if state.seed.is_none() {
+                        KeyCode::Backspace => {
                             state.pop_entropy_char();
                         }
-                    }
-                    KeyCode::Enter => {
-                        if state.seed.is_none() && !state.entropy_input.is_empty() {
-                            match crypto::process_physical_entropy(&state.entropy_input) {
-                                Ok(seed) => {
-                                    let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
-                                    state.set_seed(seed, children);
-                                }
-                                Err(e) => {
-                                    state.status_message = format!("[BLOCKED] {}", e);
+                        KeyCode::Enter => {
+                            if !state.entropy_input.is_empty() {
+                                match crypto::process_physical_entropy(&state.entropy_input) {
+                                    Ok(seed) => {
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                        state.set_seed(seed, children);
+                                    }
+                                    Err(e) => {
+                                        state.status_message = format!("[BLOCKED] {}", e);
+                                    }
                                 }
                             }
                         }
-                    }
-                    KeyCode::Char(c) if !has_ctrl && c.is_ascii_alphanumeric() => {
-                        if state.seed.is_none() {
+                        KeyCode::Char(c) if !has_ctrl && (c == '0' || c == '1') => {
                             state.push_entropy_char(c);
                         }
+                        _ => {}
                     }
-                    _ => {}
+                }
+
+                // ── MODE 2: DICE ────────────────────────────────────────────────
+                Some(IntakeMode::Dice) => {
+                    match key.code {
+                        KeyCode::Esc => {
+                            state.intake_mode = None;
+                            state.entropy_input.clear();
+                            state.status_message = "Returned to intake mode selector.".into();
+                        }
+                        KeyCode::Backspace => {
+                            state.pop_entropy_char();
+                        }
+                        KeyCode::Enter => {
+                            if !state.entropy_input.is_empty() {
+                                match crypto::process_physical_entropy(&state.entropy_input) {
+                                    Ok(seed) => {
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                        state.set_seed(seed, children);
+                                    }
+                                    Err(e) => {
+                                        state.status_message = format!("[BLOCKED] {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) if !has_ctrl && ('1'..='6').contains(&c) => {
+                            state.push_entropy_char(c);
+                        }
+                        _ => {}
+                    }
+                }
+
+                // ── MODE 3: RAW HEX ─────────────────────────────────────────────
+                Some(IntakeMode::RawHex) => {
+                    match key.code {
+                        KeyCode::Esc => {
+                            state.intake_mode = None;
+                            state.entropy_input.clear();
+                            state.status_message = "Returned to intake mode selector.".into();
+                        }
+                        KeyCode::Backspace => {
+                            state.pop_entropy_char();
+                        }
+                        KeyCode::Enter => {
+                            if state.entropy_input.len() >= 64 {
+                                match crypto::process_physical_entropy(&state.entropy_input) {
+                                    Ok(seed) => {
+                                        let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
+                                        state.set_seed(seed, children);
+                                    }
+                                    Err(e) => {
+                                        state.status_message = format!("[BLOCKED] {}", e);
+                                    }
+                                }
+                            } else {
+                                state.status_message = format!("[INCOMPLETE] Need 64 hex chars, have {}.", state.entropy_input.len());
+                            }
+                        }
+                        KeyCode::Char(c) if !has_ctrl && c.is_ascii_hexdigit() => {
+                            if state.entropy_input.len() < 64 {
+                                state.push_entropy_char(c.to_ascii_lowercase());
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // ── MODES 4, 5, 6: text-based ingestion (CompactSeedQR / Words / Descriptor) ──
+                Some(IntakeMode::CompactSeedQR) | Some(IntakeMode::Words) | Some(IntakeMode::Descriptor) => {
+                    match key.code {
+                        KeyCode::Esc => {
+                            state.intake_mode = None;
+                            state.mnemonic_import_input.zeroize();
+                            state.mnemonic_import_input.clear();
+                            state.status_message = "Returned to intake mode selector.".into();
+                        }
+                        KeyCode::Backspace => {
+                            state.mnemonic_import_input.pop();
+                        }
+                        KeyCode::Enter => {
+                            let trimmed = state.mnemonic_import_input.trim().to_string();
+                            if !trimmed.is_empty() {
+                                match crypto::process_mnemonic_phrase(&trimmed) {
+                                    Ok(seed) => {
+                                        let children = if seed.mnemonic.starts_with("[WATCH-ONLY") {
+                                            Vec::new()
+                                        } else {
+                                            crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default()
+                                        };
+                                        state.set_seed(seed, children);
+                                        state.status_message = "[✓] MATERIALS INGESTED: Ready in amnesic RAM.".into();
+                                    }
+                                    Err(e) => {
+                                        state.status_message = format!("[!] INGESTION FAILED: {}", e);
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char(c) if !has_ctrl => {
+                            if state.mnemonic_import_input.len() < 300
+                                && (c.is_alphanumeric() || c == ' ' || "[]/'*()#;:-_.<>{}".contains(c))
+                            {
+                                state.mnemonic_import_input.push(c);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // ── MODES 7, 8: Jitter and TestVector handled by high-priority guards above ──
+                Some(IntakeMode::Jitter) | Some(IntakeMode::TestVector) => {
+                    if key.code == KeyCode::Esc {
+                        state.intake_mode = None;
+                        state.is_harvesting_jitter = false;
+                        state.is_selecting_test_vector = false;
+                        state.status_message = "Returned to intake mode selector.".into();
+                    }
                 }
             }
         }
