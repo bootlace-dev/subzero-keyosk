@@ -48,27 +48,46 @@ pub struct CameraScanner {
 impl CameraScanner {
     pub fn spawn() -> Self {
         let (tx, rx) = mpsc::channel();
-        let child = match Command::new("zbarcam")
-            .args(["--raw", "--nodisplay", "/dev/video0"])
+        let mut cmd = Command::new("zbarcam");
+        cmd.args(["--raw", "--nodisplay", "/dev/video0"])
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
+            .stderr(Stdio::piped());
+
+        let child = match cmd.spawn() {
             Ok(mut c) => {
                 let stdout = c.stdout.take();
-                thread::spawn(move || {
-                    if let Some(out) = stdout {
+                let stderr = c.stderr.take();
+                let tx_out = tx.clone();
+
+                if let Some(out) = stdout {
+                    thread::spawn(move || {
                         let reader = BufReader::new(out);
                         for line in reader.lines() {
                             if let Ok(l) = line {
                                 let trimmed = l.trim().to_string();
                                 if !trimmed.is_empty() {
-                                    let _ = tx.send(trimmed);
+                                    let _ = tx_out.send(trimmed);
                                 }
                             }
                         }
-                    }
-                });
+                    });
+                }
+
+                if let Some(err) = stderr {
+                    let tx_err = tx.clone();
+                    thread::spawn(move || {
+                        let reader = BufReader::new(err);
+                        for line in reader.lines() {
+                            if let Ok(l) = line {
+                                let trimmed = l.trim().to_string();
+                                if !trimmed.is_empty() {
+                                    let _ = tx_err.send(format!("DIAG: {trimmed}"));
+                                }
+                            }
+                        }
+                    });
+                }
+
                 Some(c)
             }
             Err(e) => {

@@ -16,7 +16,7 @@ use crate::crypto::{
     compact_seed_qr_to_mnemonic, get_descriptor_checksum,
 };
 use crate::qr::{
-    create_bbqr_frames, render_full_block_qr, QrMode,
+    create_bbqr_frames, render_full_block_qr, render_half_block_qr, QrMode,
 };
 use crate::seedfix::{search_wordlist, solve_twelfth_word};
 use crate::storage::{
@@ -517,11 +517,9 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled("  STATELESS TWO-WAY PSBT AIRGAP SIGNING ENGINE", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw(" — Zero Network Modules Loaded"),
     ]));
-    lines.push(Line::from(""));
-
     // 1. If currently displaying signed PSBT via Animated BBQR
     if let Some(ref signed_b64) = state.signed_psbt_base64 {
-        let frames = create_bbqr_frames(signed_b64, 4);
+        let frames = create_bbqr_frames(signed_b64, 6);
         let frame_count = frames.len();
         let cur_frame_idx = if frame_count > 0 {
             state.psbt_bbqr_frame_index % frame_count
@@ -534,28 +532,26 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
             Span::styled(format!("(BBQR Frame {}/{} at ~3 Hz)", cur_frame_idx + 1, frame_count), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
         ]));
         lines.push(Line::from(Span::styled(
-            "  Scan this animated QR code with your coordinator wallet (Nunchuk, Sparrow, BlueWallet):",
+            "  Scan animated QR with coordinator (Nunchuk, Sparrow, BlueWallet):",
             Style::default().fg(Color::White),
         )));
-        lines.push(Line::from(""));
 
         if let Some(current_frame_data) = frames.get(cur_frame_idx) {
-            if let Ok(qr_lines) = render_full_block_qr(current_frame_data) {
+            if let Ok(qr_lines) = render_half_block_qr(current_frame_data) {
                 for ql in qr_lines {
                     lines.push(ql);
                 }
             }
         }
 
-        lines.push(Line::from(""));
         lines.push(Line::from(vec![
             Span::styled("  ACTIONS: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
             Span::styled("[E] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::raw("Export to USB/SD (signed_tx.psbt)  |  "),
             Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-            Span::raw("Clear PSBT from RAM  |  "),
+            Span::raw("Clear PSBT  |  "),
             Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Return to Role Select"),
+            Span::raw("Return to Menu"),
         ]));
 
         let p = Paragraph::new(lines).block(block);
