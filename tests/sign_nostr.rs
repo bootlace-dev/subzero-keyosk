@@ -54,11 +54,11 @@ fn test_generate_nostr_release_signatures() {
          • DRAM Remanence Protection: kexec into memtest86+ v8.10 actively scrubs all RAM before power cut.\n\
          • 5-Section Deep Ledger: Gap limit audits, offline address reuse, RFC 6979 nonce badge, USD converter.\n\
          • 100% Deterministic Reproducible Musl Build.\n\n\
-         Git: https://github.com/bootlace-dev/subzero-keyosk/releases/tag/v0.4.0\n\
-         Commit: 16c934d\n\
-         SHA-256 (subzero): {}\n\
+         Git: https://github.com/bootlace-dev/subzero-keyosk/releases/tag/v0.4.0-testnet4\n\
+         Commit: d4fd7a9\n\
+         SHA-256 (subzero-x86_64-musl): {}\n\
          Signed by bootlace-dev GPG (F18173E554644BB59018AE50F6E96FADCA2E8E0F)",
-        "c6ff634f5eba32f3db7d3a7f7bfb472b4cc4bcba3dc01b0000a0fba08ac8d9b7"
+        "7000d6eac0bb6943b966002c2efdf9fb8fc6a08574d933268ce16338b0ceda52"
     );
 
     let tags = serde_json::json!([
@@ -67,7 +67,7 @@ fn test_generate_nostr_release_signatures() {
         ["t", "airgap"],
         ["t", "cots"],
         ["t", "release"],
-        ["e", "16c934d"]
+        ["e", "d4fd7a9"]
     ]);
 
     let event_payload = serde_json::json!([

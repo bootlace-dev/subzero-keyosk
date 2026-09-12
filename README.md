@@ -52,8 +52,8 @@ docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl ca
 ./scripts/deploy_appliance.sh /dev/sdb1
 ```
 
-## Binary Verification (Release v0.3.0)
+## Binary Verification (Release v0.4.0-testnet4)
 
-- **Target**: `x86_64-unknown-linux-musl`
-- **Binary Size**: 4.2 MB
-- **SHA-256**: `01b45846718de43b7bb9ef8898be6d725bf5609790bb9dcfb729f28ccfebed9c`
+- **Target**: `x86_64-unknown-linux-musl` (Static binary)
+- **Binary Size**: 4.4 MB
+- **SHA-256**: `7000d6eac0bb6943b966002c2efdf9fb8fc6a08574d933268ce16338b0ceda52`

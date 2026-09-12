@@ -2,3 +2,5 @@
 **/*.rs.bk
 Cargo.lock
 /subzero
+/subzero-x86_64-musl*
+/SHA256SUMS*

@@ -1,7 +1,7 @@
 # SubZero-rs v0.4.0 Release Notes
 ### Stateless Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance
-**Release Tag:** `v0.4.0`  
-**Git Commit:** `16c934d`  
+**Release Tag:** `v0.4.0-testnet4`  
+**Git Commit:** `d4fd7a9`  
 **Identity:** `bootlace-dev` (`bootlace-dev@users.noreply.github.com`)  
 **Nostr Identity:** `npub13nwyhs36ueg7ywgf90khhjaxhtp2wpsm84q4n8c2kxdfrty2p3yqfd8fcn`  
 **GPG Key ID:** `F18173E554644BB59018AE50F6E96FADCA2E8E0F`  
@@ -232,7 +232,7 @@ sha256sum target/x86_64-unknown-linux-musl/release/subzero
 
 **Expected Binary Checksum:**
 ```text
-c6ff634f5eba32f3db7d3a7f7bfb472b4cc4bcba3dc01b0000a0fba08ac8d9b7  target/x86_64-unknown-linux-musl/release/subzero
+7000d6eac0bb6943b966002c2efdf9fb8fc6a08574d933268ce16338b0ceda52  subzero-x86_64-musl
 ```
 
 **Alpine Appliance Manifest Checksums:**
