@@ -371,7 +371,7 @@ fn test_longest_bip39_words_phrase_on_heir_keys_tab() {
 fn test_exhaustive_offline_mnemonic_import_flow() {
     let mut state = AppState::new("2026-09-11 12:00:00Z".to_string(), "b0071ace".to_string());
     assert_eq!(state.current_page, Page::RoleSelect);
-    assert!(!state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, None);
 
     // 1. Press '4' from RoleSelect -> enters MasterSeed in Mnemonic Import Mode
     subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
@@ -379,7 +379,7 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
         crossterm::event::KeyModifiers::empty(),
     ));
     assert_eq!(state.current_page, Page::MasterSeed);
-    assert!(state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, Some(subzero::ui::IntakeMode::Words));
     assert!(state.mnemonic_import_input.is_empty());
 
     // 2. Press Esc to test cancellation back to coin/dice mode
@@ -388,14 +388,14 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
         crossterm::event::KeyModifiers::empty(),
     ));
     assert_eq!(state.current_page, Page::MasterSeed);
-    assert!(!state.is_importing_mnemonic, "Esc should exit import mode");
+    assert_eq!(state.intake_mode, None, "Esc should exit import mode");
 
     // 3. Press 'I' from MasterSeed to re-enter Mnemonic Import Mode
     subzero::ui::handle_key_event(&mut state, crossterm::event::KeyEvent::new(
         crossterm::event::KeyCode::Char('i'),
         crossterm::event::KeyModifiers::empty(),
     ));
-    assert!(state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, Some(subzero::ui::IntakeMode::Words));
 
     // 4. Type invalid checksum phrase and press Enter -> should fail with error message
     let invalid_phrase = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon";
@@ -449,7 +449,7 @@ fn test_exhaustive_offline_mnemonic_import_flow() {
         crossterm::event::KeyModifiers::empty(),
     ));
     assert!(state.seed.is_some(), "Valid phrase must set seed");
-    assert!(!state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, None);
     assert_eq!(state.seed.as_ref().unwrap().fingerprint, "73c5da0a");
     assert_eq!(state.bip85_children.len(), 20);
     assert!(state.decoupled_passphrase.is_some());
@@ -465,7 +465,7 @@ fn test_exhaustive_compact_seed_qr_and_descriptor_ingest_flow() {
         crossterm::event::KeyCode::Char('4'),
         crossterm::event::KeyModifiers::empty(),
     ));
-    assert!(state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, Some(subzero::ui::IntakeMode::Words));
 
     // 2. Type 48-digit CompactSeedQR string (test vector 0: 47 zeros + '3')
     let csqr_input = "000000000000000000000000000000000000000000000003";
@@ -510,7 +510,7 @@ fn test_exhaustive_compact_seed_qr_and_descriptor_ingest_flow() {
         crossterm::event::KeyCode::Char('4'),
         crossterm::event::KeyModifiers::empty(),
     ));
-    assert!(state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, Some(subzero::ui::IntakeMode::Words));
 
     let desc_input = "wpkh([73c5da0a/84'/1'/0']tpubDC8msFGeGuwnKG9Upg7DM2b4DaRqg3CUZa5g8v2SRQ6K4NSkxUgd7HsL2XVWbVm39yBA4LAxysQAm397zwQSQoQgewGiYZqrA9DsP4zbQ1M/<0;1>/*)#gwycrcrh";
     for c in desc_input.chars() {
@@ -554,7 +554,7 @@ fn test_exhaustive_compact_seed_qr_and_descriptor_ingest_flow() {
         crossterm::event::KeyCode::Char('4'),
         crossterm::event::KeyModifiers::empty(),
     ));
-    assert!(state.is_importing_mnemonic);
+    assert_eq!(state.intake_mode, Some(subzero::ui::IntakeMode::Words));
 
     let punch_input = "aban aban aban aban aban aban aban aban aban aban aban abou";
     for c in punch_input.chars() {

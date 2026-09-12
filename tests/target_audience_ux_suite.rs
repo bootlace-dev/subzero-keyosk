@@ -770,12 +770,17 @@ fn test_panic_operator_rapid_w_wipe_memory_hygiene_and_typing_protection() {
     assert!(state.vault_passphrase_input.is_empty());
     assert!(state.status_message.contains("MEMORY WIPED"));
 
-    // Subsequent 'w' when uninitialized must type safely into entropy without crashing
+    // Select Mode 5 (Words) to begin entering mnemonic:
+    let mode5_key = make_key(KeyCode::Char('5'), KeyModifiers::NONE);
+    let _ = handle_key_event(&mut state, mode5_key);
+    assert_eq!(state.intake_mode, Some(subzero::ui::IntakeMode::Words));
+
+    // Subsequent 'w' when entering words must type safely into mnemonic input without triggering wipe
     for _ in 0..49 {
         let _ = handle_key_event(&mut state, w_key);
     }
     assert!(state.seed.is_none());
-    assert_eq!(state.entropy_input.len(), 49, "Subsequent 'w' safely appended to entropy_input");
+    assert_eq!(state.mnemonic_import_input.len(), 49, "Subsequent 'w' safely appended to mnemonic_import_input");
 }
 
 #[test]

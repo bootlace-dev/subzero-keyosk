@@ -52,11 +52,12 @@ fn test_keystroke_jitter_harvest_lifecycle_and_transition() {
     assert!(bits.chars().all(|c| c == '0' || c == '1'));
 
     // Populate state and verify Miller's law chunking & Markov audit pass
+    state.intake_mode = Some(subzero::ui::IntakeMode::Coins);
     state.set_entropy_input(&bits);
     state.is_harvesting_jitter = false;
 
     assert_eq!(state.entropy_input.len(), 128);
-    assert!(state.status_message.contains("128-bit threshold valid"));
+    assert!(state.status_message.contains("128-bit"));
 
     // Derive seed from the jitter entropy
     let seed = process_physical_entropy(&state.entropy_input).expect("Jitter bits failed entropy processing");

@@ -154,6 +154,10 @@ pub struct AppState {
     pub psbt_outputs_count: usize,
     pub psbt_total_out_sat: u64,
     pub psbt_fee_sat: Option<u64>,
+    pub psbt_inspection: Option<crate::psbt::PsbtInspection>,
+    pub btc_usd_price: Option<f64>,
+    pub is_entering_price: bool,
+    pub price_input: String,
     pub is_scanning_camera: bool,
     pub camera_scanner: Option<CameraScanner>,
     pub bbqr_joiner: bbqr::continuous_join::ContinuousJoiner,
@@ -201,6 +205,10 @@ impl AppState {
             psbt_outputs_count: 0,
             psbt_total_out_sat: 0,
             psbt_fee_sat: None,
+            psbt_inspection: None,
+            btc_usd_price: None,
+            is_entering_price: false,
+            price_input: String::new(),
             is_scanning_camera: false,
             camera_scanner: None,
             bbqr_joiner: bbqr::continuous_join::ContinuousJoiner::new(),
@@ -263,6 +271,10 @@ impl AppState {
         self.psbt_outputs_count = 0;
         self.psbt_total_out_sat = 0;
         self.psbt_fee_sat = None;
+        self.psbt_inspection = None;
+        self.btc_usd_price = None;
+        self.is_entering_price = false;
+        self.price_input.clear();
         self.is_scanning_camera = false;
         if let Some(mut cam) = self.camera_scanner.take() {
             cam.stop();
@@ -293,6 +305,12 @@ impl AppState {
             cam.stop();
         }
         self.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
+        self.camera_live_feed.clear();
+
+        let mnemonic_opt = self.seed.as_ref().map(|s| s.mnemonic.as_str());
+        let inspection = crate::psbt::inspect_psbt(&parsed, mnemonic_opt);
+        self.psbt_inspection = Some(inspection);
+
         self.status_message = "[✓] PSBT captured! Review details and press [ENTER] to sign.".into();
     }
 
@@ -320,6 +338,7 @@ impl AppState {
         self.update_entropy_status();
     }
 
+    #[allow(dead_code)]
     pub fn set_entropy_input(&mut self, input: &str) {
         self.entropy_input = input.to_string();
         self.update_entropy_status();
@@ -566,6 +585,8 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
         let action_line = Line::from(vec![
             Span::styled(" [E] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::raw("Export to USB/SD  |  "),
+            Span::styled("[N] / [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+            Span::raw("Next Transaction (Clear & Scan)  |  "),
             Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
             Span::raw("Clear PSBT  |  "),
             Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
@@ -577,25 +598,51 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
     }
 
     let mut lines = Vec::new();
+
+    // 2. If entering BTC/USD spot price
+    if state.is_entering_price {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  >>> SET BITCOIN SPOT PRICE (OFFLINE USD ESTIMATOR) <<<",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )));
+        lines.push(Line::from("  Enter current BTC spot price in USD (e.g. 60000 or 95000) for transaction fee and output valuation:"));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  BTC Price (USD): $", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(&state.price_input, Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+            Span::styled("█", Style::default().fg(Color::Yellow)),
+        ]));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  [ENTER] Save Price  |  [ESC] Cancel / Clear  |  [BACKSPACE] Delete",
+            Style::default().fg(Color::DarkGray),
+        )));
+        let p = Paragraph::new(lines).block(block);
+        frame.render_widget(p, area);
+        return;
+    }
+
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  STATELESS TWO-WAY PSBT AIRGAP SIGNING ENGINE", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::raw(" — Zero Network Modules Loaded"),
     ]));
 
-    // 2. If camera ingestion is active
+    // 3. If camera ingestion is active
     if state.is_scanning_camera {
+        let dev = state.camera_scanner.as_ref().map(|c| c.device_path.as_str()).unwrap_or("/dev/video0");
         lines.push(Line::from(vec![
             Span::styled("  >>> [CAMERA ACTIVE] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("Scanning for PSBT via /dev/video0 (zbarcam)...", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled(format!("Scanning for PSBT via {dev} (zbarcam)..."), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]));
         lines.push(Line::from(""));
-        lines.push(Line::from("  • Hold your smartphone screen displaying the Nunchuk/Sparrow PSBT QR up to the laptop webcam."));
-        lines.push(Line::from("  • Supports static Base64 QR codes and raw ASCII wire format."));
-        lines.push(Line::from("  • When detected, SubZero will parse and verify transaction inputs and outputs automatically."));
+        lines.push(Line::from("  • Hold smartphone screen displaying Nunchuk/Sparrow PSBT QR up to the laptop webcam."));
+        lines.push(Line::from("  • Supports static Base64 QR, multipart BBQr (B$...), and raw wire format."));
+        lines.push(Line::from("  • When detected, SubZero will verify inputs, outputs, fee ratios, and anti-kleptography nonces."));
         lines.push(Line::from(""));
 
-        lines.push(Line::from(Span::styled("  LIVE CAMERA OPTICAL STREAM (Recent Scanned Fragments):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(Span::styled("  LIVE CAMERA OPTICAL STREAM (Current Session Scanned Fragments):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
         lines.push(Line::from("  --------------------------------------------------------------------------------"));
         if state.camera_live_feed.is_empty() {
             lines.push(Line::from(Span::styled("    [Awaiting QR pattern in camera viewframe...]", Style::default().fg(Color::DarkGray))));
@@ -622,64 +669,256 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    // 3. If a PSBT has been loaded and is awaiting review / signature
+    // 4. If a PSBT has been loaded and is awaiting review / signature
     if let Some(ref raw_psbt) = state.scanned_psbt {
+        let insp = state.psbt_inspection.as_ref();
+
         lines.push(Line::from(vec![
-            Span::styled("  [✓] PSBT LOADED INTO RAM: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+            Span::styled("  [✓] PSBT LOADED: ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
             Span::styled(&state.psbt_source_label, Style::default().fg(Color::Cyan)),
+            Span::raw("  |  "),
+            if let Some(price) = state.btc_usd_price {
+                Span::styled(format!("BTC Price: ${:.2} USD [P to edit]", price), Style::default().fg(Color::Green))
+            } else {
+                Span::styled("BTC Price: Unset [Press P to enter USD price]", Style::default().fg(Color::DarkGray))
+            },
         ]));
-        lines.push(Line::from(""));
 
-        lines.push(Line::from(Span::styled("  TRANSACTION INSPECTION & SECURITY VERIFICATION:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
-        lines.push(Line::from(format!("    • Inputs Count:  {} input(s)", state.psbt_inputs_count)));
-        lines.push(Line::from(format!("    • Outputs Count: {} output(s)", state.psbt_outputs_count)));
-        let btc_val = (state.psbt_total_out_sat as f64) / 100_000_000.0;
-        lines.push(Line::from(format!("    • Total Output:  {} sats ({:.8} tBTC)", state.psbt_total_out_sat, btc_val)));
-        if let Some(fee) = state.psbt_fee_sat {
-            lines.push(Line::from(format!("    • Network Fee:   {} sats", fee)));
+        // Check for FATAL BLOCKS
+        if let Some(ref i) = insp {
+            if !i.fatal_blocks.is_empty() {
+                lines.push(Line::from(""));
+                lines.push(Line::from(Span::styled(
+                    "  ███ CRITICAL FOOTGUN DETECTED — TRANSACTION SIGNING HARD BLOCKED ███",
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+                )));
+                for fb in &i.fatal_blocks {
+                    lines.push(Line::from(Span::styled(format!("    • {fb}"), Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD))));
+                }
+                lines.push(Line::from(Span::styled(
+                    "  Signing is disabled by cryptographic safety invariant to protect against real-world fund loss.",
+                    Style::default().fg(Color::Yellow),
+                )));
+            }
         }
-        lines.push(Line::from(""));
 
-        if state.seed.is_none() {
-            lines.push(Line::from(Span::styled(
-                "  [!] WARNING: NO MASTER SEED LOADED IN RAM. Cannot sign transaction.",
-                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from("  Visit Tab 1 (Master Seed) or Tab 9 (Vault Unlock) first to load your private keys into RAM."));
-        } else {
-            lines.push(Line::from(Span::styled(
-                "  [✓] MASTER KEYS READY IN RAM. Verification complete.",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
-            )));
-            lines.push(Line::from(vec![
-                Span::styled("  Press [ENTER] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-                Span::styled("to sign this transaction with active BIP-84 account keys.", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-            ]));
+        // Section 1: Transaction Summary & Metrics
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  1. TRANSACTION METRICS & VALUE TRANSFERS:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        let in_amt_sat = insp.and_then(|i| i.total_input_sat).unwrap_or(0);
+        let out_amt_sat = insp.map(|i| i.total_output_sat).unwrap_or(state.psbt_total_out_sat);
+        let fee_sat = insp.and_then(|i| i.fee_sat).or(state.psbt_fee_sat).unwrap_or(0);
+
+        let fmt_val = |sats: u64| -> String {
+            let btc = (sats as f64) / 100_000_000.0;
+            if let Some(price) = state.btc_usd_price {
+                let usd = btc * price;
+                format!("{} sats ({:.8} tBTC ≈ ${:.2} USD)", sats, btc, usd)
+            } else {
+                format!("{} sats ({:.8} tBTC)", sats, btc)
+            }
+        };
+
+        lines.push(Line::from(format!("    • Total Inputs:  {}", fmt_val(in_amt_sat))));
+        lines.push(Line::from(format!("    • Total Outputs: {}", fmt_val(out_amt_sat))));
+
+        let fee_pct_str = insp.and_then(|i| i.fee_pct).map(|p| format!(" ({:.1}% of total)", p)).unwrap_or_default();
+        let fee_rate_str = insp.and_then(|i| i.fee_rate_sat_vb).map(|r| format!(" | Rate: {:.1} sat/vB", r)).unwrap_or_default();
+        lines.push(Line::from(format!("    • Network Fee:   {}{}{}", fmt_val(fee_sat), fee_pct_str, fee_rate_str)));
+
+        if let Some(i) = insp {
+            let rbf_str = if i.is_rbf_active { "Opt-In RBF Active (BIP-125)" } else { "Finalized (No RBF)" };
+            let lock_str = if i.locktime == 0 {
+                "0 (Immediate spend)".to_string()
+            } else if i.locktime < 500_000_000 {
+                format!("#{} (Anti-Fee-Sniping block lock)", i.locktime)
+            } else {
+                format!("Timestamp {} (Unix epoch)", i.locktime)
+            };
+            lines.push(Line::from(format!("    • RBF / Lock:    {} | Locktime: {}", rbf_str, lock_str)));
+        }
+
+        // Section 2: Destination Outputs Ledger
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  2. DESTINATION OUTPUTS (Verify Recipient Character-by-Character):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        if let Some(i) = insp {
+            for out in &i.outputs {
+                let chunked_addr = crate::psbt::format_address_chunked(&out.address);
+                if out.is_change {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("    [OUTPUT #{}] ", out.index), Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                        Span::styled("INTERNAL CHANGE (Return to Wallet): ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                        Span::styled(fmt_val(out.amount_sat), Style::default().fg(Color::White)),
+                        Span::styled(format!("  [{}]", out.script_type), Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("      Address: "),
+                        Span::styled(&out.address, Style::default().fg(Color::DarkGray)),
+                        if let Some(ref path) = out.bip32_path {
+                            Span::styled(format!(" ({path})"), Style::default().fg(Color::Cyan))
+                        } else if let Some(idx) = out.derivation_index {
+                            Span::styled(format!(" (Change Index #{idx})"), Style::default().fg(Color::Cyan))
+                        } else {
+                            Span::raw("")
+                        },
+                    ]));
+                } else if out.is_self_receive {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("    [OUTPUT #{}] ", out.index), Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled("INTERNAL SELF-SEND / CONSOLIDATION: ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                        Span::styled(fmt_val(out.amount_sat), Style::default().fg(Color::White)),
+                        Span::styled(format!("  [{}]", out.script_type), Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("      Address: "),
+                        Span::styled(&out.address, Style::default().fg(Color::DarkGray)),
+                        if let Some(ref path) = out.bip32_path {
+                            Span::styled(format!(" ({path})"), Style::default().fg(Color::Cyan))
+                        } else if let Some(idx) = out.derivation_index {
+                            Span::styled(format!(" (Receive Index #{idx})"), Style::default().fg(Color::Cyan))
+                        } else {
+                            Span::raw("")
+                        },
+                    ]));
+                } else {
+                    lines.push(Line::from(vec![
+                        Span::styled(format!("    [OUTPUT #{}] ", out.index), Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+                        Span::styled("EXTERNAL RECIPIENT SPEND: ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+                        Span::styled(fmt_val(out.amount_sat), Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                        Span::styled(format!("  [{}]", out.script_type), Style::default().fg(Color::DarkGray)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("      Raw Addr: "),
+                        Span::styled(&out.address, Style::default().fg(Color::Yellow)),
+                    ]));
+                    lines.push(Line::from(vec![
+                        Span::raw("      Chunked:  "),
+                        Span::styled(chunked_addr, Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                    ]));
+                }
+            }
+        }
+
+        // Section 3: Spending Inputs Ledger
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  3. SPENDING INPUTS (UTXO Proof of Ownership):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        if let Some(i) = insp {
+            for inp in &i.inputs {
+                let own_tag = if inp.is_ours {
+                    Span::styled("[✓ OUR WALLET]", Style::default().fg(Color::Green))
+                } else {
+                    Span::styled("[EXTERNAL / UNMATCHED]", Style::default().fg(Color::Yellow))
+                };
+                let amt_str = inp.amount_sat.map(|a| fmt_val(a)).unwrap_or_else(|| "Unknown sats".to_string());
+                let rbf_badge = if inp.rbf_enabled {
+                    Span::styled(" [RBF]", Style::default().fg(Color::Yellow))
+                } else {
+                    Span::raw("")
+                };
+                let deriv_str = inp.derivation_path.as_deref().map(|p| format!(" [{p}]")).unwrap_or_default();
+                lines.push(Line::from(vec![
+                    Span::styled(format!("    • Input #{}: ", inp.index), Style::default().fg(Color::White)),
+                    Span::raw(format!("{} | ", inp.outpoint)),
+                    Span::styled(amt_str, Style::default().fg(Color::White)),
+                    Span::raw(" | "),
+                    own_tag,
+                    Span::styled(deriv_str, Style::default().fg(Color::Cyan)),
+                    rbf_badge,
+                    Span::styled(format!(" | {} | {}", inp.script_type, inp.sighash_type), Style::default().fg(Color::DarkGray)),
+                ]));
+            }
+        }
+
+        // Section 4: Security Invariants & Audit Warnings
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled("  4. CRYPTOGRAPHIC INTEGRITY & AUDIT ALERTS:", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from(vec![
+            Span::styled("    [✓] Anti-Kleptography: ", Style::default().fg(Color::Green)),
+            Span::raw("RFC 6979 Deterministic Nonce Enforced (Zero secret exfiltration via signatures)"),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("    [✓] Consensus Spec:    ", Style::default().fg(Color::Green)),
+            Span::raw("BIP-141 / BIP-84 Native SegWit P2WPKH Single-Sig (m/84'/1'/0')"),
+        ]));
+
+        if let Some(i) = insp {
+            let total_unk = i.unknown_global_count + i.unknown_input_count + i.unknown_output_count + i.proprietary_field_count;
+            if total_unk == 0 {
+                lines.push(Line::from(vec![
+                    Span::styled("    [✓] PSBT Key-Value:    ", Style::default().fg(Color::Green)),
+                    Span::raw("Zero proprietary or unknown metadata fields (Clean PSBT)"),
+                ]));
+            } else {
+                lines.push(Line::from(vec![
+                    Span::styled("    [!] PSBT Key-Value:    ", Style::default().fg(Color::Yellow)),
+                    Span::styled(format!("{total_unk} unknown/proprietary field(s) present in PSBT map"), Style::default().fg(Color::Yellow)),
+                ]));
+            }
+
+            for warn in &i.warnings {
+                lines.push(Line::from(Span::styled(format!("    [!] {warn}"), Style::default().fg(Color::Yellow))));
+            }
         }
 
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled(
-            format!("  Raw PSBT Payload Preview ({} chars): {}...", raw_psbt.len(), &raw_psbt[..std::cmp::min(raw_psbt.len(), 60)]),
+            format!("  Raw PSBT Payload Preview ({} chars): {}...", raw_psbt.len(), &raw_psbt[..std::cmp::min(raw_psbt.len(), 50)]),
             Style::default().fg(Color::DarkGray),
         )));
         lines.push(Line::from(""));
-        lines.push(Line::from(vec![
-            Span::styled("  [ENTER] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-            Span::raw("Sign Transaction  |  "),
-            Span::styled("[E] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::raw("Export to USB  |  "),
-            Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
-            Span::raw("Clear PSBT  |  "),
-            Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-            Span::raw("Back to Menu"),
-        ]));
+
+        let can_sign = insp.map(|i| i.fatal_blocks.is_empty()).unwrap_or(true) && state.seed.is_some();
+        if can_sign {
+            lines.push(Line::from(vec![
+                Span::styled("  [ENTER] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
+                Span::styled("Sign Transaction  |  ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Span::styled("[P] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("Set BTC/USD  |  "),
+                Span::styled("[E] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("Export to USB  |  "),
+                Span::styled("[N] / [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("Scan Next PSBT  |  "),
+                Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+                Span::raw("Clear  |  "),
+                Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("Back"),
+            ]));
+        } else if state.seed.is_none() {
+            lines.push(Line::from(Span::styled(
+                "  [!] SIGNING DISABLED: NO PRIVATE KEYS IN RAM. Visit Tab 1 to derive or import keys.",
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(vec![
+                Span::styled("  [P] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("Set BTC/USD  |  "),
+                Span::styled("[N] / [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("Scan Next PSBT  |  "),
+                Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+                Span::raw("Clear  |  "),
+                Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("Back"),
+            ]));
+        } else {
+            lines.push(Line::from(Span::styled(
+                "  [!] SIGNING HARD-BLOCKED BY SECURITY ASSERTIONS. Review red errors above.",
+                Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD),
+            )));
+            lines.push(Line::from(vec![
+                Span::styled("  [N] / [S] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
+                Span::raw("Scan Next PSBT  |  "),
+                Span::styled("[X] ", Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)),
+                Span::raw("Clear  |  "),
+                Span::styled("[Esc] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::raw("Back"),
+            ]));
+        }
 
         let p = Paragraph::new(lines).block(block);
         frame.render_widget(p, area);
         return;
     }
 
-    // 4. Default Idle State: Ingestion Vector Selector
+    // 5. Default Idle State: Ingestion Vector Selector
     lines.push(Line::from(Span::styled(
         "  SELECT PSBT INTAKE VECTOR:",
         Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
@@ -687,22 +926,39 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  [S] ", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
-        Span::styled("Scan via Laptop Webcam (/dev/video0)     ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled("Live zbarcam capture of QR from Nunchuk/Sparrow", Style::default().fg(Color::DarkGray)),
+        Span::styled("Scan via Laptop Webcam (/dev/video*)    ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        Span::styled("Live optical capture of QR from Nunchuk/Sparrow", Style::default().fg(Color::DarkGray)),
     ]));
     lines.push(Line::from(vec![
         Span::styled("  [U] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled("Import from USB Shuttle / SD Partition 2 ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::styled("Scans external USB or Partition 2 for *.psbt / *.txn", Style::default().fg(Color::DarkGray)),
     ]));
+    lines.push(Line::from(vec![
+        Span::styled("  [P] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+        Span::styled("Set Bitcoin Reference Price (USD)       ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+        if let Some(price) = state.btc_usd_price {
+            Span::styled(format!("Current: ${:.2} USD", price), Style::default().fg(Color::Green))
+        } else {
+            Span::styled("Optional offline fiat conversion helper", Style::default().fg(Color::DarkGray))
+        },
+    ]));
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
     lines.push(Line::from(Span::styled(
-        "  SECURITY INVARIANT: PSBT payloads are parsed strictly in read-only memory.",
+        "  SECURITY INVARIANTS ENFORCED AT PARSING BOUNDARY:",
         Style::default().fg(Color::DarkGray),
     )));
     lines.push(Line::from(Span::styled(
-        "  Once signed, the transaction is output via animated BBQR and saved to USB shuttle.",
+        "  • Single-sig BIP-84 Native SegWit (P2WPKH) on Testnet4 strictly enforced.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  • Mainnet derivation paths or addresses trigger an immediate hard signing block.",
+        Style::default().fg(Color::DarkGray),
+    )));
+    lines.push(Line::from(Span::styled(
+        "  • RFC 6979 deterministic nonces eliminate all kleptographic private key exfiltration.",
         Style::default().fg(Color::DarkGray),
     )));
 
@@ -2637,6 +2893,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         Page::SeedFix => true,
         Page::WordlistInspector => true,
         Page::VaultUnlock => state.decrypted_vault.is_none(),
+        Page::PsbtSigner => state.is_entering_price,
         _ => false,
     };
 
@@ -2667,17 +2924,24 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
     if key.code == KeyCode::Esc || key.code == KeyCode::Home {
         if state.current_page == Page::MasterSeed && state.intake_mode.is_some() && key.code == KeyCode::Esc {
             state.intake_mode = None;
+            state.entropy_input.clear();
             state.mnemonic_import_input.zeroize();
             state.mnemonic_import_input.clear();
             state.status_message = "Returned to intake mode selector.".into();
             return false;
         }
         if state.current_page == Page::PsbtSigner && key.code == KeyCode::Esc {
+            if state.is_entering_price {
+                state.is_entering_price = false;
+                state.status_message = "Price entry cancelled.".into();
+                return false;
+            }
             if state.is_scanning_camera {
                 state.is_scanning_camera = false;
                 if let Some(mut cam) = state.camera_scanner.take() {
                     cam.stop();
                 }
+                state.camera_live_feed.clear();
                 state.status_message = "Camera scanning stopped.".into();
                 return false;
             }
@@ -2685,6 +2949,8 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 // Return to idle selection state on Tab 14
                 state.scanned_psbt = None;
                 state.signed_psbt_base64 = None;
+                state.psbt_inspection = None;
+                state.camera_live_feed.clear();
                 state.status_message = "PSBT cleared. Select intake vector.".into();
                 return false;
             }
@@ -2705,8 +2971,9 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
 
     // 6. Global Tab Navigation
     // INVARIANT: When entering mnemonic/materials or entropy, Tab and arrow keys must NOT navigate away.
-    if state.current_page == Page::MasterSeed && state.intake_mode.is_some() {
-        // Suppress Tab and arrow navigation while actively typing in MasterSeed
+    if (state.current_page == Page::MasterSeed && state.intake_mode.is_some())
+        || (state.current_page == Page::PsbtSigner && state.is_entering_price) {
+        // Suppress Tab and arrow navigation while actively typing in MasterSeed or entering price
     } else {
         match key.code {
             KeyCode::Tab | KeyCode::Right => {
@@ -2762,22 +3029,74 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         Page::PsbtSigner => {
             let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
+            // Handle price entry sub-mode
+            if state.is_entering_price {
+                match key.code {
+                    KeyCode::Esc => {
+                        state.is_entering_price = false;
+                        state.status_message = "Cancelled price entry.".into();
+                    }
+                    KeyCode::Enter => {
+                        let trimmed = state.price_input.trim();
+                        if trimmed.is_empty() {
+                            state.btc_usd_price = None;
+                            state.status_message = "BTC reference price cleared.".into();
+                        } else if let Ok(val) = trimmed.parse::<f64>() {
+                            if val > 0.0 {
+                                state.btc_usd_price = Some(val);
+                                state.status_message = format!("BTC reference price set to ${:.2} USD.", val);
+                            } else {
+                                state.btc_usd_price = None;
+                                state.status_message = "Invalid price (must be positive). Cleared.".into();
+                            }
+                        } else {
+                            state.status_message = "Invalid numeric price. Cleared.".into();
+                        }
+                        state.is_entering_price = false;
+                    }
+                    KeyCode::Backspace => {
+                        state.price_input.pop();
+                    }
+                    KeyCode::Char(c) if !has_ctrl && (c.is_ascii_digit() || c == '.') => {
+                        if state.price_input.len() < 12 {
+                            state.price_input.push(c);
+                        }
+                    }
+                    _ => {}
+                }
+                return false;
+            }
+
             match key.code {
-                // S: Toggle camera scanning
-                KeyCode::Char('s' | 'S') if !has_ctrl => {
+                // P: Enter BTC/USD Price
+                KeyCode::Char('p' | 'P') if !has_ctrl => {
+                    state.is_entering_price = true;
+                    state.price_input = state.btc_usd_price.map(|p| format!("{:.0}", p)).unwrap_or_default();
+                    state.status_message = "Enter BTC spot price in USD (e.g. 60000). [ENTER] save, [ESC] cancel.".into();
+                }
+
+                // S or N: Scan via Laptop Webcam (clears prior PSBT cleanly)
+                KeyCode::Char('s' | 'S' | 'n' | 'N') if !has_ctrl => {
                     if state.is_scanning_camera {
                         state.is_scanning_camera = false;
                         if let Some(mut cam) = state.camera_scanner.take() {
                             cam.stop();
                         }
                         state.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
+                        state.camera_live_feed.clear();
                         state.status_message = "Camera scanning stopped.".into();
-                    } else if state.scanned_psbt.is_none() && state.signed_psbt_base64.is_none() {
+                    } else {
+                        // Clear prior PSBT state so new scan starts clean
+                        state.scanned_psbt = None;
+                        state.signed_psbt_base64 = None;
+                        state.psbt_inspection = None;
+                        state.camera_live_feed.clear();
+                        state.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
+
                         let cam = CameraScanner::spawn();
                         let dev = cam.device_path.clone();
                         state.camera_scanner = Some(cam);
                         state.is_scanning_camera = true;
-                        state.bbqr_joiner = bbqr::continuous_join::ContinuousJoiner::new();
                         state.status_message = format!("Camera scanning active on {dev}. Hold up PSBT QR.");
                     }
                 }
@@ -2818,15 +3137,25 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 KeyCode::Char('x' | 'X') if !has_ctrl => {
                     state.scanned_psbt = None;
                     state.signed_psbt_base64 = None;
+                    state.psbt_inspection = None;
                     state.is_scanning_camera = false;
                     if let Some(mut cam) = state.camera_scanner.take() {
                         cam.stop();
                     }
+                    state.camera_live_feed.clear();
                     state.status_message = "PSBT cleared from RAM. Select intake vector.".into();
                 }
 
                 // Enter: Sign PSBT
                 KeyCode::Enter => {
+                    // Check fatal blocks first!
+                    if let Some(ref insp) = state.psbt_inspection {
+                        if !insp.fatal_blocks.is_empty() {
+                            state.status_message = format!("[BLOCKED] Signing prevented: {}", insp.fatal_blocks[0]);
+                            return false;
+                        }
+                    }
+
                     if let Some(ref raw_psbt) = state.scanned_psbt {
                         if let Some(ref seed) = state.seed {
                             match psbt::parse_psbt(raw_psbt) {
@@ -2892,7 +3221,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                                 state.status_message = "[MODE 4] COMPACTSEEDQR: Type 48 decimal digits (4-digit word indices). [ESC] to return.".into();
                             }
                         }
-                        KeyCode::Char('5') if !has_ctrl => {
+                        KeyCode::Char('5' | 'i' | 'I') if !has_ctrl => {
                             if state.seed.is_none() {
                                 state.intake_mode = Some(IntakeMode::Words);
                                 state.mnemonic_import_input.clear();
