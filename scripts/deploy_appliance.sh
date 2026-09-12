@@ -69,21 +69,14 @@ fi
 echo '    - Installing kexec-tools, v4l-utils, libjpeg, and kmod into appliance rootfs...'
 apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools v4l-utils-libs libjpeg-turbo kmod >/dev/null 2>&1
 
-echo '    - Extracting media and video drivers (uvcvideo) from Alpine linux-lts...'
-apk fetch --repositories-file /etc/apk/repositories --keys-dir /etc/apk/keys -o /tmp linux-lts >/dev/null 2>&1
-mkdir -p /tmp/lts_pkg
-tar -xf /tmp/linux-lts-*.apk -C /tmp/lts_pkg 2>/dev/null || true
-
-for kdir in /tmp/lts_pkg/lib/modules/*; do
+echo '    - Injecting pre-packaged media/video drivers (uvcvideo) from assets...'
+cp -a /src/assets/media_modules/lib/modules/* /mnt/sq/lib/modules/ 2>/dev/null || true
+for kdir in /mnt/sq/lib/modules/*; do
   if [ -d "$kdir" ]; then
     kver="$(basename "$kdir")"
-    mkdir -p "/mnt/sq/lib/modules/$kver/kernel/drivers/media"
-    cp -a "$kdir/kernel/drivers/media/"* "/mnt/sq/lib/modules/$kver/kernel/drivers/media/" 2>/dev/null || true
-    # Run depmod to index the newly added media drivers
     depmod -b /mnt/sq "$kver" 2>/dev/null || true
   fi
 done
-rm -rf /tmp/lts_pkg /tmp/linux-lts-*.apk
 
 echo '    - Pruning networking and bluetooth modules for Substrate Hardening...'
 rm -rf /mnt/sq/lib/modules/*/kernel/net
