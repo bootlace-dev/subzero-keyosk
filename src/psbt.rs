@@ -332,7 +332,11 @@ pub fn format_address_chunked(addr: &str) -> String {
     out
 }
 
-pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
+pub fn inspect_psbt(
+    psbt: &Psbt,
+    mnemonic_opt: Option<&str>,
+    session_addrs: Option<&std::collections::HashSet<String>>,
+) -> PsbtInspection {
     let mut warnings = Vec::new();
     let mut fatal_blocks = Vec::new();
 
@@ -376,6 +380,7 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
     let mut input_details = Vec::new();
     let mut total_in_sat = 0u64;
     let mut all_inputs_known = true;
+    let mut spent_input_scripts = Vec::new();
 
     for (i, input) in psbt.inputs.iter().enumerate() {
         let txin = &psbt.unsigned_tx.input[i];
@@ -410,10 +415,12 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
 
         // Value & script
         let (amount_sat, script_opt) = if let Some(ref utxo) = input.witness_utxo {
+            spent_input_scripts.push((i, utxo.script_pubkey.clone()));
             (Some(utxo.value.to_sat()), Some(&utxo.script_pubkey))
         } else if let Some(ref non_wit) = input.non_witness_utxo {
             let vout = txin.previous_output.vout as usize;
             if let Some(txout) = non_wit.output.get(vout) {
+                spent_input_scripts.push((i, txout.script_pubkey.clone()));
                 (Some(txout.value.to_sat()), Some(&txout.script_pubkey))
             } else {
                 (None, None)
@@ -490,12 +497,31 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
     let mut output_details = Vec::new();
     let mut total_out_sat = 0u64;
     let mut has_internal_change = false;
+    let mut seen_output_scripts: std::collections::HashMap<bitcoin::ScriptBuf, usize> = std::collections::HashMap::new();
 
     for (j, out) in psbt.unsigned_tx.output.iter().enumerate() {
         let amt = out.value.to_sat();
         total_out_sat = total_out_sat.saturating_add(amt);
         let script = &out.script_pubkey;
         let script_type = classify_script(script);
+
+        // Check intra-transaction address reuse: Output sending back to spent input
+        for (in_idx, in_script) in &spent_input_scripts {
+            if in_script == script {
+                warnings.push(format!(
+                    "[DANGEROUS ADDRESS REUSE] Output #{j} sends funds back to spending Input #{in_idx} address! Address reuse destroys transaction privacy and degrades cryptographic isolation."
+                ));
+            }
+        }
+
+        // Check duplicate output addresses within the same transaction
+        if let Some(prev_j) = seen_output_scripts.get(script) {
+            warnings.push(format!(
+                "[DUPLICATE OUTPUT ADDRESS] Output #{j} sends to identical script/address as Output #{prev_j}! (Verify intended split payment)."
+            ));
+        } else {
+            seen_output_scripts.insert(script.clone(), j);
+        }
 
         // Check bip32_derivation for Mainnet coin type
         if let Some(out_psbt) = psbt.outputs.get(j) {
@@ -514,7 +540,7 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
             .map(|a| a.to_string())
             .unwrap_or_else(|| script.to_string());
 
-        // Check if address starts with mainnet markers bc1, 1, 3 (extra check)
+        // Check if address starts with mainnet markers bc1, 1, 3
         if address.starts_with("bc1") || address.starts_with('1') || address.starts_with('3') {
             fatal_blocks.push(format!(
                 "[CRITICAL FOOTGUN] MAINNET ADDRESS DETECTED ON OUTPUT #{j} ({address})! SubZero is running in Testnet4 mode."
@@ -532,18 +558,26 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
             has_internal_change = true;
             deriv_idx = Some(*idx);
             bip32_path = Some(format!("m/84'/1'/0'/1/{idx}"));
-            if *idx >= 20 {
+            if *idx > 20 {
                 warnings.push(format!(
-                    "[GAP LIMIT NOTICE] Change Output #{j} uses index #{idx}, which exceeds standard 20-address gap limit."
+                    "[CRITICAL GAP EXCEEDED] Change Output #{j} uses derivation index #{idx}, EXCEEDING standard 20-address gap limit! Standard recovery wallets will NOT discover these funds without custom gap scan."
+                ));
+            } else if *idx > 0 {
+                warnings.push(format!(
+                    "[GAP CAUTION] Change Output #{j} uses derivation index #{idx} (ahead of index #0). Verify coordinator has not skipped unspent change."
                 ));
             }
         } else if let Some(idx) = our_receive_addrs.get(script) {
             is_self_receive = true;
             deriv_idx = Some(*idx);
             bip32_path = Some(format!("m/84'/1'/0'/0/{idx}"));
-            if *idx >= 20 {
+            if *idx > 20 {
                 warnings.push(format!(
-                    "[GAP LIMIT NOTICE] Self-receive Output #{j} uses index #{idx}, which exceeds standard 20-address gap limit."
+                    "[CRITICAL GAP EXCEEDED] Self-receive Output #{j} uses derivation index #{idx}, EXCEEDING standard 20-address gap limit! Potential funds invisibility on recovery."
+                ));
+            } else if *idx > 0 {
+                warnings.push(format!(
+                    "[GAP CAUTION] Self-receive Output #{j} uses derivation index #{idx} (ahead of index #0). Verify prior receive addresses were used."
                 ));
             }
         } else if let Some(out_psbt) = psbt.outputs.get(j) {
@@ -552,16 +586,54 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
                 for (_pk, (fp, path)) in &out_psbt.bip32_derivation {
                     if *fp == our_fp {
                         let p_str = path.to_string();
+                        let last_idx = path.into_iter().last().map(|c| match c {
+                            bitcoin::bip32::ChildNumber::Normal { index } => *index,
+                            bitcoin::bip32::ChildNumber::Hardened { index } => *index,
+                        });
+                        deriv_idx = last_idx;
                         if p_str.contains("/1/") {
                             is_change = true;
                             has_internal_change = true;
                             bip32_path = Some(p_str);
+                            if let Some(idx) = last_idx {
+                                if idx > 20 {
+                                    warnings.push(format!(
+                                        "[CRITICAL GAP EXCEEDED] Change Output #{j} uses derivation index #{idx}, EXCEEDING standard 20-address gap limit! Standard recovery wallets will NOT discover these funds without custom gap scan."
+                                    ));
+                                } else if idx > 0 {
+                                    warnings.push(format!(
+                                        "[GAP CAUTION] Change Output #{j} uses derivation index #{idx} (ahead of index #0). Verify coordinator has not skipped unspent change."
+                                    ));
+                                }
+                            }
                         } else if p_str.contains("/0/") {
                             is_self_receive = true;
                             bip32_path = Some(p_str);
+                            if let Some(idx) = last_idx {
+                                if idx > 20 {
+                                    warnings.push(format!(
+                                        "[CRITICAL GAP EXCEEDED] Self-receive Output #{j} uses derivation index #{idx}, EXCEEDING standard 20-address gap limit! Potential funds invisibility on recovery."
+                                    ));
+                                } else if idx > 0 {
+                                    warnings.push(format!(
+                                        "[GAP CAUTION] Self-receive Output #{j} uses derivation index #{idx} (ahead of index #0). Verify prior receive addresses were used."
+                                    ));
+                                }
+                            }
                         }
                         break;
                     }
+                }
+            }
+        }
+
+        // Check session-level address reuse for external recipients
+        if !is_change {
+            if let Some(sess) = session_addrs {
+                if sess.contains(&address) {
+                    warnings.push(format!(
+                        "[SESSION ADDRESS REUSE] Output #{j} address ({address}) was already used in an earlier transaction signed during this boot session!"
+                    ));
                 }
             }
         }
@@ -663,5 +735,131 @@ pub fn inspect_psbt(psbt: &Psbt, mnemonic_opt: Option<&str>) -> PsbtInspection {
         proprietary_field_count: proprietary_count,
         warnings,
         fatal_blocks,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bitcoin::hashes::Hash;
+    use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
+
+    fn dummy_mnemonic() -> &'static str {
+        "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+    }
+
+    #[test]
+    fn test_gap_caution_and_critical_gap_exceeded() {
+        let secp = Secp256k1::new();
+        let mnemonic = Mnemonic::from_str(dummy_mnemonic()).unwrap();
+        let seed = mnemonic.to_seed("");
+        let master_xprv = Xpriv::new_master(Network::Testnet4, &seed).unwrap();
+
+        // Derive change #5 (gap caution) and change #25 (critical gap)
+        let path_5 = DerivationPath::from_str("m/84'/1'/0'/1/5").unwrap();
+        let child_5 = master_xprv.derive_priv(&secp, &path_5).unwrap();
+        let addr_5 = Address::p2wpkh(&bitcoin::CompressedPublicKey(child_5.private_key.public_key(&secp)), bitcoin::KnownHrp::Testnets);
+
+        let path_25 = DerivationPath::from_str("m/84'/1'/0'/1/25").unwrap();
+        let child_25 = master_xprv.derive_priv(&secp, &path_25).unwrap();
+        let addr_25 = Address::p2wpkh(&bitcoin::CompressedPublicKey(child_25.private_key.public_key(&secp)), bitcoin::KnownHrp::Testnets);
+
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![
+                TxOut { value: Amount::from_sat(50_000), script_pubkey: addr_5.script_pubkey() },
+                TxOut { value: Amount::from_sat(40_000), script_pubkey: addr_25.script_pubkey() },
+            ],
+        };
+
+        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros()),
+        });
+
+        let inspection = inspect_psbt(&psbt, Some(dummy_mnemonic()), None);
+
+        // Verify Output #0 (change #5) has GAP CAUTION
+        assert!(inspection.warnings.iter().any(|w| w.contains("[GAP CAUTION]") && w.contains("Output #0")));
+
+        // Verify Output #1 (change #25) has CRITICAL GAP EXCEEDED
+        assert!(inspection.warnings.iter().any(|w| w.contains("[CRITICAL GAP EXCEEDED]") && w.contains("Output #1")));
+    }
+
+    #[test]
+    fn test_intra_tx_and_duplicate_address_reuse() {
+        let reused_script = bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![
+                // Output #0 sends to the same script as Input #0 (reused address!)
+                TxOut { value: Amount::from_sat(30_000), script_pubkey: reused_script.clone() },
+                // Output #1 is a duplicate of Output #0
+                TxOut { value: Amount::from_sat(30_000), script_pubkey: reused_script.clone() },
+            ],
+        };
+
+        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: reused_script.clone(),
+        });
+
+        let inspection = inspect_psbt(&psbt, None, None);
+
+        // Check dangerous address reuse (output == input)
+        assert!(inspection.warnings.iter().any(|w| w.contains("[DANGEROUS ADDRESS REUSE]")));
+
+        // Check duplicate output address in same transaction
+        assert!(inspection.warnings.iter().any(|w| w.contains("[DUPLICATE OUTPUT ADDRESS]")));
+    }
+
+    #[test]
+    fn test_session_address_reuse() {
+        let ext_script = bitcoin::ScriptBuf::new_p2wpkh(&bitcoin::WPubkeyHash::all_zeros());
+        let ext_addr = Address::from_script(&ext_script, Network::Testnet4).unwrap().to_string();
+
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid: Txid::all_zeros(), vout: 0 },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![
+                TxOut { value: Amount::from_sat(50_000), script_pubkey: ext_script },
+            ],
+        };
+
+        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(100_000),
+            script_pubkey: bitcoin::ScriptBuf::new_p2pkh(&bitcoin::PubkeyHash::all_zeros()),
+        });
+
+        let mut session_addrs = std::collections::HashSet::new();
+        session_addrs.insert(ext_addr.clone());
+
+        let inspection = inspect_psbt(&psbt, None, Some(&session_addrs));
+
+        assert!(inspection.warnings.iter().any(|w| w.contains("[SESSION ADDRESS REUSE]")));
     }
 }

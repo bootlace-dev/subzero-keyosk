@@ -155,6 +155,7 @@ pub struct AppState {
     pub psbt_total_out_sat: u64,
     pub psbt_fee_sat: Option<u64>,
     pub psbt_inspection: Option<crate::psbt::PsbtInspection>,
+    pub session_seen_addresses: std::collections::HashSet<String>,
     pub btc_usd_price: Option<f64>,
     pub is_entering_price: bool,
     pub price_input: String,
@@ -206,6 +207,7 @@ impl AppState {
             psbt_total_out_sat: 0,
             psbt_fee_sat: None,
             psbt_inspection: None,
+            session_seen_addresses: std::collections::HashSet::new(),
             btc_usd_price: None,
             is_entering_price: false,
             price_input: String::new(),
@@ -272,6 +274,7 @@ impl AppState {
         self.psbt_total_out_sat = 0;
         self.psbt_fee_sat = None;
         self.psbt_inspection = None;
+        self.session_seen_addresses.clear();
         self.btc_usd_price = None;
         self.is_entering_price = false;
         self.price_input.clear();
@@ -308,7 +311,7 @@ impl AppState {
         self.camera_live_feed.clear();
 
         let mnemonic_opt = self.seed.as_ref().map(|s| s.mnemonic.as_str());
-        let inspection = crate::psbt::inspect_psbt(&parsed, mnemonic_opt);
+        let inspection = crate::psbt::inspect_psbt(&parsed, mnemonic_opt, Some(&self.session_seen_addresses));
         self.psbt_inspection = Some(inspection);
 
         self.status_message = "[✓] PSBT captured! Review details and press [ENTER] to sign.".into();
@@ -856,8 +859,18 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
             }
 
             for warn in &i.warnings {
-                lines.push(Line::from(Span::styled(format!("    [!] {warn}"), Style::default().fg(Color::Yellow))));
+                let warn_style = if warn.contains("[CRITICAL") || warn.contains("[DANGEROUS") || warn.contains("[FOOTGUN") {
+                    Style::default().fg(Color::LightRed).add_modifier(Modifier::BOLD)
+                } else {
+                    Style::default().fg(Color::Yellow)
+                };
+                lines.push(Line::from(Span::styled(format!("    [!] {warn}"), warn_style)));
             }
+
+            lines.push(Line::from(vec![
+                Span::styled("    [ℹ] Offline Address Privacy: ", Style::default().fg(Color::Cyan)),
+                Span::raw("On-chain historical reuse is invisible offline; intra-tx & session reuse are audited."),
+            ]));
         }
 
         lines.push(Line::from(""));
@@ -3162,6 +3175,12 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                                 Ok(mut parsed) => {
                                     match psbt::sign_psbt(&mut parsed, &seed.mnemonic) {
                                         Ok(sigs) => {
+                                            // Record output addresses in session cache to audit future reuse
+                                            for out in &parsed.unsigned_tx.output {
+                                                if let Ok(addr) = bitcoin::Address::from_script(&out.script_pubkey, bitcoin::Network::Testnet4) {
+                                                    state.session_seen_addresses.insert(addr.to_string());
+                                                }
+                                            }
                                             let signed_b64 = psbt::serialize_psbt_base64(&parsed);
                                             state.signed_psbt_base64 = Some(signed_b64);
                                             state.status_message = format!("[✓] Signed {sigs} inputs! Displaying BBQR. Press [E] to export to USB.");
