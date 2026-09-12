@@ -156,6 +156,7 @@ pub struct AppState {
     pub psbt_fee_sat: Option<u64>,
     pub is_scanning_camera: bool,
     pub camera_scanner: Option<CameraScanner>,
+    pub camera_live_feed: Vec<String>,
     pub psbt_bbqr_frame_index: usize,
     pub psbt_manual_entry: bool,
     pub psbt_manual_input: String,
@@ -203,6 +204,7 @@ impl AppState {
             psbt_fee_sat: None,
             is_scanning_camera: false,
             camera_scanner: None,
+            camera_live_feed: Vec::new(),
             psbt_bbqr_frame_index: 0,
             psbt_manual_entry: false,
             psbt_manual_input: String::new(),
@@ -267,6 +269,7 @@ impl AppState {
         if let Some(mut cam) = self.camera_scanner.take() {
             cam.stop();
         }
+        self.camera_live_feed.clear();
         self.psbt_bbqr_frame_index = 0;
         self.psbt_manual_entry = false;
         self.psbt_manual_input.zeroize();
@@ -571,12 +574,32 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
     if state.is_scanning_camera {
         lines.push(Line::from(vec![
             Span::styled("  >>> [CAMERA ACTIVE] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
-            Span::styled("Scanning for PSBT via /dev/video0 (zbarcam)...", Style::default().fg(Color::Green)),
+            Span::styled("Scanning for PSBT via /dev/video0 (zbarcam)...", Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)),
         ]));
         lines.push(Line::from(""));
         lines.push(Line::from("  • Hold your smartphone screen displaying the Nunchuk/Sparrow PSBT QR up to the laptop webcam."));
         lines.push(Line::from("  • Supports static Base64 QR codes and raw ASCII wire format."));
         lines.push(Line::from("  • When detected, SubZero will parse and verify transaction inputs and outputs automatically."));
+        lines.push(Line::from(""));
+
+        lines.push(Line::from(Span::styled("  LIVE CAMERA OPTICAL STREAM (Recent Scanned Fragments):", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))));
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
+        if state.camera_live_feed.is_empty() {
+            lines.push(Line::from(Span::styled("    [Awaiting QR pattern in camera viewframe...]", Style::default().fg(Color::DarkGray))));
+        } else {
+            for (idx, line) in state.camera_live_feed.iter().rev().take(6).enumerate() {
+                let preview = if line.len() > 68 {
+                    format!("{}... ({} bytes)", &line[..65], line.len())
+                } else {
+                    line.clone()
+                };
+                lines.push(Line::from(vec![
+                    Span::styled(format!("    [{:>2}] ", idx + 1), Style::default().fg(Color::Yellow)),
+                    Span::styled(preview, Style::default().fg(Color::White)),
+                ]));
+            }
+        }
+        lines.push(Line::from("  --------------------------------------------------------------------------------"));
         lines.push(Line::from(""));
         lines.push(Line::from(Span::styled("  Press [Esc] or [S] at any time to cancel camera scanning.", Style::default().fg(Color::LightRed))));
         lines.push(Line::from(""));

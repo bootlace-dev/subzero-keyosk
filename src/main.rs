@@ -216,21 +216,28 @@ fn run_event_loop(
 
         // Poll camera receiver if camera scanning is active
         if state.is_scanning_camera {
-            let mut detected_line = None;
+            let mut detected_lines = Vec::new();
             if let Some(ref scanner) = state.camera_scanner {
                 while let Ok(line) = scanner.receiver.try_recv() {
-                    detected_line = Some(line);
+                    detected_lines.push(line);
                 }
             }
 
-            if let Some(line) = detected_line {
+            for line in detected_lines {
                 if line.starts_with("ERROR:") {
                     state.status_message = format!("[!] {line}");
                     state.is_scanning_camera = false;
                     if let Some(mut cam) = state.camera_scanner.take() {
                         cam.stop();
                     }
+                    break;
                 } else {
+                    // Record to live feed history for user visibility
+                    state.camera_live_feed.push(line.clone());
+                    if state.camera_live_feed.len() > 50 {
+                        state.camera_live_feed.remove(0);
+                    }
+
                     // Attempt to parse line as PSBT
                     match psbt::parse_psbt(&line) {
                         Ok(parsed) => {
@@ -247,6 +254,7 @@ fn run_event_loop(
                                 cam.stop();
                             }
                             state.status_message = "[✓] PSBT captured from camera! Review and press [ENTER] to sign.".into();
+                            break;
                         }
                         Err(_) => {
                             // Line wasn't a valid complete PSBT yet (or intermediate chunk)
