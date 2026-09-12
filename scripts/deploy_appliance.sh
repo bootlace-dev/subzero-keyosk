@@ -184,6 +184,12 @@ start() {
 FONT_EOF
 chmod 755 /mnt/sq/etc/init.d/subzero-font
 
+echo '    - Asserting complete absence of networking kernel modules...'
+if [ \$(find /mnt/sq/lib/modules -name "*net*" 2>/dev/null | wc -l) -ne 0 ]; then
+  echo "Error: Networking modules detected in rootfs!"
+  exit 1
+fi
+
 echo '    - Re-compressing squashfs with deterministic xz...'
 rm -f /tmp/rootfs.squashfs
 mksquashfs /mnt/sq /tmp/rootfs.squashfs -comp xz -b 1048576 -all-root -no-xattrs -no-exports -noappend -reproducible -all-time 1700000000 >/dev/null
@@ -203,7 +209,7 @@ echo \">>> THE SYSTEM IS COPYING THE ENTIRE AMNESIC OS INTO RAM (TORAM AIRGAP).<
 echo \"==========================================================================\"
 echo \"\"
 
-menuentry \"1. SubZero-rs v0.3.0 [$BUILD_COMMIT | $BUILD_STAMP]\" {
+menuentry \"1. SubZero-rs v0.4.0 [$BUILD_COMMIT | $BUILD_STAMP]\" {
     insmod efi_gop
     insmod efi_uga
     insmod all_video
@@ -215,17 +221,17 @@ menuentry \"1. SubZero-rs v0.3.0 [$BUILD_COMMIT | $BUILD_STAMP]\" {
     echo \"==========================================================================\"
     echo \"\"
     search --no-floppy --file --set=root /EFI/BOOT/vmlinuz-lts
-    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=tty1 quiet loglevel=3
+    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=tty1 quiet loglevel=3 intel_iommu=on amd_iommu=on iommu=force efi=disable_early_pci_dma
     initrd /EFI/BOOT/initramfs-lts
 }
 
-menuentry \"2. SubZero-rs v0.3.0 (Verbose Debug Console) [$BUILD_COMMIT]\" {
+menuentry \"2. SubZero-rs v0.4.0 (Verbose Debug Console) [$BUILD_COMMIT]\" {
     insmod efi_gop
     insmod efi_uga
     insmod all_video
     set gfxpayload=keep
     search --no-floppy --file --set=root /EFI/BOOT/vmlinuz-lts
-    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=tty1 debug
+    linux /EFI/BOOT/vmlinuz-lts root=/dev/ram0 console=tty1 debug intel_iommu=on amd_iommu=on iommu=force efi=disable_early_pci_dma
     initrd /EFI/BOOT/initramfs-lts
 }
 GCONF

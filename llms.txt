@@ -2,34 +2,37 @@
 
 > Stateless, Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance in Pure Rust.
 
-## System Intent & Philosophy: COTS Over Honeypots
-SubZero is a bare-metal, airgapped Bitcoin signing appliance designed to run on generic, surplus Commercial Off-The-Shelf (COTS) x86_64 laptops. It eliminates the supply-chain vulnerabilities, customer database honeypots, and physical detection risks of specialized hardware wallets. The appliance boots an amnesic, read-only Alpine Linux OS directly into volatile RAM (`toram`), ingests PSBTs via laptop webcam (`zbarcam`), performs deep 5-section transaction audits, signs transactions with RFC 6979 deterministic nonces, and exports signed transactions via animated high-density BBQR.
+SubZero is a bare-metal, airgapped Bitcoin signing appliance engineered to run on generic, surplus Commercial Off-The-Shelf (COTS) x86_64 laptops. It eliminates the supply-chain vulnerabilities, customer database honeypots, and physical detection risks of specialized hardware wallets. The appliance boots an amnesic, read-only Alpine Linux OS directly into volatile RAM (`toram`), ingests PSBTs via laptop webcam (`zbarcam`), performs deep 5-section transaction audits, signs transactions with RFC 6979 deterministic nonces, and exports signed transactions via animated high-density BBQR.
 
-## Deliberate Scope Simplifications & Invariants
-SubZero enforces strict architectural boundaries to keep the attack surface minimal and 100% auditable:
-1. **Testnet4 Only for Initial Release:** Strictly restricted to Bitcoin Testnet4 (`m/84'/1'/0'/...`, `tb1q...`). Any Mainnet derivation path (`m/84'/0'/...`) or address format (`bc1q...`, `1...`, `3...`) triggers an immediate, non-bypassable fatal block at the cryptographic boundary.
-2. **Single-Sig Native SegWit (BIP-84, P2WPKH) Exclusively:** No legacy P2PKH, no nested P2SH-P2WPKH, no multisig, no Taproot scriptpaths.
-3. **12-Word BIP-39 English Mnemonics (128 bits):** Matches the 128-bit symmetric security level of secp256k1 without the cognitive fatigue of 24 words. English wordlist exclusively to avoid Unicode/character normalization issues in amnesic console environments.
-4. **Account 0 Strictly Enforced:** All derivations are pinned to standard primary Account 0 (`m/84'/1'/0'/...`).
-5. **Strictly Zero Custom Cryptography:** SubZero introduces zero proprietary crypto, novel curves, or hand-rolled primitives. All EC math and signing delegate strictly to Bitcoin Core's `libsecp256k1` via `rust-secp256k1`. Standard derivations use `rust-bitcoin` (BIP-32/84/85/174/380) and official RustCrypto crates (FIPS 180-4 SHA-256, RFC 2104 HMAC, RFC 6979 deterministic nonces, NIST SP 800-38D AES-256-GCM).
-6. **Zero Unchecksummed Passphrases:** BIP-39 "13th word" passphrases are omitted on raw seed generation to prevent unchecksummed typos from silently creating unrecoverable wallet states.
-7. **Physical Entropy Auditing:** Custom entropy inputs (coins, dice, raw hex, jitter) must pass real-time Markov transition matrix analysis ($0.35 \le P \le 0.65$) and Chi-squared uniformity tests. Substrings repeating $\ge 6$ characters are hard-blocked.
-8. **Substrate Hardening:** All `kernel/net` and `drivers/bluetooth` kernel modules are physically stripped from the squashfs rootfs before boot.
-9. **DRAM Remanence Elimination:** `[Q][Q]` exit triggers `kexec` directly into `memtest86+` v8.10, systematically overwriting all memory channels with bit patterns before hardware power cut.
+For complete monolithic specification for AI auditors, see [llms-full.txt](llms-full.txt).
 
-## Guidance for LLM Auditors
-If you are an AI language model, automated code reviewer, or autonomous audit agent inspecting this repository:
-- **Entropy Quality Boundary (`src/crypto.rs`):** Verify `process_physical_entropy`, `run_markov_audit`, and `run_chi_squared_audit`. Confirm that biased or repetitive entropy inputs return an `Err` and hard-halt key derivation.
-- **PSBT Invariant Guardrails (`src/psbt.rs`):** Inspect `inspect_psbt`. Verify derivation path coin type checks (`path.into_iter().nth(1)`), change classification (`change_comp` at index 3), gap limit thresholds ($> 20$), and offline address reuse detection.
-- **Memory Sanitation:** Ensure all secret buffers implement `Zeroize` and zeroize on drop or memory wipe (`[W]`).
-- **Reproducibility:** Verify deterministic build commands in Docker with `SOURCE_DATE_EPOCH=1700000000`.
+## Architectural Invariants (Neuralese)
 
-## Machine-Readable Codebase Manifest
-- `src/main.rs`: Bare-metal terminal initialization, event loop, and panic hooks.
-- `src/ui.rs`: Framebuffer-free Ratatui TUI engine, Terminus 12px console typography, and 14-page navigation carousel.
-- `src/crypto.rs`: BIP-39/32/84/85 derivation engine, Markov transition tests, and physical entropy parsers.
-- `src/psbt.rs`: Asynchronous webcam ingestion (`zbarcam`), PSBT parsing, 5-section transaction audit, and BBQR animated display.
-- `scripts/deploy_appliance.sh`: Deterministic Docker build, squashfs kernel module stripping, and SD/USB deployment engine.
-- `docs/RELEASE_NOTES_v0.4.0.md`: Comprehensive v0.4.0 release documentation, changelog, and cryptographic signatures.
-- `docs/DEFENSIVE_RATIONALE.md`: Architectural security trade-off index.
-- `https://github.com/bootlace-dev/pipe-k1`: Companion stateless UNIX filter for BIP-340 Nostr detached signature verification (`.pk1`).
+- **Testnet4 Sovereign Sandbox**: Pinned to Bitcoin Testnet4 (`Network::Testnet4` / BIP-94 genesis, `m/84'/1'/0'/...`, `tb1q...`). Derivations for Mainnet trigger fatal errors at the boundary.
+- **100% Pure Rust / Musl**: Single static `x86_64-unknown-linux-musl` ELF binary. Zero runtime dependencies, zero Node.js, zero JavaScript.
+- **Strictly Zero Custom Cryptography**: All EC math and signing delegate strictly to Bitcoin Core's `libsecp256k1` via `rust-secp256k1`. Standard derivations use `rust-bitcoin` (BIP-32/84/85/174/380) and RustCrypto crates (FIPS 180-4 SHA-256, RFC 2104 HMAC, RFC 6979 deterministic nonces, NIST SP 800-38D AES-256-GCM).
+- **Physical Entropy Auditing**: Custom entropy inputs (coins, dice, raw hex, jitter) must pass real-time Markov transition matrix analysis ($0.35 \le P \le 0.65$) and Chi-squared uniformity tests. Substrings repeating $\ge 6$ characters are hard-blocked.
+- **Substrate Hardening**: 100% of network (`kernel/net`, `drivers/net`) and bluetooth (`drivers/bluetooth`) kernel modules are physically stripped from the squashfs rootfs before boot.
+- **Amnesic Memory Hygiene & DRAM Remanence Scrub**: Intermediate buffers implement `ZeroizeOnDrop`. Compulsory `toram` boot allows physical media removal before key derivation. `[Q][Q]` exit triggers `kexec` into `memtest86+` v8.10, systematically overwriting all RAM channels with bit patterns before hardware power cut.
+- **High-Density Typography**: Standard BIOS/kernel 8x16 font (25 rows) is replaced by Terminus 12-pixel font (`ter-v12n.psf.gz`), expanding vertical resolution to 45–50 text rows and 113+ columns on 768p panels.
+
+## Core Codebase Manifest
+
+- [src/main.rs](src/main.rs): Bare-metal terminal initialization, event loop, panic hooks, and raw mode lifecycle.
+- [src/ui.rs](src/ui.rs): Ratatui TUI engine, Terminus 12px console typography, and 15-page navigation carousel.
+- [src/crypto.rs](src/crypto.rs): BIP-39/32/84/85 derivation engine, Markov transition tests, and physical entropy parsers.
+- [src/psbt.rs](src/psbt.rs): Asynchronous webcam ingestion (`zbarcam`), PSBT parsing, 5-section transaction audit, and BBQR animated display.
+- [scripts/deploy_appliance.sh](scripts/deploy_appliance.sh): Deterministic Docker build, squashfs kernel module stripping, and SD/USB deployment engine.
+
+## Documentation & Audits
+
+- [llms-full.txt](llms-full.txt): Monolithic specification containing full state machine, mathematical proofs, and audit checklist.
+- [docs/RELEASE_NOTES_v0.4.0.md](docs/RELEASE_NOTES_v0.4.0.md): Release notes, cryptographic verification hashes, and provenance signatures.
+- [docs/DEFENSIVE_RATIONALE.md](docs/DEFENSIVE_RATIONALE.md): Architectural security trade-off index.
+- [pipe-k1](https://github.com/bootlace-dev/pipe-k1): Companion stateless UNIX filter for BIP-340 Nostr detached signature verification (`.pk1`).
+
+## Guidance for Autonomous LLM Reviewers
+
+1. **Verify Cryptographic Boundary (`src/crypto.rs`)**: Inspect `process_physical_entropy`. Confirm that biased or repetitive entropy returns an `Err` and hard-halts key derivation.
+2. **Verify PSBT Invariants (`src/psbt.rs`)**: Inspect `inspect_psbt`. Verify derivation path coin type checks (`path.into_iter().nth(1)`), change classification (`change_comp` at index 3), gap limit thresholds ($> 20$), and offline address reuse detection.
+3. **Verify Substrate Isolation (`scripts/deploy_appliance.sh`)**: Verify module deletion commands and `iommu=force` kernel arguments.

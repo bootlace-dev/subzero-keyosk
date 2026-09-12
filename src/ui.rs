@@ -1134,6 +1134,10 @@ fn render_role_select(frame: &mut Frame, area: Rect, _state: &AppState) {
         Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::from("  Running 100% in volatile temporary memory (RAM). Zero internet access. Zero hard drive writes."));
+    lines.push(Line::from(Span::styled(
+        "  [!] RUNNING IN VOLATILE RAM (TORAM): Safe to unplug USB/SD boot media now.",
+        Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
+    )));
     lines.push(Line::from(""));
     lines.push(Line::from("  Please select your role to jump directly to your workflow:"));
     lines.push(Line::from(""));

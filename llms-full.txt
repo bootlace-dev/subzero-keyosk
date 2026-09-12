@@ -1,0 +1,196 @@
+# SubZero-rs: Complete Monolithic AI Context Payload (llms-full.txt)
+# Single Source of Truth for Autonomous AI Auditors (Gemini, Claude, GPT)
+# Repository: https://github.com/bootlace-dev/subzero-keyosk
+# Target Architecture: x86_64 Bare-Metal UEFI / Amnesic Live RAM
+# Release: v0.4.0-testnet4
+
+This monolithic payload contains the complete architectural, mathematical, cryptographic, hardware, and audit specifications for SubZero-rs. Any AI model can ingest this single file to verify all trust boundaries, proofs, and implementation invariants without fetching separate documents.
+
+================================================================================
+SECTION 1: FORMAL SYSTEM SPECIFICATION & FINITE STATE MACHINE
+================================================================================
+
+SubZero operates as a strictly linear, finite state machine with zero persistent back-channels:
+
+```
+[State 0: UEFI GOP Boot / GRUB]
+        │
+        ▼
+[State 1: Kernel & Early Init] ─── (Demolish Network & Extract to tmpfs RAM)
+        │
+        ▼
+[State 2: Tab 0 Welcome & Role Selection]
+        │
+        ├── [Benefactor] ────────► [Tab 1: Universal Entropy Intake & Seed Workspace]
+        ├── [Heir / Executor] ───► [Tab 9: Vault Unlock & Decryption]
+        ├── [Emergency Tools] ───► [Tab 10: SeedFix Recovery / Tab 11: Wordlist Inspector]
+        ├── [Ingest Materials] ──► [Tab 1: Mnemonic / Punch Codes / CompactSeedQR / Descriptor]
+        └── [PSBT Signer] ───────► [Tab 14: Two-Way Optical Webcam Airgap Signer]
+```
+
+### Full Page / Tab Navigation Map
+
+| Tab Index | Page Identifier | User Role | Description |
+|---|---|---|---|
+| Tab 0 | `Page::RoleSelect` | All Operators | Welcome landing screen, role selection, and compulsory media ejection notice. |
+| Tab 1 | `Page::MasterSeed` | Benefactor / Auditor | Universal workspace: coin/dice/hex/CompactSeedQR/12-word intake, Markov audits, master key derivation. |
+| Tab 2 | `Page::Passphrase` | Benefactor | Decoupled 12-word BIP-39 passphrase generator for BIP-85 estate recovery packages. |
+| Tab 3 | `Page::Descriptor` | Benefactor | Watch-only BIP-380 output descriptor (`wpkh(tpub...#checksum)`). |
+| Tab 4 | `Page::VpubQr` | Benefactor / Coordinator | Watch-only Extended Public Key (`tpub`/`vpub`) display with high-density QR code. |
+| Tab 5 | `Page::FaucetQr` | Benefactor / Tester | Receive address 0 display with QR code for immediate Testnet4 faucet funding. |
+| Tab 6 | `Page::Addresses` | Benefactor / Auditor | Derives the first 50 native SegWit receive addresses (`m/84'/1'/0'/0/k`) with path audit. |
+| Tab 7 | `Page::Bip85Children` | Benefactor / Heirs | BIP-85 deterministic child seed generator (BIP-39 12-word children via path `m/83696968'/39'/0'/...`). |
+| Tab 8 | `Page::EstateProvisioner` | Benefactor | Encrypts heir seeds and instructions into Partition 2 (`SUBZERO_EST`) vault via AES-256-GCM. |
+| Tab 9 | `Page::VaultUnlock` | Heir / Executor | Decrypts Partition 2 estate vault using the 12-word passphrase. |
+| Tab 10 | `Page::SeedFix` | Recovery Operator | Recovers damaged or missing 12th BIP-39 seed words by calculating valid checksum candidates. |
+| Tab 11 | `Page::WordlistInspector` | Auditor / Operator | Canonical BIP-39 English dictionary browser with 4-letter punch codes and decimal word indices. |
+| Tab 12 | `Page::DrillGuide` | Operator | Visual 4x4 metal punch guide for steel plate seed stamping. |
+| Tab 13 | `Page::Provenance` | Auditor | System provenance, build timestamps, git commit hashes, and architectural invariants. |
+| Tab 14 | `Page::PsbtSigner` | Operator / Signer | Two-way optical webcam PSBT scanner, 5-section transaction audit, and animated BBQR loop. |
+
+================================================================================
+SECTION 2: CRYPTOGRAPHIC FOUNDATIONS & BOUNDARY INVARIANTS
+================================================================================
+
+1. **Testnet4 Hard Lock (Zero Financial Risk Rehearsal)**:
+   - Network strictly pinned to `Network::Testnet4` (BIP-94).
+   - Derivation path strictly pinned to Native SegWit BIP-84: `m/84'/1'/0'/...`.
+   - Any attempt to ingest or derive Mainnet keys (`bc1q...`, `m/84'/0'/...`) immediately errors out at the validation boundary.
+   - Prevents catastrophic loss during self-custody rehearsals, educational workshops, and offline audits.
+
+2. **100% Pure Rust & Musl**:
+   - Single static ELF executable compiled for `x86_64-unknown-linux-musl`.
+   - Zero runtime dynamic library dependencies (`ldd` returns "not a dynamic executable").
+   - Zero JavaScript, zero V8, zero Node.js runtime.
+
+3. **Strictly Zero Custom Cryptography Invariant**:
+   - All elliptic curve math and signing operations delegate to Bitcoin Core's `libsecp256k1` via `rust-secp256k1`.
+   - Standard derivations use `rust-bitcoin` (`bitcoin::bip32`, `bitcoin::psbt`).
+   - Deterministic ECDSA nonces strictly enforced via RFC 6979.
+   - Detached Schnorr signatures strictly enforced via BIP-340.
+   - Authenticated Symmetric Encryption strictly enforced via NIST SP 800-38D AES-256-GCM (`aes-gcm`).
+   - Cryptographic hashing strictly enforced via FIPS 180-4 SHA-256 (`sha2`).
+
+4. **12-Word BIP-39 English Mnemonics (128 bits)**:
+   - Matches the 128-bit symmetric security level of secp256k1.
+   - Mitigates human cognitive fatigue during metal punching and recovery drills.
+   - English dictionary exclusively to eliminate Unicode character normalization bugs in console environments.
+
+5. **Zero Unchecksummed Passphrases on Raw Keys**:
+   - BIP-39 arbitrary string passphrases ("13th word") are omitted on master key creation to eliminate unchecksummed typo traps that silently generate empty, unrecoverable wallets.
+
+================================================================================
+SECTION 3: PHYSICAL ENTROPY MATHEMATICAL PROOFS & REAL-TIME AUDITING
+================================================================================
+
+SubZero rejects algorithmic PRNGs on live hardware in favor of direct physical entropy ingestion:
+
+### A. Physical Coin Flips (128 bits)
+- Input: 128 binary characters (`0`/`1` or `H`/`T`).
+- Real-time Markov transition audit:
+  $P(0 \to 1)$ and $P(1 \to 0)$ must fall within $[0.35, 0.65]$.
+- Chi-squared uniformity test:
+  $\chi^2 = \sum \frac{(O_i - E_i)^2}{E_i} \le 3.841$ ($p = 0.05$, $df = 1$).
+- Repetitive substring block: Any repeating sequence $\ge 6$ identical bits triggers an immediate error.
+
+### B. Physical Dice Rolls (50+ Rolls)
+- Input: $\ge 50$ rolls of a six-sided die (D6, values 1–6).
+- Entropy yield: $50 \times \log_2(6) \approx 50 \times 2.58496 = 129.25$ bits ($> 128$ bits).
+- Rolls are ingested directly, hashed via SHA-256 to produce exactly 128 bits of master seed entropy.
+- Real-time Chi-squared uniformity test on all 6 faces:
+  $\chi^2 = \sum_{k=1}^6 \frac{(O_k - E_k)^2}{E_k} \le 11.070$ ($p = 0.05$, $df = 5$).
+
+### C. Jitter Timing Entropy
+- Input: 32 keystroke inter-arrival timing deltas ($\Delta t$).
+- Measures human micro-keystroke variance in milliseconds.
+- Combined with physical entropy to defeat deterministic keystroke replay.
+
+================================================================================
+SECTION 4: HARDWARE & SUBSTRATE HARDENING
+================================================================================
+
+1. **Substrate Demolition (Kernel Module Purging)**:
+   - During OS squashfs generation, `scripts/deploy_appliance.sh` physically deletes:
+     - `/lib/modules/*/kernel/net/` (All networking stacks: TCP, UDP, IPv4, IPv6, Unix sockets)
+     - `/lib/modules/*/kernel/drivers/net/` (All Ethernet controllers)
+     - `/lib/modules/*/kernel/drivers/net/wireless/` (All Wi-Fi chipsets)
+     - `/lib/modules/*/kernel/drivers/bluetooth/` (All Bluetooth adapters)
+   - Kernel module directory is asserted post-build: `find /lib/modules -name "*net*" | wc -l == 0`.
+
+2. **DMA Protection via Kernel Parameters**:
+   - GRUB configures: `intel_iommu=on amd_iommu=on iommu=force efi=disable_early_pci_dma`.
+   - Protects physical RAM against malicious Thunderbolt, FireWire, or PCIe DMA injection attacks.
+
+3. **High-Density Typography (Terminus 12-pixel font)**:
+   - Standard 8x16 console fonts provide only 25 text rows, clipping large QR codes vertically.
+   - SubZero installs Terminus 12px font (`ter-v12n.psf.gz`, 6x12 pixel cell) via OpenRC and `/opt/subzero/launch.sh`.
+   - Expands standard 768p panels to **45–50 text rows** and 113+ columns.
+   - Guarantees full-screen visibility for high-density animated BBQr and static descriptor QRs without line wrapping or scrolling.
+
+================================================================================
+SECTION 5: TWO-WAY OPTICAL AIRGAP PSBT SIGNER (TAB 14)
+================================================================================
+
+1. **Optical Ingestion**:
+   - Camera probing: Auto-detects available video nodes (`/dev/video0` through `/dev/video4`).
+   - Scanner subprocess: Spawns native `zbarcam` in headless raw mode.
+   - Supports both single-frame QR and animated multi-part BBQr PSBT payloads.
+
+2. **5-Section Independent Transaction Audit**:
+   - Recipient Output Verification: Character-by-character chunked address display with satoshi amount.
+   - Master Key Change Address Assertion: Verifies change outputs match internal derivation `m/84'/1'/0'/1/k`. Alerts if non-standard or external.
+   - Fee & Fee-Rate Computation: Total input satoshis minus total output satoshis; calculates sat/vB rate.
+   - Gap Limit & Re-use Warning: Alerts if address derivation index exceeds standard gap limit ($> 20$).
+   - Deterministic RFC 6979 Nonce Assertion: Zero random nonce leakage.
+
+3. **Optical Export**:
+   - Reverse-video animated BBQr playback on laptop display.
+   - Configurable frame rate (5–12 FPS) and fragment density for coordinator webcams (Nunchuk, Sparrow, BlueWallet).
+
+================================================================================
+SECTION 6: AMNESIC MEMORY HYGIENE & DRAM REMANENCE MITIGATION
+================================================================================
+
+1. **Volatile RAM Execution (`toram`)**:
+   - Bootloader extracts entire squashfs rootfs into a 1GB `tmpfs` RAM disk.
+   - Physical boot media (USB / SD card) is unmounted before userspace initialization.
+   - The user is notified on Tab 0 that media can be safely removed before any private key operations.
+
+2. **Rust Cryptographic Buffer Hygiene**:
+   - Intermediate seeds, private keys, decrypted vault buffers, and passphrases implement `Zeroize` and `ZeroizeOnDrop`.
+   - Pressing `[W]` triggers immediate panic zeroization of all active memory structures.
+
+3. **Cold Boot Attack Scrub (Memtest86+ v8.10 via `kexec`)**:
+   - Two-stroke exit confirmation (`[Q][Q]`) triggers `/opt/subzero/launch.sh`.
+   - Uses `kexec` to immediately reboot directly into `memtest86+` v8.10.
+   - Systematically writes alternating bit patterns across all physical RAM banks, wiping DRAM remanence before power is cut.
+
+================================================================================
+SECTION 7: REPRODUCIBLE BUILDS & AUDITOR VERIFICATION
+================================================================================
+
+### Deterministic Build Command
+```bash
+docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl cargo build --release
+```
+
+### Complete Test Suite Execution
+```bash
+docker run --rm -v $(pwd):/home/rust/src messense/rust-musl-cross:x86_64-musl cargo test
+```
+
+### Detached Signatures & Checksums
+- `SHA256SUMS`: Manifest of release binaries and payloads.
+- `SHA256SUMS.asc`: GPG detached signature (Release Key: `F18173E554644BB59018AE50F6E96FADCA2E8E0F`).
+- `RELEASE_NOTES_v0.4.0.md.nostrsig`: BIP-340 64-byte Schnorr signature over SHA-256 of release notes.
+- `RELEASE_NOTES_v0.4.0.md.pk1`: Companion `pipe-k1` verifiable detached signature payload.
+
+================================================================================
+SECTION 8: AI AUDITOR INVARIANT CHECKLIST
+================================================================================
+
+When auditing this codebase, verify the following lines and behaviors:
+1. `src/crypto.rs`: Search for `process_physical_entropy` and verify that entropy $< 128$ bits or failing Chi-squared / Markov tests returns `Err` and aborts derivation.
+2. `src/psbt.rs`: Search for `inspect_psbt` and verify that coin type checks enforce Testnet4 (`1'`) and change derivation index 3 is checked.
+3. `src/main.rs`: Verify terminal cleanup and raw mode restoration in panic hooks.
+4. `scripts/deploy_appliance.sh`: Verify module deletion commands and `iommu=force` kernel arguments.
