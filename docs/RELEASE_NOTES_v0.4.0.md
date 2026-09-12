@@ -91,7 +91,58 @@ To maximize auditability, eliminate footguns, and keep the reachable code surfac
 
 ---
 
-## 4. Sovereign BIP-340 Nostr Signatures & pipe-k1 Integration
+## 4. Visual Walkthrough & Execution Lifecycle
+
+SubZero v0.4.0 runs directly in volatile memory on commodity x86_64 laptop hardware, rendering a high-density Terminus 12px console (`110x40`) with full optical airgap inputs and outputs.
+
+### Continuous Workflow Animation (COTS Lifecycle)
+![SubZero v0.4.0 Visual Walkthrough](screenshots/subzero_v0.4.0_walkthrough.gif)
+
+### Key Milestones & Security Invariant Screens
+
+1. **Tab 0: Welcome & Operator Role Selection (`docs/screenshots/00_tab0_welcome.png`)**
+   - Operator selects intended path: `[1]` Benefactor Vault Creator, `[2]` Heir Recovery, `[3]` Emergency SeedFix, `[4]` Ingest Existing Materials, or `[5]` Stateless PSBT Signer.
+   - Proactive pre-boot scrub verifies memory zeroization before display initialization.
+
+2. **Tab 1: Physical & Offline Seed Intake Selection (`docs/screenshots/01_tab1_intake_menu.png`)**
+   - Explicit `[1-8]` mode selector eliminating keyboard shortcuts or collisions while typing entropy:
+     - `[1]` Physical Coin Flips (128 binary flips: `0`=Heads, `1`=Tails)
+     - `[2]` Physical Dice Rolls (50+ six-sided rolls: `1`-`6`)
+     - `[3]` Raw Hexadecimal (32 bytes / 64 hex chars: `0`-`9`, `a`-`f`)
+     - `[4]` CompactSeedQR Digits (48 decimal digits: 4-digit BIP-39 word indices)
+     - `[5]` 12 BIP-39 English Words (full words or 4-letter punch codes)
+     - `[6]` Watch-Only Descriptor (`wpkh(...)` — zero private keys, derives 50 addresses)
+     - `[7]` Keystroke Jitter Harvest (32 delta-t samples, zero hardware PRNG)
+     - `[8]` Deterministic Test Vectors (`0`=All-Zeros baseline, `8`=Satoshi lore, `9`=Hal Finney lore)
+
+3. **Tab 1: Real-Time Metal Punch & Checksum Validation (`docs/screenshots/02_tab1_seed_ingestion.png`)**
+   - Real-time 2-column validation table mapping words 1–12 with 4-letter unique prefix punch codes (`[✓ ABAN]`).
+   - Mathematical BIP-39 checksum assertion before allowing key derivation into volatile memory.
+
+4. **Tab 1: Derived Master Seed & CompactSeedQR (`docs/screenshots/03_tab1_master_derived.png`)**
+   - Displays BIP-32 root fingerprint (`73c5da0a`), 48-digit CompactSeedQR representation, and Testnet4 BIP-84 account zero derivation.
+
+5. **Tab 4: Watch-Only Coordinator Export (`docs/screenshots/04_tab4_watch_only_vpub.png`)**
+   - Full BIP-380 output descriptor with canonical checksum and optical SHA-256 verification badge (`[SHA-256: F1656F37]`).
+   - Rotatable QR modes: Mode 1 Animated BBQr, Mode 2 Static BIP-380 Descriptor, Mode 3 Static SLIP-0132 `vpub`.
+
+6. **Tab 14: Two-Way Optical PSBT Signer Intake (`docs/screenshots/05_tab14_optical_intake.png`)**
+   - Dual intake channels: `[S]` Live webcam optical capture auto-probing `/dev/video*`, and `[U]` USB shuttle / SD partition import.
+
+7. **Tab 14: Independent Transaction Audit (`docs/screenshots/06_tab14_transaction_audit.png`)**
+   - Multi-point security inspection before signing:
+     - Recipient character-by-character chunked address audit.
+     - Internal change address verification against the active master key (`m/84'/1'/0'/1/k`).
+     - Fee rate calculation (sat/vB) and fee percentage of total value.
+     - Anti-kleptography RFC 6979 deterministic nonce enforcement assertion.
+     - Hard blocks against Mainnet addresses or coin types on Testnet4 appliance.
+
+8. **Tab 14: Signed Transaction Animated BBQr Export (`docs/screenshots/07_tab14_signed_bbqr.png`)**
+   - Reverse-video animated BBQr continuous frame loop displayed on laptop console, enabling phone/desktop software coordinators (Nunchuk, Sparrow) to scan back and broadcast without cables or network exposure.
+
+---
+
+## 5. Sovereign BIP-340 Nostr Signatures & pipe-k1 Integration
 
 Traditional PGP relies on legacy web-of-trust models, sprawling keyrings, and complex multi-packet structures. To provide a modern, sovereign alternative rooted in Bitcoin cryptography, SubZero release documents are cross-signed using native **BIP-340 Schnorr signatures over the secp256k1 curve** (identical to Bitcoin Taproot and Nostr NIP-01 identities).
 
@@ -118,7 +169,7 @@ Alternatively, standard Nostr CLI tools (`nak`, `nostr-tool`) or any BIP-340 sec
 
 ---
 
-## 5. Public Keys (Embedded for User Convenience)
+## 6. Public Keys (Embedded for User Convenience)
 
 ### bootlace-dev PGP Public Key (`F18173E554644BB59018AE50F6E96FADCA2E8E0F`)
 ```text

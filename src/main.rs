@@ -39,6 +39,10 @@ struct Cli {
     /// [AUTOMATED TESTING ONLY] Ingest BIP-380 output descriptor (wpkh/tpub/vpub)
     #[arg(short, long, hide = true)]
     descriptor: Option<String>,
+
+    /// [AUTOMATED TESTING ONLY] Ingest PSBT file path or base64 string
+    #[arg(long, hide = true)]
+    psbt: Option<String>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -125,7 +129,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     state.status_message = "[✓] PROACTIVE PRE-BOOT SCRUB: RAM zeroized prior to display initialization.".into();
 
     // Hidden Test CLI Ingestion Handlers (Automated integration testing only)
-    if cli.mnemonic.is_some() || cli.compact_seed_qr.is_some() || cli.descriptor.is_some() {
+    if cli.mnemonic.is_some() || cli.compact_seed_qr.is_some() || cli.descriptor.is_some() || cli.psbt.is_some() {
         eprintln!("\x1b[1;33m[!] WARNING: CLI KEY INGESTION IS STRICTLY FOR AUTOMATED TESTING HARNESSES.\x1b[0m");
         eprintln!("\x1b[1;33m[!] In production, CLI arguments leak to /proc/$PID/cmdline and shell history.\x1b[0m");
         eprintln!("\x1b[1;33m[!] Always use the interactive virtual console kiosk on /dev/tty1.\x1b[0m");
@@ -155,6 +159,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Ok(seed) = crypto::process_physical_entropy(&entropy_str) {
             let children = crypto::derive_bip85_children(&seed.mnemonic, 20).unwrap_or_default();
             state.set_seed(seed, children);
+        }
+    }
+
+    if let Some(psbt_input) = cli.psbt {
+        let bytes = if let Ok(fbytes) = std::fs::read(&psbt_input) {
+            fbytes
+        } else {
+            psbt_input.as_bytes().to_vec()
+        };
+        if let Ok(parsed) = psbt::parse_psbt_bytes(&bytes) {
+            state.apply_scanned_psbt(parsed, "CLI Ingestion");
+            state.current_page = ui::Page::PsbtSigner;
+            state.status_message = "[✓] CLI TEST PSBT IMPORTED: Ready for transaction audit & signing.".into();
         }
     }
 

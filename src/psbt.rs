@@ -771,6 +771,7 @@ pub fn inspect_psbt(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::BTreeMap;
     use bitcoin::hashes::Hash;
     use bitcoin::{Amount, OutPoint, Sequence, Transaction, TxIn, TxOut, Txid, Witness};
 
@@ -957,5 +958,54 @@ mod tests {
             "Failed to flag Mainnet coin type 0'! Blocks: {:?}",
             insp_main.fatal_blocks
         );
+    }
+
+    #[test]
+    fn test_generate_sample_psbt() {
+        let secp = Secp256k1::new();
+        let mnemonic = Mnemonic::from_str(dummy_mnemonic()).unwrap();
+        let seed = mnemonic.to_seed("");
+        let master_xprv = Xpriv::new_master(Network::Testnet4, &seed).unwrap();
+
+        let path_0 = DerivationPath::from_str("m/84'/1'/0'/0/0").unwrap();
+        let child_0 = master_xprv.derive_priv(&secp, &path_0).unwrap();
+        let addr_0 = Address::p2wpkh(&bitcoin::CompressedPublicKey(child_0.private_key.public_key(&secp)), bitcoin::KnownHrp::Testnets);
+
+        let path_change = DerivationPath::from_str("m/84'/1'/0'/1/0").unwrap();
+        let child_change = master_xprv.derive_priv(&secp, &path_change).unwrap();
+        let addr_change = Address::p2wpkh(&bitcoin::CompressedPublicKey(child_change.private_key.public_key(&secp)), bitcoin::KnownHrp::Testnets);
+
+        let dest_addr = Address::from_str("tb1qw508d6qejxtdg4y5r3zarvary0c5xw7kxpjzsx").unwrap().require_network(Network::Testnet4).unwrap();
+
+        let tx = Transaction {
+            version: bitcoin::transaction::Version::TWO,
+            lock_time: bitcoin::absolute::LockTime::ZERO,
+            input: vec![TxIn {
+                previous_output: OutPoint { txid: Txid::from_str("73c5da0a11223344556677889900aabbccddeeff00112233445566778899aabb").unwrap(), vout: 0 },
+                script_sig: bitcoin::ScriptBuf::new(),
+                sequence: Sequence::ENABLE_RBF_NO_LOCKTIME,
+                witness: Witness::new(),
+            }],
+            output: vec![
+                TxOut { value: Amount::from_sat(50_000), script_pubkey: dest_addr.script_pubkey() },
+                TxOut { value: Amount::from_sat(248_500), script_pubkey: addr_change.script_pubkey() },
+            ],
+        };
+
+        let mut psbt = Psbt::from_unsigned_tx(tx).unwrap();
+        psbt.inputs[0].witness_utxo = Some(TxOut {
+            value: Amount::from_sat(300_000),
+            script_pubkey: addr_0.script_pubkey(),
+        });
+        let mut in_deriv = BTreeMap::new();
+        in_deriv.insert(child_0.private_key.public_key(&secp), (master_xprv.fingerprint(&secp), path_0));
+        psbt.inputs[0].bip32_derivation = in_deriv;
+
+        let mut out_deriv = BTreeMap::new();
+        out_deriv.insert(child_change.private_key.public_key(&secp), (master_xprv.fingerprint(&secp), path_change));
+        psbt.outputs[1].bip32_derivation = out_deriv;
+
+        let b64 = serialize_psbt_base64(&psbt);
+        let _ = std::fs::write("target/sample_valid.psbt", b64);
     }
 }
