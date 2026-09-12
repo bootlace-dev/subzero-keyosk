@@ -74,7 +74,7 @@ fi
 
 echo '    - Installing kexec-tools into appliance rootfs...'
 cp /etc/resolv.conf /mnt/sq/etc/resolv.conf
-chroot /mnt/sq apk add --no-cache kexec-tools >/dev/null 2>&1
+chroot /mnt/sq apk add --no-cache kexec-tools zbar v4l-utils >/dev/null 2>&1
 
 echo '    - Downloading Memtest86+ v8.10 RAM Wiper payload...'
 wget -qO /tmp/mt.zip https://memtest.org/download/v8.10/mt86plus_8.10.binaries.zip
