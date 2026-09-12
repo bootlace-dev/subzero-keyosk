@@ -78,10 +78,11 @@ rm -rf /mnt/sq/lib/modules/*/kernel/drivers/net
 rm -rf /mnt/sq/lib/modules/*/kernel/drivers/bluetooth
 
 echo '    - Re-indexing kernel modules with depmod...'
+rm -rf /mnt/sq/lib/modules/*generic* 2>/dev/null || true
 for kdir in /mnt/sq/lib/modules/*; do
-  if [ -d "$kdir" ]; then
+  if [ -d "$kdir" ] && [ ! -L "$kdir" ] && [ -f "$kdir/modules.order" ]; then
     kver="$(basename "$kdir")"
-    depmod -b /mnt/sq "$kver"
+    depmod -b /mnt/sq "$kver" || true
   fi
 done
 
