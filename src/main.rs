@@ -175,6 +175,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("Application Error: {:?}", err);
     }
 
+    // Bare-Metal Appliance Lifecycle Invariant:
+    // When the operator confirms exit ([Q][Q]), power off the physical machine immediately.
+    // This purges volatile RAM and prevents sitting on a dead console.
+    // Try /sbin/poweroff -f, then /bin/busybox poweroff -f, then sync.
+    let _ = std::process::Command::new("/sbin/poweroff")
+        .arg("-f")
+        .status();
+    let _ = std::process::Command::new("/bin/busybox")
+        .args(["poweroff", "-f"])
+        .status();
+
     Ok(())
 }
 

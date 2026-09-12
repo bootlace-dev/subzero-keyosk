@@ -26,9 +26,12 @@ echo " Timestamp: $BUILD_STAMP"
 echo " Target:    $TARGET_PART"
 echo "=========================================================================="
 
-echo ">>> [1/4] Compiling static musl binary in Docker..."
+echo ">>> [1/4] Compiling static musl binary in Docker (Deterministic Build)..."
 docker run --rm --user 0:0 \
   -v "$REPO_ROOT":/home/rust/src \
+  -e SOURCE_DATE_EPOCH=1700000000 \
+  -e TZ=UTC \
+  -e RUSTFLAGS="--remap-path-prefix /home/rust/src=/subzero" \
   -e BUILD_TIMESTAMP="$BUILD_STAMP" \
   -e SUBZERO_BUILD_TIMESTAMP="$BUILD_STAMP" \
   -e SUBZERO_GIT_COMMIT="$BUILD_COMMIT" \
@@ -83,7 +86,11 @@ printf \"\033[2J\033[H\033[3J\" > /dev/tty1 2>/dev/null || true
 echo 0 > /sys/class/graphics/fbcon/cursor_blink 2>/dev/null || true
 
 # Execute SubZero Pure Rust TUI directly on physical console
-exec /usr/local/bin/subzero < /dev/tty1 > /dev/tty1 2>&1
+/usr/local/bin/subzero < /dev/tty1 > /dev/tty1 2>&1
+
+# When SubZero exits ([Q][Q] confirmed), immediately power off hardware to purge RAM
+sync
+/sbin/poweroff -f >/dev/null 2>&1 || /sbin/reboot -f >/dev/null 2>&1 || true
 LAUNCH_EOF
 chmod 755 /mnt/sq/opt/subzero/launch.sh
 
@@ -107,7 +114,7 @@ chmod 755 /mnt/sq/etc/init.d/subzero-font
 
 echo '    - Re-compressing squashfs with deterministic xz...'
 rm -f /tmp/rootfs.squashfs
-mksquashfs /mnt/sq /tmp/rootfs.squashfs -comp xz -b 1048576 -all-root -no-xattrs -no-exports -noappend >/dev/null
+mksquashfs /mnt/sq /tmp/rootfs.squashfs -comp xz -b 1048576 -all-root -no-xattrs -no-exports -noappend -reproducible -all-time 1700000000 >/dev/null
 cp /tmp/rootfs.squashfs /mnt/sd/rootfs.squashfs
 
 echo '>>> [3/4] Updating GRUB bootloader configuration on partition 1...'
