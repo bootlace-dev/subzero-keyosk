@@ -15,8 +15,8 @@ fn test_generate_nostr_release_signatures() {
     let (xonly_pub, _parity) = XOnlyPublicKey::from_keypair(&keypair);
     assert_eq!(xonly_pub.to_string(), expected_pub, "Derived pubkey must match bootlace npub hex!");
 
-    // 1. Read RELEASE_NOTES_v0.3.0.md
-    let notes_path = "docs/RELEASE_NOTES_v0.3.0.md";
+    // 1. Read RELEASE_NOTES_v0.4.0.md
+    let notes_path = "docs/RELEASE_NOTES_v0.4.0.md";
     let notes_bytes = fs::read(notes_path).expect("Failed to read release notes");
     let notes_hash = sha256::Hash::hash(&notes_bytes);
     let notes_msg = Message::from_digest_slice(notes_hash.as_ref()).expect("Valid message digest");
@@ -36,26 +36,26 @@ fn test_generate_nostr_release_signatures() {
          Identity: bootlace-dev\n\
          Npub: npub13nwyhs36ueg7ywgf90khhjaxhtp2wpsm84q4n8c2kxdfrty2p3yqfd8fcn\n\
          Pubkey: {}\n\
-         Target-File: RELEASE_NOTES_v0.3.0.md\n\
+         Target-File: RELEASE_NOTES_v0.4.0.md\n\
          Target-SHA256: {}\n\
          Signature: {}\n\
          -----END NOSTR BIP-340 SIGNED MESSAGE-----\n",
         expected_pub, notes_hash, sig_hex
     );
-    fs::write("docs/RELEASE_NOTES_v0.3.0.md.nostrsig", nostrsig_content).expect("Failed to write .nostrsig");
+    fs::write("docs/RELEASE_NOTES_v0.4.0.md.nostrsig", nostrsig_content).expect("Failed to write .nostrsig");
 
     // 3. Construct standard Nostr NIP-01 Kind 1 Release Announcement Event
     let created_at = 1789233131u64; // Deterministic timestamp matching release
     let content = format!(
-        "Announcement: SubZero-rs v0.3.0 Release — Stateless Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance.\n\n\
+        "Announcement: SubZero-rs v0.4.0 Release — Stateless Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance.\n\n\
          • COTS Over Honeypots: Airgap signing on generic commodity laptops.\n\
          • Stateless Optical Loop: Webcam PSBT QR ingestion (zbarcam) + animated BBQR signing.\n\
          • Substrate Hardened: Network and bluetooth kernel modules completely stripped.\n\
          • DRAM Remanence Protection: kexec into memtest86+ v8.10 actively scrubs all RAM before power cut.\n\
          • 5-Section Deep Ledger: Gap limit audits, offline address reuse, RFC 6979 nonce badge, USD converter.\n\
          • 100% Deterministic Reproducible Musl Build.\n\n\
-         Git: https://github.com/bootlace-dev/subzero-keyosk/releases/tag/v0.3.0\n\
-         Commit: 1709160\n\
+         Git: https://github.com/bootlace-dev/subzero-keyosk/releases/tag/v0.4.0\n\
+         Commit: 16c934d\n\
          SHA-256 (subzero): {}\n\
          Signed by bootlace-dev GPG (F18173E554644BB59018AE50F6E96FADCA2E8E0F)",
         "c6ff634f5eba32f3db7d3a7f7bfb472b4cc4bcba3dc01b0000a0fba08ac8d9b7"
@@ -67,7 +67,7 @@ fn test_generate_nostr_release_signatures() {
         ["t", "airgap"],
         ["t", "cots"],
         ["t", "release"],
-        ["e", "1709160"]
+        ["e", "16c934d"]
     ]);
 
     let event_payload = serde_json::json!([

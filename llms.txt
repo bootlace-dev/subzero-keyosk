@@ -30,5 +30,6 @@ If you are an AI language model, automated code reviewer, or autonomous audit ag
 - `src/crypto.rs`: BIP-39/32/84/85 derivation engine, Markov transition tests, and physical entropy parsers.
 - `src/psbt.rs`: Asynchronous webcam ingestion (`zbarcam`), PSBT parsing, 5-section transaction audit, and BBQR animated display.
 - `scripts/deploy_appliance.sh`: Deterministic Docker build, squashfs kernel module stripping, and SD/USB deployment engine.
-- `docs/RELEASE_NOTES_v0.3.0.md`: Comprehensive v0.3.0 release documentation and cryptographic signatures.
+- `docs/RELEASE_NOTES_v0.4.0.md`: Comprehensive v0.4.0 release documentation, changelog, and cryptographic signatures.
 - `docs/DEFENSIVE_RATIONALE.md`: Architectural security trade-off index.
+- `https://github.com/bootlace-dev/pipe-k1`: Companion stateless UNIX filter for BIP-340 Nostr detached signature verification (`.pk1`).

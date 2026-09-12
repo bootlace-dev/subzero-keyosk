@@ -1,10 +1,10 @@
 {
-  "content": "Announcement: SubZero-rs v0.3.0 Release — Stateless Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance.\n\n• COTS Over Honeypots: Airgap signing on generic commodity laptops.\n• Stateless Optical Loop: Webcam PSBT QR ingestion (zbarcam) + animated BBQR signing.\n• Substrate Hardened: Network and bluetooth kernel modules completely stripped.\n• DRAM Remanence Protection: kexec into memtest86+ v8.10 actively scrubs all RAM before power cut.\n• 5-Section Deep Ledger: Gap limit audits, offline address reuse, RFC 6979 nonce badge, USD converter.\n• 100% Deterministic Reproducible Musl Build.\n\nGit: https://github.com/bootlace-dev/subzero-keyosk/releases/tag/v0.3.0\nCommit: 1709160\nSHA-256 (subzero): c6ff634f5eba32f3db7d3a7f7bfb472b4cc4bcba3dc01b0000a0fba08ac8d9b7\nSigned by bootlace-dev GPG (F18173E554644BB59018AE50F6E96FADCA2E8E0F)",
+  "content": "Announcement: SubZero-rs v0.4.0 Release — Stateless Amnesic Two-Way Optical Airgap Bitcoin Vault Appliance.\n\n• COTS Over Honeypots: Airgap signing on generic commodity laptops.\n• Stateless Optical Loop: Webcam PSBT QR ingestion (zbarcam) + animated BBQR signing.\n• Substrate Hardened: Network and bluetooth kernel modules completely stripped.\n• DRAM Remanence Protection: kexec into memtest86+ v8.10 actively scrubs all RAM before power cut.\n• 5-Section Deep Ledger: Gap limit audits, offline address reuse, RFC 6979 nonce badge, USD converter.\n• 100% Deterministic Reproducible Musl Build.\n\nGit: https://github.com/bootlace-dev/subzero-keyosk/releases/tag/v0.4.0\nCommit: 16c934d\nSHA-256 (subzero): c6ff634f5eba32f3db7d3a7f7bfb472b4cc4bcba3dc01b0000a0fba08ac8d9b7\nSigned by bootlace-dev GPG (F18173E554644BB59018AE50F6E96FADCA2E8E0F)",
   "created_at": 1789233131,
-  "id": "bb90f80d15952236717bf5127b803824c551f6fb1e51db21928dcf99223e62ca",
+  "id": "002234f7abf1dee8c1dcc4d58652f8d92ee3f5e6c8da618c6566468a6025a988",
   "kind": 1,
   "pubkey": "8cdc4bc23ae651e239092bed7bcba6bac2a7061b3d41599f0ab19a91ac8a0c48",
-  "sig": "d75d3c1d4a33a30d23ae29c1a481e3ba2a1c30feed3b735eb9450fd7f345215c72d59d4071f1f532ef9348489b55f94b6b793267ada49bb5c1f8176331110408",
+  "sig": "10a2adcab8edb333c7525d226b390e11f16c0b7dc29e9d9470df4700817b943281006be99600a23987e7a17eb55ded0a65da842bc132d37940ba4a3de1754f52",
   "tags": [
     [
       "t",
@@ -28,7 +28,7 @@
     ],
     [
       "e",
-      "1709160"
+      "16c934d"
     ]
   ]
 }
