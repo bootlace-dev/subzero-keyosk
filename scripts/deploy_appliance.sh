@@ -73,7 +73,7 @@ fi
 
 
 echo '    - Installing kexec-tools into appliance rootfs...'
-apk add --root /mnt/sq --no-cache kexec-tools zbar v4l-utils >/dev/null 2>&1
+apk add --root /mnt/sq --initdb --keys-dir /etc/apk/keys --repositories-file /etc/apk/repositories --no-cache kexec-tools zbar v4l-utils >/dev/null 2>&1 >/dev/null 2>&1
 
 echo '    - Downloading Memtest86+ v8.10 RAM Wiper payload...'
 wget -qO /tmp/mt.zip https://memtest.org/download/v8.10/mt86plus_8.10.binaries.zip
