@@ -158,8 +158,6 @@ pub struct AppState {
     pub camera_scanner: Option<CameraScanner>,
     pub camera_live_feed: Vec<String>,
     pub psbt_bbqr_frame_index: usize,
-    pub psbt_manual_entry: bool,
-    pub psbt_manual_input: String,
     pub decrypted_vault: Option<DecryptedVaultPayload>,
     pub vault_status_msg: String,
     pub status_message: String,
@@ -206,8 +204,6 @@ impl AppState {
             camera_scanner: None,
             camera_live_feed: Vec::new(),
             psbt_bbqr_frame_index: 0,
-            psbt_manual_entry: false,
-            psbt_manual_input: String::new(),
             decrypted_vault: None,
             vault_status_msg: "Enter 12-word passphrase or 'test0'..'test9' test vectors.".into(),
             status_message: "[1] Benefactor  [2] Heir  [3] Tools  [Tab] Nav".into(),
@@ -271,9 +267,6 @@ impl AppState {
         }
         self.camera_live_feed.clear();
         self.psbt_bbqr_frame_index = 0;
-        self.psbt_manual_entry = false;
-        self.psbt_manual_input.zeroize();
-        self.psbt_manual_input.clear();
         self.vault_status_msg = "Enter 12-word passphrase or 'test0'..'test9' / 't0'..'t9'.".into();
         self.address_page_offset = 0;
         self.heir_page_offset = 0;
@@ -666,27 +659,7 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
         return;
     }
 
-    // 4. If manual paste entry mode is active
-    if state.psbt_manual_entry {
-        lines.push(Line::from(Span::styled(
-            "  MANUAL PSBT ENTRY BUFFER (PASTE BASE64 / HEX OR TYPE):",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        )));
-        lines.push(Line::from("  Paste your Base64 or Hex PSBT string, then press [ENTER] to decode and review."));
-        lines.push(Line::from(""));
-        lines.push(Line::from(Span::styled(
-            format!("  > {}", &state.psbt_manual_input),
-            Style::default().fg(Color::Cyan),
-        )));
-        lines.push(Line::from(""));
-        lines.push(Line::from("  [ENTER] Decode & Load PSBT  |  [Esc] Cancel Manual Entry"));
-
-        let p = Paragraph::new(lines).block(block);
-        frame.render_widget(p, area);
-        return;
-    }
-
-    // 5. Default Idle State: Ingestion Vector Selector
+    // 4. Default Idle State: Ingestion Vector Selector
     lines.push(Line::from(Span::styled(
         "  SELECT PSBT INTAKE VECTOR:",
         Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
@@ -701,11 +674,6 @@ fn render_psbt_signer(frame: &mut Frame, area: Rect, state: &AppState) {
         Span::styled("  [U] ", Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)),
         Span::styled("Import from USB Shuttle / SD Partition 2 ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
         Span::styled("Scans external USB or Partition 2 for *.psbt / *.txn", Style::default().fg(Color::DarkGray)),
-    ]));
-    lines.push(Line::from(vec![
-        Span::styled("  [M] ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::styled("Manual Entry / Raw ASCII Buffer          ", Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
-        Span::styled("Paste Base64 or Hex PSBT directly into terminal", Style::default().fg(Color::DarkGray)),
     ]));
     lines.push(Line::from(""));
     lines.push(Line::from("  --------------------------------------------------------------------------------"));
@@ -2649,7 +2617,6 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
         Page::SeedFix => true,
         Page::WordlistInspector => true,
         Page::VaultUnlock => state.decrypted_vault.is_none(),
-        Page::PsbtSigner => state.psbt_manual_entry,
         _ => false,
     };
 
@@ -2692,12 +2659,6 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                     cam.stop();
                 }
                 state.status_message = "Camera scanning stopped.".into();
-                return false;
-            }
-            if state.psbt_manual_entry {
-                state.psbt_manual_entry = false;
-                state.psbt_manual_input.clear();
-                state.status_message = "Manual entry cancelled.".into();
                 return false;
             }
             if state.signed_psbt_base64.is_some() || state.scanned_psbt.is_some() {
@@ -2772,7 +2733,7 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                 }
                 KeyCode::Char('5') | KeyCode::Char('s') | KeyCode::Char('S') => {
                     state.current_page = Page::PsbtSigner;
-                    state.status_message = "PSBT Signer: [S] Scan camera, [U] Import USB/SD, [M] Paste".into();
+                    state.status_message = "PSBT Signer: [S] Scan camera, [U] Import USB/SD".into();
                 }
                 _ => {}
             }
@@ -2780,49 +2741,6 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
 
         Page::PsbtSigner => {
             let has_ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
-
-            // If manual entry mode is active
-            if state.psbt_manual_entry {
-                match key.code {
-                    KeyCode::Esc => {
-                        state.psbt_manual_entry = false;
-                        state.psbt_manual_input.clear();
-                        state.status_message = "Manual entry cancelled.".into();
-                    }
-                    KeyCode::Backspace => {
-                        state.psbt_manual_input.pop();
-                    }
-                    KeyCode::Enter => {
-                        let text = state.psbt_manual_input.trim().to_string();
-                        if !text.is_empty() {
-                            match psbt::parse_psbt(&text) {
-                                Ok(parsed) => {
-                                    let total_out = parsed.unsigned_tx.output.iter().map(|o| o.value.to_sat()).sum();
-                                    let fee = parsed.fee().ok().map(|f| f.to_sat());
-                                    state.psbt_inputs_count = parsed.inputs.len();
-                                    state.psbt_outputs_count = parsed.unsigned_tx.output.len();
-                                    state.psbt_total_out_sat = total_out;
-                                    state.psbt_fee_sat = fee;
-                                    state.scanned_psbt = Some(text);
-                                    state.psbt_source_label = "Manual Paste Buffer".into();
-                                    state.psbt_manual_entry = false;
-                                    state.status_message = "PSBT parsed successfully! Press [ENTER] to sign.".into();
-                                }
-                                Err(e) => {
-                                    state.status_message = format!("Error parsing PSBT: {e}");
-                                }
-                            }
-                        }
-                    }
-                    KeyCode::Char(c) if !has_ctrl => {
-                        if state.psbt_manual_input.len() < 100_000 {
-                            state.psbt_manual_input.push(c);
-                        }
-                    }
-                    _ => {}
-                }
-                return false;
-            }
 
             match key.code {
                 // S: Toggle camera scanning
@@ -2866,15 +2784,6 @@ pub fn handle_key_event(state: &mut AppState, key: KeyEvent) -> bool {
                         Err(e) => {
                             state.status_message = format!("[!] {e}");
                         }
-                    }
-                }
-
-                // M: Manual text/base64 entry
-                KeyCode::Char('m' | 'M') if !has_ctrl => {
-                    if state.scanned_psbt.is_none() && state.signed_psbt_base64.is_none() {
-                        state.psbt_manual_entry = true;
-                        state.psbt_manual_input.clear();
-                        state.status_message = "Enter or paste Base64/Hex PSBT, then press [ENTER].".into();
                     }
                 }
 
