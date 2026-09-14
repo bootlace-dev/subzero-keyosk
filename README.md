@@ -53,6 +53,24 @@ This repository adheres to the `llms.txt` standard for autonomous AI agents, LLM
 
 ---
 
+## 🎯 Why SubZero? Competitive Differentiation & Uniqueness Matrix
+
+| Feature / Architectural Primitive | Real-World Operator Benefit | Uniqueness / Differentiation Indicator |
+| :--- | :--- | :--- |
+| **Commodity COTS `x86_64` Laptop Focus** | Converts any old laptop into a vault; zero hardware wallet shipping leaks or custom hardware supply-chain tracking. | 🌟 **Category Unique:** Runs on existing PC hardware without buying specialized microcontrollers or custom hardware signers. |
+| **Two-Way Optical Webcam PSBT Signing (`Tab 14`)** | 100% cable-free, airgapped transaction signing using laptop camera (`zbarcam`) and animated BBQr display loops. | 💎 **SubZero Unique:** First bare-metal PC live OS with native two-way webcam PSBT scanning & 5-section transaction auditing. |
+| **Testnet4 Risk-Free Rehearsal Lock** | Allows users to practice flipping coins, stamping steel, and signing PSBTs with zero financial risk before mainnet. | 💎 **SubZero Unique:** Only amnesic appliance hardlocked to BIP-94 Testnet4 for complete self-custody rehearsal. |
+| **Pure Physical Entropy (128 Coins / 50 Dice)** | Bypasses black-box silicon hardware random number generators (RNGs) that could be flawed or backdoored. | 🌟 **Category Unique:** Real-time Markov transition matrix and Chi-squared mathematical randomness audits on screen. |
+| **100% Network-Purged Kernel Substrate** | 100% of Wi-Fi, Bluetooth, Ethernet, and cellular kernel modules physically stripped from rootfs. | 💎 **SubZero Unique:** Kernel-level network module deletion (not just software toggles) + DMA isolation (`iommu=force`). |
+| **Terminus 12px High-Density TTY Console** | Displays 45–50 text rows and 113+ columns on 768p panels, eliminating QR code visual clipping. | 💎 **SubZero Unique:** Solves Linux console QR overflow on 768p laptop panels via custom musl `setfont` initialization. |
+| **Amnesic Memory Scrubbing (`toram` + Memtest)** | Ejects boot media into RAM; `[Q][Q]` exit triggers `kexec` into Memtest86+ to scrub DRAM physical RAM banks. | 💎 **SubZero Unique:** Active DRAM remanence RAM scrubbing on exit before power cut. |
+| **Machine-First `llms.txt` Standard** | Single-file monolithic context payload (`llms-full.txt`) for autonomous AI code safety audits. | 💎 **SubZero Unique:** Built natively for AI-directed security audits and automated code reviews. |
+
+*Legend: 🌟 **Category Unique** (vs. Commercial Hardware Wallets / Tails OS) | 💎 **SubZero Unique** (vs. Rhyming FOSS Signers like SeedSigner / Krux)*
+
+---
+
+
 ## Visual Walkthrough Demo
 
 The demo animation captures the full end-to-end self-custody and optical signing lifecycle:
