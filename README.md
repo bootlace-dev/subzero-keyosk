@@ -8,7 +8,8 @@
 
 ![SubZero v0.4.0 Visual Walkthrough](screenshots/subzero_v0.4.0_walkthrough.gif)
 
-SubZero-rs is a pure Rust, machine-first, amnesic Bitcoin cold-storage and optical signing appliance engineered for airgapped COTS hardware (commodity x86_64 laptops, USB drives, and amnesic live environments).
+SubZero-rs is a pure Rust, machine-first, amnesic Bitcoin cold-storage and two-way optical transaction signing appliance engineered for airgapped COTS hardware (commodity x86_64 PC laptops, USB drives, and amnesic live environments).
+
 
 ---
 
