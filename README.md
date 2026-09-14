@@ -35,7 +35,7 @@ If you were provided with this repository or asked to evaluate it:
 * **Derive Airgapped Cold Seeds:** Turn any spare x86_64 PC laptop into an amnesic, bare-metal offline key vault (no OS desktop, no browser, zero network drivers).
 * **Verify Physical Entropy:** Input 128 coin flips or 50 dice rolls with real-time Markov entropy verification (hard-blocks keys if entropy is < 128 bits).
 * **Sign PSBTs Optically:** Scan and sign Bitcoin PSBT transactions & Nostr messages via two-way webcam QR code streams (`Tab 14`).
-* **Upgrade from Ian Coleman:** Replaces browser HTML tools (`bip39.html`) with a compiled, memory-zeroized Rust executable running on volatile RAM.
+* **Modernize from Ian Coleman:** Replaces browser HTML tools (`bip39.html`) with a compiled, memory-zeroized Rust executable running on volatile RAM.
 
 ---
 
