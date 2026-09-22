@@ -3311,12 +3311,30 @@ function renderOutputs() {
   for (let i = startAddr; i < startAddr + 5; i++) {
     const child = generatedData.accountNode.derive(`m/0/${i}`);
     const p2wpkh = btc.p2wpkh(child.publicKey, btc.TEST_NETWORK);
+    const pubHex = [...child.publicKey].map(b => b.toString(16).padStart(2, '0')).join('');
+    const wifStr = child.WIF || (btc.WIF && btc.WIF.encode ? btc.WIF.encode({ version: btc.TEST_NETWORK.wif, privateKey: child.privateKey }) : child.privateKey ? [...child.privateKey].map(b => b.toString(16).padStart(2, '0')).join('') : '--------');
+
     const row = document.createElement('div');
     row.className = 'address-row';
+    row.style.flexDirection = 'column';
+    row.style.alignItems = 'flex-start';
+    row.style.gap = '4px';
+    row.style.padding = '8px';
+    row.style.borderBottom = '1px solid var(--border-color)';
+    row.style.background = '#0d1117';
+
     row.innerHTML = `
-      <div class="index">${i}</div>
-      <div class="path">m/84'/1'/0'/0/${i}</div>
-      <div class="address" style="user-select: all;">${p2wpkh.address}</div>
+      <div style="display: flex; gap: 10px; width: 100%; align-items: center;">
+        <div class="index" style="font-weight: bold; color: var(--accent-yellow); width: 24px;">#${i}</div>
+        <div class="path" style="color: var(--accent-cyan); width: 150px;">m/84'/1'/0'/0/${i}</div>
+        <div class="address" style="user-select: all; font-weight: bold; color: var(--accent-green); flex-grow: 1;">${p2wpkh.address}</div>
+      </div>
+      <div style="font-size: 10px; color: #8b949e; margin-left: 34px; user-select: all; font-family: monospace;">
+        <span style="color: #58a6ff;">PubKey:</span> ${pubHex}
+      </div>
+      <div style="font-size: 10px; color: #8b949e; margin-left: 34px; user-select: all; font-family: monospace;">
+        <span style="color: var(--accent-red);">PrivKey (WIF/Hex):</span> ${wifStr}
+      </div>
     `;
     addrList.appendChild(row);
   }
