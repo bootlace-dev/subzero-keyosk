@@ -3441,7 +3441,7 @@ function renderOutputs() {
 
     const startBip85 = (bip85Page % 4) * 5;
     for (let i = startBip85; i < startBip85 + 5; i++) {
-      const path = 'm/83696968\'/39\'/0\'/12\/' + i + '\'';
+      const path = 'm/83696968\'/39\'/0\'/12\'/' + i + '\'';
       const childNode = masterHd.derive(path);
       
       // HMAC-SHA512("bip-entropy-from-k", childNode.privateKey)
