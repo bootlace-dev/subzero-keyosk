@@ -1,0 +1,18 @@
+[package]
+name = "subzero-wasm"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Zero-import WebAssembly bridge over subzero-core for standalone single-file HTML deployments"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+subzero-core = { path = "../subzero-core" }
+base64.workspace = true
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true

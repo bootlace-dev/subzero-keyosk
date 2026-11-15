@@ -1,0 +1,26 @@
+[package]
+name = "subzero-tui"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Bare-Metal Linux TTY1 Airgapped Cold Vault Console for SubZero v2.0"
+
+[[bin]]
+name = "subzero"
+path = "src/main.rs"
+
+[dependencies]
+subzero-core = { path = "../subzero-core" }
+ratatui = { version = "0.28", default-features = false, features = ["crossterm"] }
+crossterm = "0.28"
+libc = "0.2"
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+tempfile = "3.12"

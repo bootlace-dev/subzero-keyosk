@@ -1,0 +1,27 @@
+# Digest-Pinned Reproducible Build Container for SubZero v2.0
+#
+# WHY DIGEST-PINNED `rust-musl-cross`:
+# Floating tags (`rust:latest`, `alpine:latest`) silently drift compiler versions, LLVM codegen
+# passes, and musl libc archives across months, breaking bit-for-bit binary verification.
+# Pinning the exact OCI manifest digest locks `rustc`, `musl-gcc`, `llvm`, and `python3` so any
+# auditor running `./scripts/build_reproducible.sh` reproduces the exact release `SHA256SUMS`.
+#
+# WHY `/cargo-cache` IS PRE-CREATED `0777`:
+# `scripts/build_reproducible.sh` runs Docker as `-u $(id -u):$(id -g)` so host files are never
+# root-owned. Pre-creating `/cargo-cache` with mode `0777` lets both cached (`-v dir:/cargo-cache`)
+# and clean-room uncached runs (`SUBZERO_CARGO_CACHE` unset) use the exact same `CARGO_HOME=/cargo-cache`
+# and `--remap-path-prefix=/cargo-cache=/cargo` without root mkdir permission errors.
+
+FROM messense/rust-musl-cross@sha256:ce75e9174325d4fbb3de85c309e2d7ca29f7500169bc4b5d2c611ff7e86d549a
+
+RUN rustup target add wasm32-unknown-unknown && \
+    mkdir -p /cargo-cache && \
+    chmod 0777 /cargo-cache
+
+ENV TZ=UTC \
+    LC_ALL=C.UTF-8 \
+    LANG=C.UTF-8 \
+    CARGO_INCREMENTAL=0 \
+    SOURCE_DATE_EPOCH=1700000000
+
+WORKDIR /work

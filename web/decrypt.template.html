@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; script-src '{{CSP_SCRIPT_HASH}}' 'wasm-unsafe-eval'; style-src '{{CSP_STYLE_HASH}}'; img-src data:;">
+<title>SubZero Estate Vault Offline Decryptor (v2.0.0-testnet4)</title>
+<style id="sz-style">
+:root {
+  --bg: #0b0f14;
+  --panel: #121923;
+  --border: #243244;
+  --text: #e6edf3;
+  --muted: #8b9bb0;
+  --accent: #3fb950;
+  --warn: #d29922;
+  --danger: #f85149;
+  --code: #090d12;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  padding: 24px 16px 64px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  line-height: 1.5;
+}
+.wrap { max-width: 880px; margin: 0 auto; }
+.banner {
+  border: 1px solid var(--warn);
+  background: rgba(210, 153, 34, 0.1);
+  color: #f2cc60;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 18px;
+}
+h1 { font-size: 20px; margin: 0 0 6px; }
+.sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  margin-bottom: 16px;
+}
+.card h2 { font-size: 15px; margin: 0 0 10px; color: #9ecbff; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+textarea, input[type="password"], input[type="text"] {
+  width: 100%;
+  background: var(--code);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+textarea { min-height: 110px; resize: vertical; }
+.dropzone {
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 16px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 13px;
+  margin-bottom: 10px;
+}
+.dropzone.drag { border-color: var(--accent); color: var(--accent); }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-top: 12px; }
+button {
+  background: #1f6feb;
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 6px;
+  padding: 9px 16px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.secondary { background: #21262d; color: var(--text); border-color: var(--border); }
+button.danger { background: #8e1519; }
+button:disabled { opacity: 0.5; cursor: not-allowed; }
+.status { margin-top: 12px; font-size: 13px; padding: 10px; border-radius: 6px; display: none; }
+.status.err { display: block; background: rgba(248, 81, 73, 0.12); border: 1px solid var(--danger); color: #ffa198; }
+.status.ok { display: block; background: rgba(63, 185, 80, 0.12); border: 1px solid var(--accent); color: #7ee787; }
+.hidden { display: none; }
+.mono-box {
+  background: var(--code);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  margin: 6px 0 12px;
+}
+.qr-box { width: 220px; height: 220px; background: #fff; padding: 8px; border-radius: 6px; margin: 8px 0; }
+.qr-box svg { width: 100%; height: 100%; display: block; }
+code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px; font-size: 0.95em; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="banner">
+    AIRGAP REMINDER: Disconnect Wi-Fi, Ethernet, and Bluetooth before entering a real 12-word Decoupled Estate Passphrase. Close or wipe this tab immediately after recovery. Built for Bitcoin Testnet4 rehearsal (<code>tb1q...</code> / <code>tb1p...</code>).
+  </div>
+  <h1>SubZero Estate Vault Offline Decryptor</h1>
+  <div class="sub">Pure-Rust WebAssembly (<code>subzero-core</code> v2.0.0-testnet4) &bull; Zero Network &bull; Works 100% Offline via <code>file://</code></div>
+
+  <div class="card">
+    <h2>1. Load Encrypted <code>vault.json</code></h2>
+    <div id="dropzone" class="dropzone">
+      Drag &amp; drop <code>vault.json</code> here, choose a file below, or paste JSON directly.
+    </div>
+    <input id="file-input" type="file" accept=".json,application/json">
+    <label for="vault-json">Encrypted Vault JSON (<code>subzero-vault-v2</code> or <code>subzero-vault-v1</code>, 600,000 PBKDF2-HMAC-SHA256 rounds):</label>
+    <textarea id="vault-json" spellcheck="false" autocomplete="off" placeholder='{"format":"subzero-vault-v2","cipher":"AES-256-GCM",...}'></textarea>
+
+    <label for="passphrase">2. Enter 12-Word Decoupled Estate Passphrase (BIP-85 Index 0):</label>
+    <input id="passphrase" type="password" spellcheck="false" autocomplete="off" placeholder="twelve lowercase words separated by spaces">
+    <div class="row">
+      <button id="btn-toggle-pass" type="button" class="secondary">Show/Hide Passphrase</button>
+      <button id="btn-unlock" type="button" disabled>Booting WASM...</button>
+      <button id="btn-wipe" type="button" class="danger">Amnesic Wipe RAM &amp; Screen</button>
+    </div>
+    <div id="status" class="status"></div>
+  </div>
+
+  <div id="result-panel" class="card hidden">
+    <h2>Unlocked Estate Payload</h2>
+    <label>Master Wallet Fingerprint &amp; Watch-Only BIP-84 Descriptor:</label>
+    <div id="out-desc" class="mono-box"></div>
+    <div id="out-qr" class="qr-box"></div>
+
+    <label>Master &amp; Heir 12-Word Mnemonics (Isolated in WASM until explicitly revealed):</label>
+    <div class="row">
+      <button id="btn-reveal-seed" type="button" class="secondary">Reveal / Hide Master &amp; Heir Mnemonics</button>
+    </div>
+    <div id="out-seed" class="mono-box hidden"></div>
+
+    <label>Heir &amp; Sub-Treasury BIP-85 Vaults:</label>
+    <div id="out-heirs" class="mono-box"></div>
+  </div>
+</div>
+
+<script id="sz-script">
+(() => {
+  "use strict";
+  const WASM_B64 = "{{WASM_BASE64}}";
+  let wasmExports = null;
+  let lastUnlockedMeta = null;
+  let secretsRevealed = false;
+
+  const statusEl = document.getElementById("status");
+  const btnUnlock = document.getElementById("btn-unlock");
+  const fileInput = document.getElementById("file-input");
+  const vaultEl = document.getElementById("vault-json");
+  const passEl = document.getElementById("passphrase");
+  const resultPanel = document.getElementById("result-panel");
+  const outDesc = document.getElementById("out-desc");
+  const outQr = document.getElementById("out-qr");
+  const outSeed = document.getElementById("out-seed");
+  const outHeirs = document.getElementById("out-heirs");
+
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+
+  function setStatus(msg, isErr) {
+    statusEl.textContent = msg;
+    statusEl.className = isErr ? "status err" : "status ok";
+  }
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function invokeWasm(payloadObj) {
+    if (!wasmExports) throw new Error("WASM engine not ready.");
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const reqBytes = enc.encode(JSON.stringify(payloadObj));
+    const inPtr = wasmExports.sz_alloc(reqBytes.length);
+    let outPtr = 0;
+    let outLen = 0;
+    try {
+      new Uint8Array(wasmExports.memory.buffer, inPtr, reqBytes.length).set(reqBytes);
+      const packed = BigInt(wasmExports.sz_invoke(inPtr, reqBytes.length));
+      reqBytes.fill(0);
+      outPtr = Number((packed >> 32n) & 0xffffffffn);
+      outLen = Number(packed & 0xffffffffn);
+      const respBytes = new Uint8Array(wasmExports.memory.buffer, outPtr, outLen);
+      const respJson = dec.decode(respBytes);
+      return JSON.parse(respJson);
+    } finally {
+      if (inPtr) wasmExports.sz_dealloc(inPtr, reqBytes.length);
+      if (outPtr && outLen) wasmExports.sz_dealloc(outPtr, outLen);
+    }
+  }
+
+  function renderSafeSvg(container, svgStr) {
+    container.textContent = "";
+    if (!svgStr || !svgStr.startsWith("<svg ")) return;
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svgStr, "image/svg+xml");
+    const svg = doc.documentElement;
+    if (svg && svg.nodeName.toLowerCase() === "svg") {
+      container.appendChild(document.importNode(svg, true));
+    }
+  }
+
+  function renderHeirs(secretHeirsOpt) {
+    if (!lastUnlockedMeta) {
+      outHeirs.textContent = "";
+      return;
+    }
+    const pubs = lastUnlockedMeta.heir_public || [];
+    if (!pubs.length && (!secretHeirsOpt || !secretHeirsOpt.length)) {
+      outHeirs.textContent = "(No additional BIP-85 heir vaults stored)";
+      return;
+    }
+    const lines = [];
+    const count = Math.max(pubs.length, secretHeirsOpt ? secretHeirsOpt.length : 0);
+    for (let i = 0; i < count; i++) {
+      const pub = pubs[i];
+      const sec = secretHeirsOpt ? secretHeirsOpt[i] : null;
+      const label = sec ? sec.label : ("BIP-85 Heir #" + (pub ? pub.index : (i + 1)));
+      const path = sec ? sec.path : (pub ? pub.path : "");
+      lines.push("[" + label + "] (" + path + ")");
+      if (pub) {
+        lines.push("  Fingerprint: " + pub.fingerprint + " | First tb1q: " + pub.first_receive_address);
+        lines.push("  Watch-Only:  " + pub.descriptor);
+      }
+      lines.push("  12 Words:    " + (sec ? sec.mnemonic : "[HIDDEN IN WASM - Click Reveal above]"));
+      lines.push("");
+    }
+    outHeirs.textContent = lines.join("\n");
+  }
+
+  function wipeAll() {
+    lastUnlockedMeta = null;
+    secretsRevealed = false;
+    fileInput.value = "";
+    vaultEl.value = "";
+    passEl.value = "";
+    outDesc.textContent = "";
+    outQr.textContent = "";
+    outSeed.textContent = "";
+    outSeed.classList.add("hidden");
+    outHeirs.textContent = "";
+    resultPanel.classList.add("hidden");
+    if (wasmExports && wasmExports.sz_wipe_memory) {
+      wasmExports.sz_wipe_memory();
+    }
+    setStatus("WASM linear memory & DOM wiped cleanly. Close browser tab to release JS GC memory.", false);
+  }
+
+  document.getElementById("btn-toggle-pass").addEventListener("click", () => {
+    passEl.type = passEl.type === "password" ? "text" : "password";
+  });
+
+  document.getElementById("btn-wipe").addEventListener("click", wipeAll);
+
+  document.getElementById("btn-reveal-seed").addEventListener("click", () => {
+    if (!lastUnlockedMeta) return;
+    secretsRevealed = !secretsRevealed;
+    if (secretsRevealed) {
+      const rev = invokeWasm({ cmd: "reveal_unlocked_vault" });
+      if (!rev.ok) {
+        secretsRevealed = false;
+        setStatus(rev.error || "Unable to reveal unlocked vault.", true);
+        return;
+      }
+      outSeed.textContent = rev.data.master_root_mnemonic;
+      outSeed.classList.remove("hidden");
+      renderHeirs(rev.data.heir_treasuries || []);
+    } else {
+      outSeed.textContent = "";
+      outSeed.classList.add("hidden");
+      renderHeirs(null);
+    }
+  });
+
+  fileInput.addEventListener("change", (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      vaultEl.value = String(reader.result || "");
+      setStatus("Loaded " + f.name + " (" + f.size + " bytes).", false);
+    };
+    reader.readAsText(f);
+  });
+
+  const dz = document.getElementById("dropzone");
+  dz.addEventListener("dragover", (e) => { e.preventDefault(); dz.classList.add("drag"); });
+  dz.addEventListener("dragleave", () => dz.classList.remove("drag"));
+  dz.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dz.classList.remove("drag");
+    const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      vaultEl.value = String(reader.result || "");
+      setStatus("Loaded " + f.name + " (" + f.size + " bytes).", false);
+    };
+    reader.readAsText(f);
+  });
+
+  btnUnlock.addEventListener("click", () => {
+    const v = vaultEl.value.trim();
+    const p = passEl.value.trim();
+    if (!v || !p) {
+      setStatus("Provide both encrypted vault.json and the 12-word estate passphrase.", true);
+      return;
+    }
+    setStatus("Running 600,000 PBKDF2-HMAC-SHA256 rounds in WASM...", false);
+    setTimeout(() => {
+      try {
+        const res = invokeWasm({ cmd: "decrypt_vault", vault_json: v, passphrase: p });
+        if (!res.ok) {
+          setStatus(res.error || "Decryption failed.", true);
+          return;
+        }
+        lastUnlockedMeta = res.data;
+        secretsRevealed = false;
+        outSeed.textContent = "";
+        outSeed.classList.add("hidden");
+
+        outDesc.textContent =
+          "Master Fingerprint: " + res.data.fingerprint +
+          "\nCreated UTC: " + res.data.created_utc +
+          "\nBIP-84 Descriptor:\n" + res.data.descriptor;
+        if (res.data.wpkh_qr_svg) {
+          renderSafeSvg(outQr, res.data.wpkh_qr_svg);
+        }
+        renderHeirs(null);
+        resultPanel.classList.remove("hidden");
+        setStatus("Vault authenticated and unlocked offline (mnemonics isolated in WASM until revealed).", false);
+      } catch (err) {
+        setStatus(String(err), true);
+      }
+    }, 20);
+  });
+
+  WebAssembly.instantiate(b64ToBytes(WASM_B64), {}).then((inst) => {
+    wasmExports = inst.instance.exports;
+    btnUnlock.disabled = false;
+    btnUnlock.textContent = "Unlock Estate Vault";
+  }).catch((err) => {
+    setStatus("WASM initialization failed: " + err, true);
+  });
+})();
+</script>
+</body>
+</html>

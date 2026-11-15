@@ -1,0 +1,17 @@
+# SubZero Keyosk v2.0 (Bitcoin Testnet4 Cold Vault & Airgap PSBT Signer)
+
+> Airgapped, zero-OS-RNG Bitcoin Testnet4 (`BIP-94`) key ceremony, PSBT airgap signer, `BIP-85` child-vault manager, and `pipe-k1` release-signing workspace built on one pure-Rust core (`subzero-core`) compiling bit-for-bit deterministically to Bare-Metal Linux (`x86_64-unknown-linux-musl`) and zero-import Single-File WebAssembly HTML (`subzero-keyosk.html` & `decrypt.html`).
+
+## Documentation Index
+
+- [README.md](README.md): Quickstart, Cooperative Two-Tier Entropy (Tier 1 Coins/Dice/52-Card Deck vs Tier 2 200-Char Cross-Row Obstacle Course), 10 funded Testnet4 rehearsal presets (`Preset 0..9`), reproducible container build, and dual PGP + `pipe-k1` release verification.
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): Rust workspace layout (`crates/subzero-core`, `crates/subzero-tui`, `crates/subzero-wasm`), WASM secret isolation and scrubbing ABI, `subzero-vault-v2` SIV AES-256-GCM format, and two-partition UEFI RAM-only (`initramfs` + `memtester-static`) appliance architecture.
+- [SECURITY.md](SECURITY.md): Threat model, trust boundaries, scope limits (Testnet4 single-sig `BIP-84` + `BIP-86`), v2.0 security remediation table, and verification workflow.
+
+## Release Artifacts & Public Keys
+
+- `dist/subzero-x86_64-musl`: Static Linux console binary (`--self-test` supported).
+- `dist/subzero-keyosk.html`: Standalone offline `file://` HTML/WASM kiosk (CSP hash-pinned, zero network, zero external dependencies, WASM-isolated secrets).
+- `dist/decrypt.html`: Standalone offline `file://` HTML/WASM decryptor for `subzero-vault-v2` `vault.json` estate bundles.
+- `bootlace-dev-pgp.asc` / `bootlace-dev-release.asc`: OpenPGP key `F181 73E5 5464 4BB5 9018  AE50 F6E9 6FAD CA2E 8E0F`.
+- `bootlace-dev-pipek1.pub`: `pipe-k1` (`m/83696968'/128002'`) key `npub1mvlht4wj3lvfmw96qxakaln862r27nn7z84ak089zjuvavkppeeq79a4j7`.

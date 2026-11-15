@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/subzero-core",
+    "crates/subzero-tui",
+    "crates/subzero-wasm",
+]
+
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+authors = ["bootlace-dev <bootlace-dev@users.noreply.github.com>"]
+license = "MIT"
+repository = "https://github.com/bootlace-dev/subzero-keyosk"
+
+[workspace.dependencies]
+bitcoin = { version = "0.32", default-features = false, features = ["std", "serde"] }
+secp256k1 = { version = "0.29", default-features = false, features = ["lowmemory"] }
+bip39 = { version = "2.1", default-features = false, features = ["std", "zeroize"] }
+k256 = { version = "0.13", default-features = false, features = ["alloc", "schnorr", "ecdsa", "arithmetic", "sha256"] }
+sha2 = "0.10"
+hmac = "0.12"
+pbkdf2 = { version = "0.12", default-features = false, features = ["hmac"] }
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc", "zeroize"] }
+bech32 = "0.11"
+base64 = "0.22"
+hex = "0.4"
+qrcode = { version = "0.14", default-features = false }
+rqrr = { version = "0.8", default-features = false }
+bbqr = "0.6"
+zeroize = { version = "1.8", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"

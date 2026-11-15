@@ -1,0 +1,1699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'none'; base-uri 'none'; form-action 'none'; script-src '{{CSP_SCRIPT_HASH}}' 'wasm-unsafe-eval'; style-src '{{CSP_STYLE_HASH}}'; img-src data: blob:; media-src blob:;">
+<title>SubZero KeyOSK v2.0.0-testnet4 - Airgapped Bitcoin Cold Vault (WASM)</title>
+<style id="sz-style">
+:root {
+  --bg: #090d12;
+  --panel: #111822;
+  --panel-alt: #0d131c;
+  --border: #253447;
+  --text: #e6edf3;
+  --muted: #8b9bb0;
+  --accent: #2ea043;
+  --accent-bright: #56d364;
+  --blue: #1f6feb;
+  --cyan: #58a6ff;
+  --warn: #d29922;
+  --danger: #f85149;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: #0c121a;
+  border-bottom: 1px solid var(--border);
+  padding: 10px 18px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  justify-content: space-between;
+}
+.brand { font-weight: 700; font-size: 15px; color: #fff; }
+.brand span { color: var(--warn); font-size: 12px; margin-left: 8px; }
+.wallet-pill {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--cyan);
+}
+.container { max-width: 1180px; margin: 0 auto; padding: 16px 18px 72px; }
+.airgap-banner {
+  border: 1px solid var(--warn);
+  background: rgba(210, 153, 34, 0.1);
+  color: #f2cc60;
+  padding: 9px 14px;
+  border-radius: 6px;
+  margin-bottom: 14px;
+  font-size: 12px;
+}
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+.tab-btn {
+  background: var(--panel);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 12px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.tab-btn.active {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--cyan);
+}
+.panel { display: none; }
+.panel.active { display: block; }
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+.card h2 { margin: 0 0 8px; font-size: 15px; color: #a5d6ff; }
+.card h3 { margin: 12px 0 6px; font-size: 13px; color: #d2a8ff; }
+.hint { color: var(--muted); font-size: 12px; margin-bottom: 10px; }
+.badge {
+  display: inline-block;
+  padding: 3px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+}
+.badge.tier1 { border-color: var(--accent); color: var(--accent-bright); }
+.badge.tier2 { border-color: var(--cyan); color: #79c0ff; }
+.badge.preset { border-color: var(--warn); color: #f2cc60; }
+.badge.danger { border-color: var(--danger); color: #ffa198; }
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+.preset-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 8px; }
+.preset-card {
+  text-align: left;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.preset-card:hover { border-color: var(--cyan); }
+.preset-card .p-top { display: flex; justify-content: space-between; gap: 8px; font-weight: 700; color: var(--cyan); font-size: 12px; }
+.preset-card .p-note { font-size: 11px; color: var(--muted); margin-top: 4px; }
+label { display: block; font-size: 12px; color: var(--muted); margin: 8px 0 4px; }
+input[type="text"], input[type="password"], input[type="number"], textarea, select {
+  width: 100%;
+  background: var(--panel-alt);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 10px;
+  font-family: inherit;
+  font-size: 13px;
+}
+textarea { min-height: 88px; resize: vertical; }
+button {
+  background: var(--blue);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.14);
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.secondary { background: #21262d; color: var(--text); border-color: var(--border); }
+button.success { background: var(--accent); }
+button.danger { background: #8e1519; border-color: var(--danger); }
+button:disabled { opacity: 0.45; cursor: not-allowed; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+.mono {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  margin-top: 6px;
+}
+.toast {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  display: none;
+  font-size: 12px;
+}
+.toast.ok { display: block; background: rgba(46,160,67,0.14); border: 1px solid var(--accent); color: #7ee787; }
+.toast.err { display: block; background: rgba(248,81,73,0.14); border: 1px solid var(--danger); color: #ffa198; }
+.obstacle-box {
+  background: #06090d;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px;
+  font-size: 15px;
+  line-height: 1.75;
+  letter-spacing: 0.6px;
+  word-break: break-all;
+  user-select: none;
+}
+.ch-ok { color: var(--accent-bright); }
+.ch-cur { background: #1f6feb; color: #fff; border-radius: 2px; }
+.ch-pend { color: #6e7681; }
+.ch-err { background: #b62324; color: #fff; font-weight: 700; padding: 0 2px; border-radius: 2px; }
+.meter-bar {
+  height: 8px;
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.meter-fill { height: 100%; width: 0%; background: var(--accent); transition: width 0.1s linear; }
+.qr-stage {
+  width: 250px;
+  height: 250px;
+  background: #fff;
+  padding: 10px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.qr-stage svg { width: 100%; height: 100%; display: block; }
+.addr-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
+.addr-table th, .addr-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 6px 8px;
+  text-align: left;
+}
+.addr-table th { color: var(--muted); }
+.hidden { display: none !important; }
+video { width: 100%; max-width: 420px; border-radius: 6px; border: 1px solid var(--border); background: #000; }
+.audit-fatal { background: rgba(248,81,73,0.16); border: 1px solid var(--danger); color: #ffa198; padding: 10px; border-radius: 6px; margin: 8px 0; }
+.audit-warn { background: rgba(210,153,34,0.14); border: 1px solid var(--warn); color: #f2cc60; padding: 10px; border-radius: 6px; margin: 8px 0; }
+code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px; font-size: 0.95em; }
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="brand">SubZero KeyOSK <span>v2.0.0-testnet4 &bull; Unified Pure-Rust WASM</span></div>
+  <div id="active-wallet-pill" class="wallet-pill">No Wallet Loaded</div>
+  <button id="btn-global-wipe" type="button" class="danger">Amnesic Wipe [RAM + DOM]</button>
+</div>
+
+<div class="container">
+  <div class="airgap-banner">
+    TESTNET4 COLD VAULT APPLIANCE (<code>tb1q</code> / <code>tb1p</code>): Zero network calls (<code>connect-src 'none'</code>). Mainnet keys (<code>bc1</code> / <code>xpub</code> / <code>zpub</code>) are hard-blocked. Presets <code>0..9</code> are public deterministic rehearsal seeds holding live Testnet4 UTXOs; never send real value to preset seeds.
+  </div>
+
+  <div id="global-toast" class="toast"></div>
+
+  <div id="nav-tabs" class="tabs">
+    <button type="button" class="tab-btn active" data-tab="tab-intake">1. Entropy &amp; Intake</button>
+    <button type="button" class="tab-btn" data-tab="tab-wallet">2. Watch-Only &amp; Addresses</button>
+    <button type="button" class="tab-btn" data-tab="tab-bip85">3. BIP-85 Vaults</button>
+    <button type="button" class="tab-btn" data-tab="tab-psbt">4. PSBT Audit &amp; Sign</button>
+    <button type="button" class="tab-btn" data-tab="tab-pipek1">5. pipe-k1 Sign/Verify</button>
+    <button type="button" class="tab-btn" data-tab="tab-estate">6. Estate Vault (<code>vault.json</code>)</button>
+    <button type="button" class="tab-btn" data-tab="tab-seedfix">7. SeedFix &amp; Wordlist</button>
+  </div>
+
+  <!-- TAB 1: ENTROPY & INTAKE -->
+  <section id="tab-intake" class="panel active">
+    <div class="card">
+      <h2>A. Live-Funded Testnet4 Rehearsal Presets (<code>Preset 0..9</code>) <span class="badge preset">0 Bits Secret Entropy</span></h2>
+      <div class="hint">Unified across Bare-Metal Linux and Single-File HTML. Click any preset to rehearse watch-only QR exports, change-address discovery, BIP-85 child vaults, and PSBT airgap signing.</div>
+      <div id="preset-grid" class="preset-grid"></div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h2>B. Tier 1: Physical Discrete Entropy <span class="badge tier1">0% Host Clock Trust</span></h2>
+        <div class="hint">100% verifiable on an independent second calculator. Pre-hash Markov, Pearson Chi-squared, 52-card bijection, and Bayer-Diaconis shuffle checks protect against accidental patterns or typos.</div>
+        <label for="tier1-kind">Physical Source:</label>
+        <select id="tier1-kind">
+          <option value="dice">6-Sided Casino Dice (50+ rolls min, 60 recommended)</option>
+          <option value="coins">Physical Coin Flips (128+ flips of H/T or 1/0)</option>
+          <option value="cards">52-Card Shuffled Deck (Wash 30-60s + 7-8 Riffle Shuffles)</option>
+          <option value="hex">External Hardware TRNG Hex (32 hex chars = 128-bit)</option>
+        </select>
+        <label id="tier1-label" for="tier1-input">Enter 50+ dice rolls (<code>1</code>..<code>6</code>):</label>
+        <textarea id="tier1-input" spellcheck="false" autocomplete="off" placeholder="e.g. 461253..."></textarea>
+        <div id="tier1-counter" class="hint">0 symbols entered</div>
+        <div class="row">
+          <button id="btn-derive-tier1" type="button" class="success">Derive Tier 1 Vault</button>
+          <button id="btn-clear-tier1" type="button" class="secondary">Clear</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>C. Import Existing Seed / Punch / SeedQR / Watch-Only</h2>
+        <div class="hint">Accepts 12 BIP-39 words, 4-letter metal plate prefixes (<code>aban aban ... abou</code>), 48-digit <code>CompactSeedQR</code>, or Testnet4 Watch-Only (<code>wpkh(...)</code>, <code>tr(...)</code>, <code>tpub...</code>, <code>vpub...</code>).</div>
+        <label for="import-input">Offline Wallet Material:</label>
+        <textarea id="import-input" spellcheck="false" autocomplete="off" placeholder="12 words, 48-digit SeedQR, or wpkh([73c5da0a/84'/1'/0']tpub.../<0;1>/*)#checksum"></textarea>
+        <div class="row">
+          <button id="btn-import-wallet" type="button">Import into Vault</button>
+          <button id="btn-scan-import-qr" type="button" class="secondary">Scan SeedQR / Descriptor via Webcam</button>
+        </div>
+        <div id="import-cam-box" class="hidden">
+          <div class="row">
+            <video id="import-video" playsinline muted></video>
+          </div>
+          <div id="import-cam-status" class="hint">Initializing camera...</div>
+          <button id="btn-stop-import-cam" type="button" class="secondary">Stop Camera</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>D. Tier 2: Cooperative 200-Char Cross-Row Obstacle Course <span class="badge tier2">Unclamped Host Clock Required</span></h2>
+      <div class="hint">
+        You and SubZero are on the same team: transcribing this deterministic zero-OS-RNG cross-row prompt forces slow 2D visual search, Shift transitions, and natural <code>Backspace</code> error-recovery jitter. Red-highlighted typos must be cleared with <code>Backspace</code>. Automatically blocks clamped timers (<code>Tor Browser</code> 100ms). Not re-derivable on a second calculator; write down the resulting 12 words immediately.
+      </div>
+      <div id="obstacle-display" class="obstacle-box"></div>
+      <div class="meter-bar"><div id="obstacle-meter" class="meter-fill"></div></div>
+      <div id="obstacle-stats" class="hint">Matched: 0 / 200 | Backspaces: 0 | Conservative 90B Min-Entropy: 0.0 / 192 bits</div>
+      <label for="obstacle-focus">Click inside the box below and type the highlighted character (<code>Paste</code> and <code>Auto-Repeat</code> are ignored):</label>
+      <input id="obstacle-focus" type="text" spellcheck="false" autocomplete="off" placeholder="Click here and type the blue-highlighted character above...">
+      <div class="row">
+        <button id="btn-finalize-tier2" type="button" class="success" disabled>Finalize Tier 2 Vault (Complete 200/200 chars)</button>
+        <button id="btn-reset-tier2" type="button" class="secondary">New Deterministic Obstacle Course</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 2: ACTIVE WALLET & WATCH-ONLY -->
+  <section id="tab-wallet" class="panel">
+    <div id="wallet-empty" class="card">
+      <h2>No Active Wallet</h2>
+      <div class="hint">Load a rehearsal preset, derive physical entropy, or import a descriptor on Tab 1 first.</div>
+    </div>
+
+    <div id="wallet-loaded" class="hidden">
+      <div class="card">
+        <h2>Active Cold Vault Summary</h2>
+        <div class="row">
+          <span id="w-trust-badge" class="badge"></span>
+          <span id="w-xfp-badge" class="badge tier2"></span>
+        </div>
+        <div id="w-meta" class="mono"></div>
+
+        <div id="w-secret-controls" class="row">
+          <button id="btn-toggle-mnemonic" type="button" class="secondary">Reveal 12-Word Mnemonic &amp; CompactSeedQR</button>
+          <button id="btn-download-sparrow" type="button" class="success">Download Watch-Only Sparrow JSON (Zero Private Keys)</button>
+          <button id="btn-wallet-return-master" type="button" class="secondary hidden">Return to Master Root</button>
+        </div>
+        <div id="w-secret-box" class="mono hidden"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <h2>Optical Airgap Watch-Only Export (<code>BBQr</code> / <code>vpub</code> / <code>Taproot</code>)</h2>
+          <div class="row">
+            <select id="qr-export-mode">
+              <option value="bbqr">Mode 1: Animated Coinkite BBQr Descriptor (wpkh)</option>
+              <option value="wpkh_static">Mode 2: Static BIP-84 Descriptor QR (wpkh)</option>
+              <option value="vpub">Mode 3: Static SLIP-0132 vpub QR (Electrum / Green)</option>
+              <option value="tr_static">Mode 4: Static BIP-86 Taproot Descriptor QR (tr)</option>
+            </select>
+          </div>
+          <div class="row">
+            <div id="w-qr-stage" class="qr-stage"></div>
+          </div>
+          <div id="w-qr-caption" class="hint"></div>
+          <label>BIP-84 Watch-Only Descriptor (<code>m/84'/1'/0'</code>):</label>
+          <div id="w-wpkh-desc" class="mono"></div>
+          <label>SLIP-0132 <code>vpub</code> &amp; BIP-86 Taproot Descriptor (<code>m/86'/1'/0'</code>):</label>
+          <div id="w-extra-desc" class="mono"></div>
+        </div>
+
+        <div class="card">
+          <h2>Derived Testnet4 Address Explorer (<code>Receive 0/*</code> &amp; <code>Change 1/*</code>)</h2>
+          <div class="row">
+            <select id="addr-branch-select">
+              <option value="recv84">BIP-84 Native SegWit Receive (<code>m/84'/1'/0'/0/0..49</code>)</option>
+              <option value="chg84">BIP-84 Internal Change (<code>m/84'/1'/0'/1/0..49</code>)</option>
+              <option value="recv86">BIP-86 Taproot Receive (<code>m/86'/1'/0'/0/0..19</code>)</option>
+              <option value="chg86">BIP-86 Taproot Change (<code>m/86'/1'/0'/1/0..19</code>)</option>
+            </select>
+            <input id="addr-page" type="number" min="0" max="4" value="0">
+          </div>
+          <table class="addr-table">
+            <thead><tr><th>Path</th><th>Testnet4 Address (<code>tb1q</code> / <code>tb1p</code>)</th></tr></thead>
+            <tbody id="addr-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3: BIP-85 CHILD VAULTS -->
+  <section id="tab-bip85" class="panel">
+    <div class="card">
+      <h2>Deterministic BIP-85 Child Vaults (<code>m/83696968'/39'/0'/12'/{i}'</code>)</h2>
+      <div class="hint">Index <code>0</code> is reserved as the Decoupled 12-Word Estate Passphrase for <code>vault.json</code>. Indices <code>1..N</code> are cryptographically isolated Heir or Operational Sub-Wallets (<code>Preset 2</code> holds live Testnet4 UTXOs on <code>BIP85[1..4]</code>).</div>
+      <div class="row">
+        <label for="bip85-count">Heir Vault Count (<code>Index 1..N</code>, plus <code>Index 0</code> Passphrase):</label>
+        <input id="bip85-count" type="number" min="1" max="10" value="4">
+        <button id="btn-derive-bip85" type="button">Derive BIP-85 Children</button>
+        <button id="btn-toggle-bip85-secrets" type="button" class="secondary">Reveal / Hide Child Mnemonics</button>
+        <button id="btn-return-master" type="button" class="secondary hidden">Return to Master Root</button>
+      </div>
+      <div id="bip85-pivot-row" class="row"></div>
+      <div id="bip85-list" class="mono">Load a seed-backed wallet first.</div>
+    </div>
+  </section>
+
+  <!-- TAB 4: PSBT AUDIT & SIGN -->
+  <section id="tab-psbt" class="panel">
+    <div class="card">
+      <h2>Two-Way Verified PSBT Airgap Auditor &amp; Signer (<code>P2WPKH</code> + <code>P2TR</code>)</h2>
+      <div class="hint">Cryptographically verifies self-change outputs directly against <code>master_xprv</code> (<code>[C-02]</code> anti-spoof defense), checks <code>non_witness_utxo</code> TXIDs, blocks mainnet paths, and outputs Coinkite <code>BBQr</code> signed frames.</div>
+
+      <div class="row">
+        <input id="psbt-file" type="file" accept=".psbt,.txt">
+        <button id="btn-scan-psbt-cam" type="button" class="secondary">Scan Unsigned PSBT / BBQr via Webcam</button>
+        <button id="btn-stop-psbt-cam" type="button" class="secondary hidden">Stop Webcam</button>
+      </div>
+      <div id="psbt-cam-box" class="hidden">
+        <video id="psbt-video" playsinline muted></video>
+        <div id="psbt-cam-status" class="hint">Point camera at single QR or animated Coinkite BBQr (<code>B$...</code>) stream.</div>
+      </div>
+
+      <label for="psbt-input">Unsigned PSBT (Base64 <code>cHNidP...</code> or Hex):</label>
+      <textarea id="psbt-input" spellcheck="false" autocomplete="off" placeholder="Paste Base64 or Hex PSBT, load a .psbt file, or scan animated BBQr..."></textarea>
+      <div class="row">
+        <button id="btn-inspect-psbt" type="button">1. Inspect &amp; Verify PSBT</button>
+        <button id="btn-sign-psbt" type="button" class="success" disabled>2. Sign Verified PSBT</button>
+      </div>
+
+      <div id="psbt-fatal-box" class="audit-fatal hidden"></div>
+      <div id="psbt-warn-box" class="audit-warn hidden"></div>
+      <div id="psbt-report" class="mono hidden"></div>
+
+      <div id="psbt-signed-panel" class="hidden">
+        <h3>Signed PSBT Return Airgap (<code>Coinkite BBQr</code> + <code>.psbt</code> File)</h3>
+        <div class="row">
+          <div id="psbt-signed-qr" class="qr-stage"></div>
+          <div>
+            <div id="psbt-signed-frame-info" class="hint"></div>
+            <button id="btn-download-signed-psbt" type="button" class="success">Download Signed <code>.psbt</code> Binary</button>
+          </div>
+        </div>
+        <label>Signed PSBT Base64:</label>
+        <textarea id="psbt-signed-b64" readonly></textarea>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 5: PIPE-K1 RELEASE SIGNER -->
+  <section id="tab-pipek1" class="panel">
+    <div class="grid-2">
+      <div class="card">
+        <h2><code>pipe-k1</code> (<code>m/83696968'/128002'</code>) Detached Signer</h2>
+        <div class="hint">Derives deterministic BIP-85 <code>128002'</code> operational secp256k1 keys and signs byte-exact 105-byte <code>PKSG</code> / <code>-----BEGIN PIPE-K1 SIGNATURE-----</code> artifacts compatible with <code>pipe-k1 verify</code>.</div>
+        <div class="row">
+          <label for="pk1-id">Identity:</label>
+          <input id="pk1-id" type="number" min="0" max="1000" value="0">
+          <label for="pk1-idx">Index:</label>
+          <input id="pk1-idx" type="number" min="0" max="1000" value="0">
+          <button id="btn-pk1-derive" type="button" class="secondary">Refresh Identity</button>
+          <button id="btn-pk1-reveal-nsec" type="button" class="secondary">Reveal <code>nsec1</code></button>
+        </div>
+        <div id="pk1-ident-box" class="mono">Load a seed-backed wallet first.</div>
+
+        <label for="pk1-msg">Message or <code>SHA256SUMS</code> Manifest to Sign:</label>
+        <textarea id="pk1-msg" spellcheck="false" placeholder="Paste SHA256SUMS or release text to sign offline..."></textarea>
+        <label for="pk1-ts">Deterministic UNIX Timestamp (<code>u32</code>, defaults to <code>1700000000</code> or current epoch):</label>
+        <input id="pk1-ts" type="number" min="0" value="1700000000">
+        <div class="row">
+          <button id="btn-pk1-now" type="button" class="secondary">Use Current UTC Epoch</button>
+          <button id="btn-pk1-sign" type="button" class="success">Sign Detached <code>.pk1</code></button>
+          <button id="btn-pk1-download" type="button" class="secondary" disabled>Download <code>.pk1.asc</code></button>
+        </div>
+        <div id="pk1-sig-out" class="mono hidden"></div>
+        <div id="pk1-sig-qr" class="qr-stage hidden"></div>
+      </div>
+
+      <div class="card">
+        <h2><code>pipe-k1</code> Detached Signature Verifier</h2>
+        <label for="pk1-ver-msg">Signed Message Text:</label>
+        <textarea id="pk1-ver-msg" spellcheck="false" placeholder="Exact message bytes..."></textarea>
+        <label for="pk1-ver-sig">Detached Signature (<code>-----BEGIN PIPE-K1 SIGNATURE-----</code> or Base64):</label>
+        <textarea id="pk1-ver-sig" spellcheck="false" placeholder="Paste armored or raw Base64 PKSG signature..."></textarea>
+        <label for="pk1-ver-pub">Optional Pinned Signer Public Key (<code>npub1...</code> or 64-char hex):</label>
+        <input id="pk1-ver-pub" type="text" spellcheck="false" placeholder="npub1... (leave blank to inspect embedded signer)">
+        <div class="row">
+          <button id="btn-pk1-verify" type="button">Verify BIP-340 Signature</button>
+        </div>
+        <div id="pk1-ver-result" class="mono"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 6: ESTATE VAULT -->
+  <section id="tab-estate" class="panel">
+    <div class="grid-2">
+      <div class="card">
+        <h2>Encrypt SIV-Committed <code>vault.json</code> (<code>subzero-vault-v2</code>)</h2>
+        <div class="hint">600,000 PBKDF2-HMAC-SHA256 rounds + plaintext-committed Synthetic IV (<code>[C-04]</code> nonce-reuse fix). Unlockable offline via Bare-Metal SubZero or <code>decrypt.html</code>.</div>
+        <label for="est-utc">Vault Timestamp Label (UTC ISO-8601):</label>
+        <input id="est-utc" type="text" value="2026-11-15T00:00:00Z">
+        <label for="est-pass">12-Word Decoupled Estate Passphrase (Store separately from <code>vault.json</code>!):</label>
+        <input id="est-pass" type="password" spellcheck="false" autocomplete="off" placeholder="12-word BIP-85 Index 0 passphrase">
+        <div class="row">
+          <button id="btn-est-autofill" type="button" class="secondary">Auto-Fill BIP-85 Index 0 Passphrase</button>
+          <button id="btn-est-toggle-pass" type="button" class="secondary">Show/Hide</button>
+          <button id="btn-est-encrypt" type="button" class="success">Encrypt <code>vault.json</code></button>
+          <button id="btn-est-download" type="button" class="secondary" disabled>Download <code>vault.json</code></button>
+        </div>
+        <textarea id="est-out-json" readonly placeholder="Encrypted subzero-vault-v2 JSON will appear here..."></textarea>
+      </div>
+
+      <div class="card">
+        <h2>Test Offline Vault Decryption</h2>
+        <input id="est-dec-file" type="file" accept=".json,application/json">
+        <label for="est-dec-json">Encrypted <code>vault.json</code>:</label>
+        <textarea id="est-dec-json" spellcheck="false" placeholder="Paste or drop vault.json..."></textarea>
+        <label for="est-dec-pass">12-Word Estate Passphrase:</label>
+        <input id="est-dec-pass" type="password" spellcheck="false" autocomplete="off">
+        <div class="row">
+          <button id="btn-est-decrypt" type="button">Verify &amp; Unlock Vault</button>
+          <button id="btn-est-load-active" type="button" class="secondary" disabled>Load Unlocked Master into Active Session</button>
+        </div>
+        <div id="est-dec-result" class="mono"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 7: SEEDFIX & WORDLIST -->
+  <section id="tab-seedfix" class="panel">
+    <div class="grid-2">
+      <div class="card">
+        <h2><code>SeedFix</code> 12th-Word BIP-39 Checksum Solver (128 Candidates)</h2>
+        <div class="hint">Enter your first 11 BIP-39 words (or 4-letter punch prefixes) plus an optional damaged 12th-word hint to rank all 128 valid checksum completions by Levenshtein edit distance.</div>
+        <label for="sf-11">First 11 Words:</label>
+        <textarea id="sf-11" spellcheck="false" placeholder="abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon"></textarea>
+        <label for="sf-hint">Optional Partial / Smudged 12th Word Hint:</label>
+        <input id="sf-hint" type="text" spellcheck="false" placeholder="e.g. abou">
+        <div class="row">
+          <button id="btn-sf-solve" type="button" class="success">Compute 128 Valid Checksum Words</button>
+        </div>
+        <div id="sf-results" class="mono"></div>
+      </div>
+
+      <div class="card">
+        <h2>BIP-39 Wordlist / SeedQR / 4-Letter Metal Punch Lookup</h2>
+        <label for="wl-query">Search by word prefix, substring, or 0..2047 index:</label>
+        <input id="wl-query" type="text" spellcheck="false" placeholder="e.g. vessel or 0003">
+        <div id="wl-results" class="mono"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<canvas id="qr-canvas" class="hidden"></canvas>
+
+<script id="sz-script">
+(() => {
+  "use strict";
+  const WASM_B64 = "{{WASM_BASE64}}";
+
+  let wasm = null;
+  let currentWallet = null;
+  let mnemonicRevealed = false;
+  let bip85Revealed = false;
+  let qrAnimTimer = null;
+  let psbtQrTimer = null;
+  let sessionRecipients = [];
+  let inspectedPsbtRaw = "";
+  let lastSignedPsbtB64 = "";
+  let lastSignedPk1Armor = "";
+  let lastEncryptedVault = "";
+  let hasUnlockedVaultInWasm = false;
+
+  // Tier 2 Cooperative Obstacle State
+  let obstacleRound = 1;
+  let obstaclePrompt = "";
+  let obstacleMatched = 0;
+  let obstacleTypos = [];
+  let obstacleSamples = [];
+  let lastKeydownUs = null;
+
+  // Webcam state
+  let activeCamStream = null;
+  let activeCamLoop = null;
+
+  window.addEventListener("dragover", (e) => e.preventDefault());
+  window.addEventListener("drop", (e) => e.preventDefault());
+
+  const toastEl = document.getElementById("global-toast");
+  function showToast(msg, isErr) {
+    toastEl.textContent = msg;
+    toastEl.className = isErr ? "toast err" : "toast ok";
+  }
+
+  function b64ToBytes(b64) {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  function rpc(reqObj) {
+    if (!wasm) throw new Error("WASM core still initializing.");
+    const enc = new TextEncoder();
+    const dec = new TextDecoder();
+    const bytes = enc.encode(JSON.stringify(reqObj));
+    const inPtr = wasm.sz_alloc(bytes.length);
+    let outPtr = 0;
+    let outLen = 0;
+    try {
+      new Uint8Array(wasm.memory.buffer, inPtr, bytes.length).set(bytes);
+      const packed = BigInt(wasm.sz_invoke(inPtr, bytes.length));
+      bytes.fill(0);
+      outPtr = Number((packed >> 32n) & 0xffffffffn);
+      outLen = Number(packed & 0xffffffffn);
+      const str = dec.decode(new Uint8Array(wasm.memory.buffer, outPtr, outLen));
+      return JSON.parse(str);
+    } finally {
+      if (inPtr) wasm.sz_dealloc(inPtr, bytes.length);
+      if (outPtr && outLen) wasm.sz_dealloc(outPtr, outLen);
+    }
+  }
+
+  function decodeLumaFrame(lumaBytes, width, height) {
+    if (!wasm) return null;
+    const dec = new TextDecoder();
+    const inPtr = wasm.sz_alloc(lumaBytes.length);
+    let outPtr = 0;
+    let outLen = 0;
+    try {
+      new Uint8Array(wasm.memory.buffer, inPtr, lumaBytes.length).set(lumaBytes);
+      const packed = BigInt(wasm.sz_decode_qr_luma(inPtr, width, height));
+      outPtr = Number((packed >> 32n) & 0xffffffffn);
+      outLen = Number(packed & 0xffffffffn);
+      const res = JSON.parse(dec.decode(new Uint8Array(wasm.memory.buffer, outPtr, outLen)));
+      return res.ok && res.data ? res.data.qr : null;
+    } finally {
+      if (inPtr) wasm.sz_dealloc(inPtr, lumaBytes.length);
+      if (outPtr && outLen) wasm.sz_dealloc(outPtr, outLen);
+    }
+  }
+
+  function renderSvgInto(el, svgMarkup) {
+    el.textContent = "";
+    if (!svgMarkup || !svgMarkup.startsWith("<svg ")) return;
+    const doc = new DOMParser().parseFromString(svgMarkup, "image/svg+xml");
+    const root = doc.documentElement;
+    if (root && root.nodeName.toLowerCase() === "svg") {
+      el.appendChild(document.importNode(root, true));
+    }
+  }
+
+  function triggerDownload(filename, mime, contentBytesOrStr) {
+    const blob = new Blob([contentBytesOrStr], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
+  function switchTab(tabId) {
+    document.querySelectorAll(".tab-btn").forEach((b) => {
+      b.classList.toggle("active", b.dataset.tab === tabId);
+    });
+    document.querySelectorAll(".panel").forEach((p) => {
+      p.classList.toggle("active", p.id === tabId);
+    });
+  }
+
+  document.getElementById("nav-tabs").addEventListener("click", (ev) => {
+    const btn = ev.target.closest(".tab-btn");
+    if (btn && btn.dataset.tab) switchTab(btn.dataset.tab);
+  });
+
+  function stopCamera() {
+    if (activeCamLoop) {
+      clearInterval(activeCamLoop);
+      activeCamLoop = null;
+    }
+    if (activeCamStream) {
+      activeCamStream.getTracks().forEach((t) => t.stop());
+      activeCamStream = null;
+    }
+    document.getElementById("import-cam-box").classList.add("hidden");
+    document.getElementById("psbt-cam-box").classList.add("hidden");
+    document.getElementById("btn-stop-psbt-cam").classList.add("hidden");
+  }
+
+  function startCameraScan(videoEl, statusEl, onCompletePayload) {
+    stopCamera();
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      showToast("Webcam API unavailable in this browser context; use file load or paste.", true);
+      return;
+    }
+    rpc({ cmd: "reset_airgap_scanner" });
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" }, audio: false })
+      .then((stream) => {
+        activeCamStream = stream;
+        videoEl.srcObject = stream;
+        videoEl.play();
+        const canvas = document.getElementById("qr-canvas");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
+        activeCamLoop = setInterval(() => {
+          if (videoEl.readyState < 2 || !videoEl.videoWidth) return;
+          const w = Math.min(videoEl.videoWidth, 640);
+          const h = Math.floor((videoEl.videoHeight * w) / videoEl.videoWidth);
+          canvas.width = w;
+          canvas.height = h;
+          ctx.drawImage(videoEl, 0, 0, w, h);
+          const rgba = ctx.getImageData(0, 0, w, h).data;
+          const luma = new Uint8Array(w * h);
+          for (let i = 0, j = 0; i < luma.length; i++, j += 4) {
+            luma[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
+          }
+          const qrStr = decodeLumaFrame(luma, w, h);
+          luma.fill(0);
+          if (!qrStr) return;
+          const ing = rpc({ cmd: "ingest_airgap_qr", part: qrStr });
+          if (!ing.ok) {
+            statusEl.textContent = "QR error: " + ing.error;
+            return;
+          }
+          if (ing.data.status === "in_progress") {
+            statusEl.textContent = "Scanning animated BBQr (" + ing.data.parts_received + " / " + ing.data.parts_total + " frames)...";
+          } else if (ing.data.status === "complete_text") {
+            stopCamera();
+            onCompletePayload(ing.data.text);
+          } else if (ing.data.status === "complete_binary_base64") {
+            stopCamera();
+            onCompletePayload(ing.data.base64);
+          }
+        }, 140);
+      })
+      .catch((err) => {
+        showToast("Camera access denied or missing hardware: " + err.message, true);
+      });
+  }
+
+  function invalidatePsbtInspection() {
+    inspectedPsbtRaw = "";
+    lastSignedPsbtB64 = "";
+    if (psbtQrTimer) {
+      clearInterval(psbtQrTimer);
+      psbtQrTimer = null;
+    }
+    document.getElementById("btn-sign-psbt").disabled = true;
+    document.getElementById("psbt-fatal-box").textContent = "";
+    document.getElementById("psbt-fatal-box").classList.add("hidden");
+    document.getElementById("psbt-warn-box").textContent = "";
+    document.getElementById("psbt-warn-box").classList.add("hidden");
+    document.getElementById("psbt-report").textContent = "";
+    document.getElementById("psbt-report").classList.add("hidden");
+    document.getElementById("psbt-signed-b64").value = "";
+    document.getElementById("psbt-signed-qr").textContent = "";
+    document.getElementById("psbt-signed-frame-info").textContent = "";
+    document.getElementById("psbt-signed-panel").classList.add("hidden");
+  }
+
+  // --- Wallet Rendering ---
+  function updateWalletQrExport() {
+    if (qrAnimTimer) {
+      clearInterval(qrAnimTimer);
+      qrAnimTimer = null;
+    }
+    if (!currentWallet) return;
+    const mode = document.getElementById("qr-export-mode").value;
+    const stage = document.getElementById("w-qr-stage");
+    const cap = document.getElementById("w-qr-caption");
+
+    if (mode === "bbqr") {
+      const svgs = currentWallet.bbqr_descriptor_svgs || [];
+      let idx = 0;
+      const draw = () => {
+        if (!svgs.length) return;
+        renderSvgInto(stage, svgs[idx % svgs.length]);
+        cap.textContent = "Coinkite BBQr Frame " + ((idx % svgs.length) + 1) + " of " + svgs.length + " (~2.5 Hz)";
+        idx++;
+      };
+      draw();
+      if (svgs.length > 1) qrAnimTimer = setInterval(draw, 400);
+    } else if (mode === "wpkh_static") {
+      renderSvgInto(stage, currentWallet.wpkh_qr_svg);
+      cap.textContent = "Single-frame BIP-84 Watch-Only Descriptor (Sparrow / Bitcoin Core)";
+    } else if (mode === "vpub") {
+      if (currentWallet.profile.bip84_vpub_slip132) {
+        renderSvgInto(stage, currentWallet.vpub_qr_svg);
+        cap.textContent = "SLIP-0132 vpub (Electrum / Blockstream Green Testnet)";
+      } else {
+        stage.textContent = "N/A";
+        cap.textContent = "SLIP-0132 vpub unavailable on Taproot-only watch-only import.";
+      }
+    } else if (mode === "tr_static") {
+      const trDesc = currentWallet.profile.tr_descriptor;
+      if (trDesc) {
+        const q = rpc({ cmd: "encode_qr", data: trDesc, bbqr_min_parts: 1 });
+        if (q.ok) renderSvgInto(stage, q.data.single_svg);
+        cap.textContent = "Single-frame BIP-86 Taproot Descriptor (tb1p...)";
+      } else {
+        stage.textContent = "N/A";
+        cap.textContent = "Taproot descriptor unavailable on BIP-84 watch-only import.";
+      }
+    }
+  }
+
+  function renderAddressTable() {
+    const tbody = document.getElementById("addr-tbody");
+    tbody.textContent = "";
+    if (!currentWallet) return;
+    const branch = document.getElementById("addr-branch-select").value;
+    const page = Math.max(0, parseInt(document.getElementById("addr-page").value || "0", 10));
+    const pageSize = 20;
+    const p = currentWallet.profile;
+
+    let list = p.receive_addresses || [];
+    let prefix = "m/84'/1'/0'/0/";
+    if (branch === "chg84") { list = p.change_addresses || []; prefix = "m/84'/1'/0'/1/"; }
+    else if (branch === "recv86") { list = p.tr_receive_addresses || []; prefix = "m/86'/1'/0'/0/"; }
+    else if (branch === "chg86") { list = p.tr_change_addresses || []; prefix = "m/86'/1'/0'/1/"; }
+
+    const start = page * pageSize;
+    const slice = list.slice(start, start + pageSize);
+    slice.forEach((addr, off) => {
+      const tr = document.createElement("tr");
+      const tdPath = document.createElement("td");
+      tdPath.textContent = prefix + (start + off);
+      const tdAddr = document.createElement("td");
+      tdAddr.textContent = addr;
+      tr.appendChild(tdPath);
+      tr.appendChild(tdAddr);
+      tbody.appendChild(tr);
+    });
+  }
+
+  function renderBip85Panel(secretChildrenOpt) {
+    const box = document.getElementById("bip85-list");
+    const pivotRow = document.getElementById("bip85-pivot-row");
+    pivotRow.textContent = "";
+    if (!currentWallet || !currentWallet.has_signing_seed) {
+      box.textContent = "Watch-only or empty session: load a 12-word seed to derive BIP-85 child vaults.";
+      return;
+    }
+    const pubs = currentWallet.bip85_public || [];
+    const lines = [];
+    for (let i = 0; i < pubs.length; i++) {
+      const pub = pubs[i];
+      const sec = secretChildrenOpt ? secretChildrenOpt[i] : null;
+      const roleLabel = pub.index === 0
+        ? "Decoupled Estate Encryption Passphrase - NEVER FUND ON-CHAIN"
+        : ("Heir / Sub-Treasury Vault #" + pub.index);
+      lines.push("[Index " + pub.index + " - " + roleLabel + "]  Path: " + pub.path);
+      lines.push("  Master XFP:  " + pub.fingerprint + "  |  0/0: " + pub.first_receive_address + "  |  1/0: " + pub.first_change_address);
+      lines.push("  Watch-Only:  " + pub.descriptor);
+      lines.push("  12 Words:    " + (sec ? sec.mnemonic : "[ISOLATED IN WASM - Click 'Reveal / Hide Child Mnemonics']"));
+      lines.push("");
+
+      if (pub.index >= 1) {
+        const pBtn = document.createElement("button");
+        pBtn.type = "button";
+        pBtn.className = "secondary";
+        pBtn.textContent = "Pivot into Child #" + pub.index + " [" + pub.fingerprint + "]";
+        pBtn.addEventListener("click", () => {
+          const r = rpc({ cmd: "pivot_bip85_child", index: pub.index });
+          if (r.ok) activateWalletView(r.data, "Pivoted into BIP-85 Child #" + pub.index + " (secrets stayed in WASM).");
+          else showToast(r.error, true);
+        });
+        pivotRow.appendChild(pBtn);
+      }
+    }
+    box.textContent = lines.join("\n");
+  }
+
+  function renderPipeK1Identity(nsecOpt) {
+    const box = document.getElementById("pk1-ident-box");
+    if (!currentWallet || !currentWallet.has_signing_seed) {
+      box.textContent = "Watch-only or empty session: load a 12-word seed to derive pipe-k1 operational keys.";
+      return;
+    }
+    const id = parseInt(document.getElementById("pk1-id").value || "0", 10);
+    const idx = parseInt(document.getElementById("pk1-idx").value || "0", 10);
+    const res = rpc({
+      cmd: "pipek1_derive",
+      identity: id,
+      index: idx,
+      reveal_nsec: Boolean(nsecOpt),
+    });
+    if (!res.ok) {
+      box.textContent = "Error: " + res.error;
+      return;
+    }
+    const pub = res.data.public;
+    let txt = "Path: " + pub.derivation_path + "\nHex:  " + pub.pubkey_hex + "\nNpub: " + pub.npub;
+    if (res.data.nsec) txt += "\nNsec: " + res.data.nsec + "  [SENSITIVE OPERATIONAL SIGNING KEY]";
+    box.textContent = txt;
+  }
+
+  function activateWalletView(wv, toastMsg) {
+    currentWallet = wv;
+    mnemonicRevealed = false;
+    bip85Revealed = false;
+    const p = wv.profile;
+
+    // CRITICAL-01 & Cross-Wallet Isolation: clear ALL prior session PSBT, Estate, and pipe-k1 buffers!
+    sessionRecipients = [];
+    invalidatePsbtInspection();
+    lastSignedPk1Armor = "";
+    lastEncryptedVault = "";
+    document.getElementById("est-pass").value = "";
+    document.getElementById("est-out-json").value = "";
+    document.getElementById("btn-est-download").disabled = true;
+    document.getElementById("pk1-sig-out").textContent = "";
+    document.getElementById("pk1-sig-out").classList.add("hidden");
+    document.getElementById("pk1-sig-qr").textContent = "";
+    document.getElementById("pk1-sig-qr").classList.add("hidden");
+    document.getElementById("btn-pk1-download").disabled = true;
+
+    const retMasterA = document.getElementById("btn-return-master");
+    const retMasterB = document.getElementById("btn-wallet-return-master");
+    retMasterA.classList.toggle("hidden", !wv.has_master_backup);
+    retMasterB.classList.toggle("hidden", !wv.has_master_backup);
+
+    document.getElementById("active-wallet-pill").textContent =
+      "XFP: " + p.fingerprint + (wv.has_signing_seed ? " (Signing Ready)" : " (Watch-Only)");
+    document.getElementById("wallet-empty").classList.add("hidden");
+    document.getElementById("wallet-loaded").classList.remove("hidden");
+
+    const badge = document.getElementById("w-trust-badge");
+    badge.textContent = p.trust_badge;
+    badge.className = "badge " + (
+      p.trust_tier === "SecondDeviceReproducible" ? "tier1" :
+      p.trust_tier === "HostClockDependent" ? "tier2" : "preset"
+    );
+    document.getElementById("w-xfp-badge").textContent = "Master Fingerprint: " + p.fingerprint;
+    document.getElementById("w-meta").textContent =
+      "Source:       " + p.entropy_label + "\n" +
+      "Audit:        " + p.audit_summary + "\n" +
+      "Verification: " + p.repro_formula_hint;
+
+    const secBox = document.getElementById("w-secret-box");
+    secBox.textContent = "";
+    secBox.classList.add("hidden");
+    document.getElementById("btn-toggle-mnemonic").disabled = !wv.has_signing_seed;
+
+    document.getElementById("w-wpkh-desc").textContent = p.wpkh_descriptor || "(Taproot-only watch-only profile)";
+    document.getElementById("w-extra-desc").textContent =
+      "SLIP-0132 vpub:\n" + (p.bip84_vpub_slip132 || "(N/A)") + "\n\nBIP-86 Taproot Descriptor:\n" + (p.tr_descriptor || "(N/A)");
+
+    updateWalletQrExport();
+    renderAddressTable();
+    renderBip85Panel(null);
+    renderPipeK1Identity(false);
+    showToast(toastMsg || ("Loaded wallet [" + p.fingerprint + "]."), false);
+    switchTab("tab-wallet");
+  }
+
+  function handleReturnMaster() {
+    const r = rpc({ cmd: "return_master_root" });
+    if (r.ok) activateWalletView(r.data, "Returned from BIP-85 Child Vault to Master Root.");
+    else showToast(r.error, true);
+  }
+  document.getElementById("btn-return-master").addEventListener("click", handleReturnMaster);
+  document.getElementById("btn-wallet-return-master").addEventListener("click", handleReturnMaster);
+
+  // --- Tier 2 Obstacle Course UI ---
+  function renderObstacleCourse() {
+    const box = document.getElementById("obstacle-display");
+    box.textContent = "";
+    const matchedStr = obstaclePrompt.slice(0, obstacleMatched);
+    if (matchedStr) {
+      const sOk = document.createElement("span");
+      sOk.className = "ch-ok";
+      sOk.textContent = matchedStr;
+      box.appendChild(sOk);
+    }
+    if (obstacleTypos.length > 0) {
+      const sErr = document.createElement("span");
+      sErr.className = "ch-err";
+      sErr.textContent = obstacleTypos.join("");
+      box.appendChild(sErr);
+    }
+    if (obstacleMatched < obstaclePrompt.length) {
+      const sCur = document.createElement("span");
+      sCur.className = "ch-cur";
+      sCur.textContent = obstaclePrompt[obstacleMatched];
+      box.appendChild(sCur);
+
+      const sPend = document.createElement("span");
+      sPend.className = "ch-pend";
+      sPend.textContent = obstaclePrompt.slice(obstacleMatched + 1);
+      box.appendChild(sPend);
+    }
+
+    const pct = obstaclePrompt.length ? Math.min(100, (obstacleMatched * 100) / obstaclePrompt.length) : 0;
+    document.getElementById("obstacle-meter").style.width = pct.toFixed(1) + "%";
+
+    const bsCount = obstacleSamples.filter((s) => s.is_backspace).length;
+    let healthNote = "Type at a natural pace.";
+    let estBits = 0;
+    if (obstacleSamples.length >= 20) {
+      const h = rpc({ cmd: "evaluate_keystroke_health", samples: obstacleSamples });
+      if (h.ok) {
+        estBits = h.data.estimated_min_entropy_bits;
+        healthNote = h.data.timer_diagnostic;
+      } else {
+        healthNote = h.error;
+      }
+    }
+    const typoHint = obstacleTypos.length > 0
+      ? " | TYPO IN RED: Press Backspace to clear before continuing!"
+      : "";
+    document.getElementById("obstacle-stats").textContent =
+      "Matched: " + obstacleMatched + " / " + obstaclePrompt.length +
+      " | Backspaces: " + bsCount +
+      " | 90B Min-Entropy: " + estBits.toFixed(1) + " / 192 bits | " + healthNote + typoHint;
+
+    document.getElementById("btn-finalize-tier2").disabled =
+      !(obstacleMatched === obstaclePrompt.length && obstacleTypos.length === 0 && obstaclePrompt.length >= 200);
+  }
+
+  function resetObstacleCourse() {
+    const r = rpc({ cmd: "generate_obstacle_prompt", round: obstacleRound++, length: 200 });
+    obstaclePrompt = r.ok ? r.data.prompt : "";
+    obstacleMatched = 0;
+    obstacleTypos = [];
+    obstacleSamples = [];
+    lastKeydownUs = null;
+    document.getElementById("obstacle-focus").value = "";
+    renderObstacleCourse();
+  }
+
+  const obsInput = document.getElementById("obstacle-focus");
+  obsInput.addEventListener("paste", (e) => {
+    e.preventDefault();
+    showToast("Paste is disabled on the Tier 2 timing course; type key-by-key or use Tier 1 Physical Entropy.", true);
+  });
+
+  obsInput.addEventListener("keydown", (e) => {
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === "Shift" || e.key === "CapsLock" || e.key === "Tab") return;
+    if (e.repeat) {
+      e.preventDefault();
+      return;
+    }
+
+    const nowUs = Math.round(performance.now() * 1000);
+    const deltaUs = lastKeydownUs === null ? 0 : Math.max(0, nowUs - lastKeydownUs);
+
+    if (e.key === "Backspace") {
+      e.preventDefault();
+      if (obstacleMatched === 0 && obstacleTypos.length === 0) {
+        return;
+      }
+      lastKeydownUs = nowUs;
+      obstacleSamples.push({
+        key: "Backspace",
+        delta_us: deltaUs,
+        is_backspace: true,
+        was_typo: false,
+        is_repeat: false,
+      });
+      if (obstacleTypos.length > 0) {
+        obstacleTypos.pop();
+      } else if (obstacleMatched > 0) {
+        obstacleMatched--;
+      }
+      obsInput.value = "";
+      renderObstacleCourse();
+      return;
+    }
+
+    if (e.key.length === 1) {
+      e.preventDefault();
+      if (obstacleTypos.length > 0) {
+        showToast("Red typo active! Press Backspace to clear the mismatch before typing ahead.", true);
+        return;
+      }
+      if (obstacleMatched >= obstaclePrompt.length) return;
+      lastKeydownUs = nowUs;
+
+      if (e.key === obstaclePrompt[obstacleMatched]) {
+        obstacleSamples.push({
+          key: e.key,
+          delta_us: deltaUs,
+          is_backspace: false,
+          was_typo: false,
+          is_repeat: false,
+        });
+        obstacleMatched++;
+      } else {
+        obstacleTypos.push(e.key);
+        obstacleSamples.push({
+          key: e.key,
+          delta_us: deltaUs,
+          is_backspace: false,
+          was_typo: true,
+          is_repeat: false,
+        });
+      }
+      obsInput.value = "";
+      renderObstacleCourse();
+    }
+  });
+
+  document.getElementById("btn-reset-tier2").addEventListener("click", resetObstacleCourse);
+  document.getElementById("btn-finalize-tier2").addEventListener("click", () => {
+    const res = rpc({
+      cmd: "harvest_keystroke_course",
+      expected_prompt: obstaclePrompt,
+      final_transcribed: obstaclePrompt.slice(0, obstacleMatched),
+      samples: obstacleSamples,
+    });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    obstacleSamples = [];
+    resetObstacleCourse();
+    activateWalletView(res.data, "Derived Tier 2 Cooperative Keystroke Vault.");
+  });
+
+  // --- Tier 1 & Import Handlers ---
+  const tier1KindEl = document.getElementById("tier1-kind");
+  const tier1InputEl = document.getElementById("tier1-input");
+  function updateTier1Counter() {
+    const kind = tier1KindEl.value;
+    const raw = tier1InputEl.value;
+    const clean = raw.replace(/[\s,\-;]/g, "");
+    const lbl = document.getElementById("tier1-label");
+    const ctr = document.getElementById("tier1-counter");
+    if (kind === "dice") {
+      lbl.textContent = "Enter 50+ dice rolls (`1`..`6`; 60 recommended):";
+      ctr.textContent = clean.length + " / 50 minimum dice rolls (" + (clean.length * Math.log2(6)).toFixed(1) + " raw bits)";
+    } else if (kind === "coins") {
+      lbl.textContent = "Enter 128+ coin flips (`H`/`T` or `1`/`0`):";
+      ctr.textContent = clean.length + " / 128 minimum coin flips";
+    } else if (kind === "cards") {
+      lbl.textContent = "Enter all 52 shuffled playing cards (`ah 4c td ks ...`):";
+      ctr.textContent = Math.floor(clean.replace(/10/g, "t").length / 2) + " / 52 cards entered (bijection + Bayer-Diaconis shuffle check)";
+    } else {
+      lbl.textContent = "Enter 32 hexadecimal characters (128-bit external TRNG):";
+      ctr.textContent = clean.replace(/^0x/i, "").length + " / 32 hex chars";
+    }
+  }
+  tier1KindEl.addEventListener("change", updateTier1Counter);
+  tier1InputEl.addEventListener("input", updateTier1Counter);
+  document.getElementById("btn-clear-tier1").addEventListener("click", () => {
+    tier1InputEl.value = "";
+    updateTier1Counter();
+  });
+  document.getElementById("btn-derive-tier1").addEventListener("click", () => {
+    const res = rpc({
+      cmd: "harvest_tier1",
+      kind: tier1KindEl.value,
+      input: tier1InputEl.value,
+    });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    tier1InputEl.value = "";
+    updateTier1Counter();
+    activateWalletView(res.data, "Derived Tier 1 Physical Entropy Vault.");
+  });
+
+  document.getElementById("btn-import-wallet").addEventListener("click", () => {
+    const val = document.getElementById("import-input").value.trim();
+    const res = /^[0-9a-fA-F]{32}$/.test(val)
+      ? rpc({ cmd: "harvest_tier1", kind: "hex", input: val })
+      : rpc({ cmd: "import_wallet", input: val });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    document.getElementById("import-input").value = "";
+    activateWalletView(res.data, "Imported wallet [" + res.data.profile.fingerprint + "].");
+  });
+
+  document.getElementById("btn-scan-import-qr").addEventListener("click", () => {
+    document.getElementById("import-cam-box").classList.remove("hidden");
+    startCameraScan(
+      document.getElementById("import-video"),
+      document.getElementById("import-cam-status"),
+      (text) => {
+        const res = rpc({ cmd: "import_wallet", input: text });
+        if (!res.ok) {
+          document.getElementById("import-input").value = text;
+          showToast(res.error, true);
+        } else {
+          document.getElementById("import-input").value = "";
+          activateWalletView(res.data, "Scanned & imported QR wallet.");
+        }
+      }
+    );
+  });
+  document.getElementById("btn-stop-import-cam").addEventListener("click", stopCamera);
+
+  // --- Tab 2 Controls ---
+  document.getElementById("qr-export-mode").addEventListener("change", updateWalletQrExport);
+  document.getElementById("addr-branch-select").addEventListener("change", renderAddressTable);
+  document.getElementById("addr-page").addEventListener("input", renderAddressTable);
+
+  document.getElementById("btn-toggle-mnemonic").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) return;
+    mnemonicRevealed = !mnemonicRevealed;
+    const box = document.getElementById("w-secret-box");
+    if (mnemonicRevealed) {
+      const rev = rpc({ cmd: "reveal_master_secret" });
+      if (!rev.ok) {
+        mnemonicRevealed = false;
+        showToast(rev.error, true);
+        return;
+      }
+      box.textContent =
+        "12-Word Master Mnemonic:\n" + rev.data.mnemonic +
+        "\n\n48-Digit CompactSeedQR:\n" + (rev.data.compact_seed_qr || "");
+      box.classList.remove("hidden");
+    } else {
+      box.textContent = "";
+      box.classList.add("hidden");
+    }
+  });
+
+  document.getElementById("btn-download-sparrow").addEventListener("click", () => {
+    if (!currentWallet) return;
+    triggerDownload(
+      "subzero-watch-only-" + currentWallet.profile.fingerprint + ".json",
+      "application/json",
+      currentWallet.sparrow_watch_only_json
+    );
+  });
+
+  // --- Tab 3 BIP-85 ---
+  document.getElementById("btn-derive-bip85").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) {
+      showToast("Load a 12-word seed first.", true);
+      return;
+    }
+    const cnt = Math.min(10, Math.max(2, parseInt(document.getElementById("bip85-count").value || "5", 10)));
+    const res = rpc({ cmd: "derive_bip85", count: cnt, reveal_secrets: bip85Revealed });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    currentWallet.bip85_public = res.data.public_summaries;
+    renderBip85Panel(res.data.children || null);
+  });
+  document.getElementById("btn-toggle-bip85-secrets").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) return;
+    bip85Revealed = !bip85Revealed;
+    if (bip85Revealed) {
+      const cnt = Math.max(2, (currentWallet.bip85_public || []).length || 5);
+      const res = rpc({ cmd: "derive_bip85", count: cnt, reveal_secrets: true });
+      if (!res.ok) {
+        bip85Revealed = false;
+        showToast(res.error, true);
+        return;
+      }
+      currentWallet.bip85_public = res.data.public_summaries;
+      renderBip85Panel(res.data.children || null);
+    } else {
+      renderBip85Panel(null);
+    }
+  });
+
+  // --- Tab 4 PSBT ---
+  document.getElementById("psbt-input").addEventListener("input", invalidatePsbtInspection);
+  document.getElementById("psbt-file").addEventListener("change", (ev) => {
+    invalidatePsbtInspection();
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const arr = new Uint8Array(reader.result);
+      let isAscii = true;
+      for (let i = 0; i < arr.length; i++) {
+        if (arr[i] < 9 || (arr[i] > 13 && arr[i] < 32) || arr[i] > 126) { isAscii = false; break; }
+      }
+      if (isAscii) {
+        document.getElementById("psbt-input").value = new TextDecoder().decode(arr).trim();
+      } else {
+        let bin = "";
+        for (let i = 0; i < arr.length; i++) bin += String.fromCharCode(arr[i]);
+        document.getElementById("psbt-input").value = btoa(bin);
+      }
+      showToast("Loaded PSBT file " + f.name + " - click Inspect to verify.", false);
+    };
+    reader.readAsArrayBuffer(f);
+  });
+
+  document.getElementById("btn-scan-psbt-cam").addEventListener("click", () => {
+    document.getElementById("psbt-cam-box").classList.remove("hidden");
+    document.getElementById("btn-stop-psbt-cam").classList.remove("hidden");
+    startCameraScan(
+      document.getElementById("psbt-video"),
+      document.getElementById("psbt-cam-status"),
+      (payload) => {
+        invalidatePsbtInspection();
+        document.getElementById("psbt-input").value = payload;
+        document.getElementById("btn-inspect-psbt").click();
+      }
+    );
+  });
+  document.getElementById("btn-stop-psbt-cam").addEventListener("click", stopCamera);
+
+  function renderPsbtInspection(insp, rawVerified) {
+    const fatalBox = document.getElementById("psbt-fatal-box");
+    const warnBox = document.getElementById("psbt-warn-box");
+    const repBox = document.getElementById("psbt-report");
+
+    if (insp.fatal_blocks && insp.fatal_blocks.length) {
+      fatalBox.textContent = "SIGNING HARD-BLOCKED:\n• " + insp.fatal_blocks.join("\n• ");
+      fatalBox.classList.remove("hidden");
+    } else {
+      fatalBox.classList.add("hidden");
+    }
+
+    if (insp.warnings && insp.warnings.length) {
+      warnBox.textContent = "SECURITY WARNINGS:\n• " + insp.warnings.join("\n• ");
+      warnBox.classList.remove("hidden");
+    } else {
+      warnBox.classList.add("hidden");
+    }
+
+    const lines = [];
+    lines.push("Unsigned TXID:         " + insp.txid);
+    lines.push("Total Input Sats:      " + (insp.total_input_sat !== null ? insp.total_input_sat : "UNKNOWN"));
+    lines.push("Total Output Sats:     " + insp.total_output_sat);
+    lines.push("Net External Spend:    " + insp.net_external_spend_sat + " sats (leaving wallet + fee)");
+    lines.push("Network Miner Fee:     " + (insp.fee_sat !== null ? (insp.fee_sat + " sats (" + (insp.fee_rate_sat_vb || 0).toFixed(2) + " sat/vB)") : "UNKNOWN"));
+    lines.push("Virtual Size / RBF:    " + insp.vsize + " vB | RBF=" + insp.is_rbf_active + " | Locktime=" + insp.locktime);
+    lines.push("");
+    lines.push("--- INPUTS (" + insp.inputs.length + ") ---");
+    insp.inputs.forEach((inp) => {
+      lines.push(
+        "  [In #" + inp.index + "] " + inp.outpoint + " | " +
+        (inp.amount_sat !== null ? inp.amount_sat + " sats" : "MISSING VALUE") + " | " +
+        (inp.is_ours ? ("OWNED (" + inp.verified_path + ")") : "EXTERNAL") + " | " + inp.sighash_label
+      );
+      if (inp.address) lines.push("          Addr: " + inp.address + " (" + inp.script_type + ")");
+    });
+    lines.push("");
+    lines.push("--- OUTPUTS (" + insp.outputs.length + ") ---");
+    insp.outputs.forEach((o) => {
+      const role = o.is_verified_change
+        ? ("VERIFIED SELF-CHANGE (" + o.verified_path + ")")
+        : o.is_verified_self_receive
+        ? ("VERIFIED SELF-RECEIVE (" + o.verified_path + ")")
+        : "EXTERNAL RECIPIENT";
+      lines.push("  [Out #" + o.index + "] " + o.amount_sat + " sats -> [" + role + "]");
+      lines.push("           " + o.address_chunked);
+    });
+
+    repBox.textContent = lines.join("\n");
+    repBox.classList.remove("hidden");
+    const canSignNow = Boolean(insp.can_sign && currentWallet && currentWallet.has_signing_seed);
+    inspectedPsbtRaw = canSignNow ? rawVerified : "";
+    document.getElementById("btn-sign-psbt").disabled = !canSignNow;
+  }
+
+  document.getElementById("btn-inspect-psbt").addEventListener("click", () => {
+    invalidatePsbtInspection();
+    const raw = document.getElementById("psbt-input").value.trim();
+    const res = rpc({
+      cmd: "inspect_psbt",
+      psbt_input: raw,
+      session_recipients: sessionRecipients,
+    });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    renderPsbtInspection(res.data, raw);
+  });
+
+  document.getElementById("btn-sign-psbt").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) return;
+    const currentInput = document.getElementById("psbt-input").value.trim();
+    if (!inspectedPsbtRaw || inspectedPsbtRaw !== currentInput) {
+      invalidatePsbtInspection();
+      showToast("PSBT input changed after inspection - click Inspect & Verify PSBT first.", true);
+      return;
+    }
+    const res = rpc({
+      cmd: "sign_psbt",
+      psbt_input: inspectedPsbtRaw,
+      session_recipients: sessionRecipients,
+    });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    const art = res.data.artifact;
+    const svgs = res.data.bbqr_svgs || [];
+    lastSignedPsbtB64 = art.signed_psbt_base64;
+
+    art.inspection.outputs.forEach((o) => {
+      if (!o.is_verified_change && !o.is_verified_self_receive && !sessionRecipients.includes(o.address)) {
+        sessionRecipients.push(o.address);
+      }
+    });
+
+    document.getElementById("psbt-signed-b64").value = art.signed_psbt_base64;
+    document.getElementById("psbt-signed-panel").classList.remove("hidden");
+
+    if (psbtQrTimer) clearInterval(psbtQrTimer);
+    let idx = 0;
+    const stage = document.getElementById("psbt-signed-qr");
+    const info = document.getElementById("psbt-signed-frame-info");
+    const draw = () => {
+      if (!svgs.length) return;
+      renderSvgInto(stage, svgs[idx % svgs.length]);
+      info.textContent = "Signed " + art.signatures_added + " input(s) | Coinkite BBQr Frame " + ((idx % svgs.length) + 1) + " / " + svgs.length;
+      idx++;
+    };
+    draw();
+    if (svgs.length > 1) psbtQrTimer = setInterval(draw, 400);
+    showToast("Signed " + art.signatures_added + " PSBT input(s) deterministically inside WASM.", false);
+  });
+
+  document.getElementById("btn-download-signed-psbt").addEventListener("click", () => {
+    if (!lastSignedPsbtB64) return;
+    triggerDownload("signed-tx.psbt", "application/octet-stream", b64ToBytes(lastSignedPsbtB64));
+  });
+
+  // --- Tab 5 pipe-k1 ---
+  document.getElementById("btn-pk1-derive").addEventListener("click", () => renderPipeK1Identity(false));
+  document.getElementById("btn-pk1-reveal-nsec").addEventListener("click", () => renderPipeK1Identity(true));
+  document.getElementById("btn-pk1-now").addEventListener("click", () => {
+    document.getElementById("pk1-ts").value = String(Math.floor(Date.now() / 1000));
+  });
+  document.getElementById("btn-pk1-sign").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) {
+      showToast("Load a 12-word seed first.", true);
+      return;
+    }
+    const id = parseInt(document.getElementById("pk1-id").value || "0", 10);
+    const idx = parseInt(document.getElementById("pk1-idx").value || "0", 10);
+    const msg = document.getElementById("pk1-msg").value;
+    const ts = parseInt(document.getElementById("pk1-ts").value || "1700000000", 10) >>> 0;
+    const res = rpc({
+      cmd: "pipek1_sign",
+      identity: id,
+      index: idx,
+      message_utf8: msg,
+      timestamp: ts,
+    });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    const s = res.data.signed;
+    lastSignedPk1Armor = s.armored;
+    const out = document.getElementById("pk1-sig-out");
+    out.textContent = "Signer Npub: " + s.npub + "\nSHA256(msg): " + s.message_sha256_hex + "\n\n" + s.armored;
+    out.classList.remove("hidden");
+    document.getElementById("btn-pk1-download").disabled = false;
+    const qrBox = document.getElementById("pk1-sig-qr");
+    if (res.data.qr_svg) {
+      renderSvgInto(qrBox, res.data.qr_svg);
+      qrBox.classList.remove("hidden");
+    }
+  });
+  document.getElementById("btn-pk1-download").addEventListener("click", () => {
+    if (!lastSignedPk1Armor) return;
+    triggerDownload("signature.pk1.asc", "text/plain", lastSignedPk1Armor);
+  });
+  document.getElementById("btn-pk1-verify").addEventListener("click", () => {
+    const msg = document.getElementById("pk1-ver-msg").value;
+    const sig = document.getElementById("pk1-ver-sig").value;
+    const pub = document.getElementById("pk1-ver-pub").value.trim();
+    const res = rpc({
+      cmd: "pipek1_verify",
+      message_utf8: msg,
+      signature: sig,
+      expected_pubkey: pub || null,
+    });
+    const box = document.getElementById("pk1-ver-result");
+    if (!res.ok) {
+      box.textContent = "INVALID SIGNATURE: " + res.error;
+    } else {
+      const pinStatus = res.data.pubkey_pinned
+        ? "PINNED PUBKEY MATCH"
+        : "UNPINNED SELF-SIGNED (enter expected npub above to pin signer)";
+      const legacyNote = res.data.legacy_tag_used
+        ? "\nTag Mode:    LEGACY BIP-340 TAG (pre-v0.2 compatibility)"
+        : "";
+      box.textContent =
+        "VALID BIP-340 SIGNATURE [" + pinStatus + "]\nSigner Npub: " + res.data.npub +
+        "\nSigner Hex:  " + res.data.pubkey_hex +
+        "\nTimestamp:   " + res.data.timestamp +
+        "\nSHA256(msg): " + res.data.message_sha256_hex + legacyNote;
+    }
+  });
+
+  // --- Tab 6 Estate Vault ---
+  document.getElementById("btn-est-toggle-pass").addEventListener("click", () => {
+    const el = document.getElementById("est-pass");
+    el.type = el.type === "password" ? "text" : "password";
+  });
+  document.getElementById("btn-est-autofill").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) {
+      showToast("Load a 12-word seed first so BIP-85 Index 0 is available.", true);
+      return;
+    }
+    const r = rpc({ cmd: "get_estate_passphrase" });
+    if (!r.ok) {
+      showToast(r.error, true);
+      return;
+    }
+    document.getElementById("est-pass").value = r.data.passphrase;
+    showToast("Filled BIP-85 Index 0 Decoupled Estate Passphrase.", false);
+  });
+  document.getElementById("btn-est-encrypt").addEventListener("click", () => {
+    if (!currentWallet || !currentWallet.has_signing_seed) {
+      showToast("Load a 12-word seed first.", true);
+      return;
+    }
+    const pass = document.getElementById("est-pass").value.trim();
+    const utc = document.getElementById("est-utc").value.trim() || "2026-11-15T00:00:00Z";
+    const res = rpc({
+      cmd: "encrypt_vault",
+      created_utc: utc,
+      descriptor: currentWallet.profile.wpkh_descriptor,
+      passphrase: pass,
+    });
+    if (!res.ok) {
+      showToast(res.error, true);
+      return;
+    }
+    lastEncryptedVault = res.data.vault_json;
+    document.getElementById("est-out-json").value = lastEncryptedVault;
+    document.getElementById("btn-est-download").disabled = false;
+    showToast("Encrypted SIV-committed subzero-vault-v2 JSON inside WASM.", false);
+  });
+  document.getElementById("btn-est-download").addEventListener("click", () => {
+    if (!lastEncryptedVault) return;
+    triggerDownload("vault.json", "application/json", lastEncryptedVault);
+  });
+
+  document.getElementById("est-dec-file").addEventListener("change", (ev) => {
+    const f = ev.target.files && ev.target.files[0];
+    if (!f) return;
+    const r = new FileReader();
+    r.onload = () => { document.getElementById("est-dec-json").value = String(r.result || ""); };
+    r.readAsText(f);
+  });
+  document.getElementById("btn-est-decrypt").addEventListener("click", () => {
+    const vj = document.getElementById("est-dec-json").value.trim();
+    const vp = document.getElementById("est-dec-pass").value.trim();
+    const res = rpc({ cmd: "decrypt_vault", vault_json: vj, passphrase: vp });
+    const box = document.getElementById("est-dec-result");
+    if (!res.ok) {
+      hasUnlockedVaultInWasm = false;
+      box.textContent = "DECRYPTION FAILED: " + res.error;
+      document.getElementById("btn-est-load-active").disabled = true;
+      return;
+    }
+    hasUnlockedVaultInWasm = true;
+    box.textContent =
+      "VAULT AUTHENTICATED (600,000 PBKDF2-HMAC-SHA256 rounds; seed isolated in WASM)\n" +
+      "Master Fingerprint: " + res.data.fingerprint + "\n" +
+      "Created UTC:        " + res.data.created_utc + "\n" +
+      "Heir Vaults Stored: " + res.data.heir_count + "\n" +
+      "Descriptor:         " + res.data.descriptor;
+    document.getElementById("btn-est-load-active").disabled = false;
+  });
+  document.getElementById("btn-est-load-active").addEventListener("click", () => {
+    if (!hasUnlockedVaultInWasm) return;
+    const res = rpc({ cmd: "activate_unlocked_vault" });
+    if (res.ok) {
+      hasUnlockedVaultInWasm = false;
+      document.getElementById("est-dec-pass").value = "";
+      document.getElementById("est-dec-result").textContent = "";
+      document.getElementById("btn-est-load-active").disabled = true;
+      activateWalletView(res.data, "Activated unlocked estate vault inside WASM.");
+    } else {
+      showToast(res.error, true);
+    }
+  });
+
+  // --- Tab 7 SeedFix & Wordlist ---
+  document.getElementById("btn-sf-solve").addEventListener("click", () => {
+    const w11 = document.getElementById("sf-11").value.trim();
+    const hint = document.getElementById("sf-hint").value.trim();
+    const res = rpc({ cmd: "seedfix_solve", eleven_words: w11, typo_hint: hint || null });
+    const box = document.getElementById("sf-results");
+    if (!res.ok) {
+      box.textContent = "Error: " + res.error;
+      return;
+    }
+    const lines = res.data.slice(0, 32).map((c, idx) =>
+      String(idx + 1).padStart(2, " ") + ". " + c.twelfth_word.padEnd(10, " ") +
+      " (idx " + String(c.word_index).padStart(4, "0") + ", punch '" + c.punch_4char + "'" +
+      (hint ? ", edit-dist=" + c.distance : "") + ")"
+    );
+    box.textContent = "Showing top 32 of 128 valid checksum completions:\n" + lines.join("\n");
+  });
+
+  function refreshWordlist() {
+    const q = document.getElementById("wl-query").value;
+    const res = rpc({ cmd: "wordlist_search", query: q, limit: 24 });
+    if (!res.ok) return;
+    document.getElementById("wl-results").textContent = res.data.map((e) =>
+      e.seedqr_code + "  |  " + e.punch_4char.padEnd(4, " ") + "  |  " + e.word
+    ).join("\n");
+  }
+  document.getElementById("wl-query").addEventListener("input", refreshWordlist);
+
+  // --- Global Amnesic Wipe (`[H-01]` Complete WASM + DOM Scrub) ---
+  document.getElementById("btn-global-wipe").addEventListener("click", () => {
+    stopCamera();
+    if (qrAnimTimer) { clearInterval(qrAnimTimer); qrAnimTimer = null; }
+    if (psbtQrTimer) { clearInterval(psbtQrTimer); psbtQrTimer = null; }
+    currentWallet = null;
+    mnemonicRevealed = false;
+    bip85Revealed = false;
+    sessionRecipients = [];
+    inspectedPsbtRaw = "";
+    lastSignedPsbtB64 = "";
+    lastSignedPk1Armor = "";
+    lastEncryptedVault = "";
+    hasUnlockedVaultInWasm = false;
+
+    document.querySelectorAll("textarea, input[type='text'], input[type='password'], input[type='file']").forEach((el) => {
+      if (el.id !== "est-utc") el.value = "";
+    });
+    document.getElementById("addr-page").value = "0";
+    document.getElementById("bip85-count").value = "5";
+    document.getElementById("pk1-id").value = "0";
+    document.getElementById("pk1-idx").value = "0";
+
+    [
+      "w-secret-box", "w-qr-stage", "w-qr-caption", "w-meta", "w-wpkh-desc", "w-extra-desc",
+      "addr-tbody", "bip85-pivot-row", "psbt-fatal-box", "psbt-warn-box", "psbt-report",
+      "psbt-signed-qr", "psbt-signed-frame-info", "pk1-sig-out", "pk1-sig-qr", "pk1-ver-result",
+      "est-dec-result", "sf-results"
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.textContent = "";
+    });
+    document.getElementById("bip85-list").textContent = "Load a seed-backed wallet first.";
+    document.getElementById("pk1-ident-box").textContent = "Load a seed-backed wallet first.";
+
+    ["w-secret-box", "psbt-fatal-box", "psbt-warn-box", "psbt-report", "psbt-signed-panel",
+     "pk1-sig-out", "pk1-sig-qr", "btn-return-master", "btn-wallet-return-master", "wallet-loaded"
+    ].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.classList.add("hidden");
+    });
+    ["btn-sign-psbt", "btn-pk1-download", "btn-est-download", "btn-est-load-active"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.disabled = true;
+    });
+
+    document.getElementById("wallet-empty").classList.remove("hidden");
+    document.getElementById("active-wallet-pill").textContent = "No Wallet Loaded (RAM Wiped)";
+    if (wasm && wasm.sz_wipe_memory) wasm.sz_wipe_memory();
+    updateTier1Counter();
+    resetObstacleCourse();
+    refreshWordlist();
+    switchTab("tab-intake");
+    showToast("Amnesic wipe complete: WASM linear memory & DOM scrubbed. Close browser tab to release JS GC memory.", false);
+  });
+
+  // --- Boot WASM ---
+  WebAssembly.instantiate(b64ToBytes(WASM_B64), {}).then((inst) => {
+    wasm = inst.instance.exports;
+    const presetsRes = rpc({ cmd: "list_presets" });
+    const grid = document.getElementById("preset-grid");
+    if (presetsRes.ok) {
+      presetsRes.data.forEach((p) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "preset-card";
+        btn.dataset.presetId = String(p.id);
+        const top = document.createElement("div");
+        top.className = "p-top";
+        const tLeft = document.createElement("span");
+        tLeft.textContent = p.title;
+        const tRight = document.createElement("span");
+        tRight.textContent = p.expected_fingerprint;
+        top.appendChild(tLeft);
+        top.appendChild(tRight);
+        const note = document.createElement("div");
+        note.className = "p-note";
+        note.textContent = p.formula + " - " + p.live_utxo_note;
+        btn.appendChild(top);
+        btn.appendChild(note);
+        btn.addEventListener("click", () => {
+          const r = rpc({ cmd: "load_preset", id: p.id });
+          if (r.ok) activateWalletView(r.data, "Loaded rehearsal " + p.title + " [" + p.expected_fingerprint + "].");
+          else showToast(r.error, true);
+        });
+        grid.appendChild(btn);
+      });
+    }
+    updateTier1Counter();
+    resetObstacleCourse();
+    refreshWordlist();
+    showToast("SubZero WASM cryptographic core ready (0 imports, 0 network).", false);
+  }).catch((err) => {
+    showToast("WASM boot failure: " + err, true);
+  });
+})();
+</script>
+</body>
+</html>
