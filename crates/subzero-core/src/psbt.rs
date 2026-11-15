@@ -188,7 +188,7 @@ fn derive_expected_script_for_path(
         _ => return None,
     };
 
-    let derived = master_xprv.derive_priv(secp, path).ok()?;
+    let mut derived = master_xprv.derive_priv(secp, path).ok()?;
     let script = if purpose == 84 {
         let pk = derived.private_key.public_key(secp);
         Address::p2wpkh(&CompressedPublicKey(pk), KnownHrp::Testnets).script_pubkey()
@@ -196,6 +196,11 @@ fn derive_expected_script_for_path(
         let (xonly, _) = derived.private_key.x_only_public_key(secp);
         Address::p2tr(secp, xonly, None, KnownHrp::Testnets).script_pubkey()
     };
+    if let Ok(dummy) = Xpriv::new_master(Network::Testnet4, &[0u8; 16]) {
+        unsafe {
+            core::ptr::write_volatile(&mut derived, dummy);
+        }
+    }
     Some((script, change, addr_idx))
 }
 
@@ -562,30 +567,30 @@ pub fn inspect_psbt(
                 }
             }
 
-            if !metadata_verified {
-                for (_xpk, (_leaves, (fp, path))) in &out_psbt.tap_key_origins {
-                    if *fp == orc.master_fp {
-                        claimed_our_fp = true;
-                        if let Some((exp_sp, chg, idx)) =
-                            derive_expected_script_for_path(&orc.secp, &orc.master_xprv, path)
-                        {
-                            if &exp_sp == script {
-                                metadata_verified = true;
-                                derivation_index = Some(idx);
-                                verified_path = Some(format!("m/{}", path));
-                                if chg == 1 {
-                                    is_verified_change = true;
-                                } else {
-                                    is_verified_self_receive = true;
-                                }
-                                break;
+            let mut spoof_detected = false;
+            for (_xpk, (_leaves, (fp, path))) in &out_psbt.tap_key_origins {
+                if *fp == orc.master_fp {
+                    claimed_our_fp = true;
+                    let matched = derive_expected_script_for_path(&orc.secp, &orc.master_xprv, path)
+                        .filter(|(exp_sp, _, _)| exp_sp == script);
+                    if let Some((_exp_sp, chg, idx)) = matched {
+                        if !metadata_verified {
+                            metadata_verified = true;
+                            derivation_index = Some(idx);
+                            verified_path = Some(format!("m/{}", path));
+                            if chg == 1 {
+                                is_verified_change = true;
+                            } else {
+                                is_verified_self_receive = true;
                             }
                         }
+                    } else {
+                        spoof_detected = true;
                     }
                 }
             }
 
-            if claimed_our_fp && !metadata_verified {
+            if (claimed_our_fp && !metadata_verified) || spoof_detected {
                 fatal_blocks.push(format!(
                     "[CRITICAL CHANGE-SPOOFING BLOCKED] Output #{j} ({address}) claims our wallet fingerprint ({}) in PSBT metadata, but its locking script does NOT match our derived key! Refusing to sign.",
                     orc.master_fp

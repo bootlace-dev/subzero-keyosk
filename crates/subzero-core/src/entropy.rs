@@ -758,8 +758,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
     let filtered: Vec<&KeystrokeSample> = samples.iter().filter(|s| !s.is_repeat).collect();
     if filtered.len() < 16 {
         return Err(SubZeroError::Entropy(format!(
-            "Need at least {} non-repeat keystroke timing events (currently {}).",
-            OBSTACLE_COURSE_LEN,
+            "Need at least 16 non-repeat keystroke timing events (currently {}).",
             filtered.len()
         )));
     }
