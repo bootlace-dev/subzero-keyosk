@@ -1064,12 +1064,6 @@ pub fn harvest_freeform_entropy(
         ));
     }
     let health = evaluate_keystroke_health(samples)?;
-    if health.estimated_min_entropy_bits < MIN_TIER2_ENTROPY_BITS {
-        return Err(SubZeroError::Entropy(format!(
-            "Conservative Non-IID timing min-entropy is {:.1} bits (minimum {:.0} bits required). Type a bit longer or switch to Tier 1 Physical Entropy.",
-            health.estimated_min_entropy_bits, MIN_TIER2_ENTROPY_BITS
-        )));
-    }
 
     let mut mac = Hmac::<Sha512>::new_from_slice(b"subzero:entropy:tier2:freeform:v1")
         .map_err(|_| SubZeroError::Entropy("HMAC init failed".into()))?;

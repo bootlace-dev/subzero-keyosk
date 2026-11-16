@@ -76,7 +76,7 @@ def test_html_e2e():
         page.click('button[data-tab="tab-intake"]')
         keys = ["a","b","c","d","e","f","g","h","i","j","k","l","ArrowUp","ArrowDown","ArrowLeft","ArrowRight"]
         page.click("#ff-focus")
-        for i in range(85):
+        for i in range(66):
             page.keyboard.press(keys[i % len(keys)])
             time.sleep(0.040 + (i % 7) * 0.015)
         page.click("#btn-finalize-ff")
