@@ -1063,29 +1063,13 @@ pub fn harvest_freeform_entropy(
             "Repeating key cycle detected (e.g. 'asasas'). Mix more varied keys/arrows.".into(),
         ));
     }
-    let health = match evaluate_keystroke_health(samples) {
-        Ok(h) => h,
-        Err(SubZeroError::Entropy(msg))
-            if !msg.contains("clamped")
-                && !msg.contains("frozen")
-                && !msg.contains("robotic")
-                && !msg.contains("paste")
-                && !msg.contains("Need at least")
-                && (distinct_keys.len() >= 8 || pointer_deltas.len() >= 16) =>
-        {
-            KeystrokeHealthReport {
-                accepted_events: filtered.len(),
-                backspace_events: 0,
-                typo_events: 0,
-                estimated_min_entropy_bits: (filtered.len() as f64) * 2.0
-                    + (pointer_deltas.len() as f64) * 0.5,
-                timer_quantum_ok: true,
-                required_min_entropy_bits: MIN_TIER2_ENTROPY_BITS,
-                timer_diagnostic: "clamped/paste checks passed".to_string(),
-            }
-        }
-        Err(e) => return Err(e),
-    };
+    let health = evaluate_keystroke_health(samples)?;
+    if health.estimated_min_entropy_bits < MIN_TIER2_ENTROPY_BITS {
+        return Err(SubZeroError::Entropy(format!(
+            "Conservative Non-IID timing min-entropy is {:.1} bits (minimum {:.0} bits required). Type a bit longer or switch to Tier 1 Physical Entropy.",
+            health.estimated_min_entropy_bits, MIN_TIER2_ENTROPY_BITS
+        )));
+    }
 
     let mut mac = Hmac::<Sha512>::new_from_slice(b"subzero:entropy:tier2:freeform:v1")
         .map_err(|_| SubZeroError::Entropy("HMAC init failed".into()))?;

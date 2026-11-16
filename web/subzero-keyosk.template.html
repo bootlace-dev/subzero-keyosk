@@ -1181,8 +1181,8 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
   });
   btnFf.addEventListener("click", () => {
     const r = rpc({ cmd: "harvest_freeform", samples: ffSamples, pointer_deltas: ffPointer });
-    ffSamples = []; ffPointer = []; ffLastUs = null; ffLastPtrUs = null; ffInput.value = ""; updateFfUi();
     if (!r.ok) return showToast(r.error, true);
+    ffSamples = []; ffPointer = []; ffLastUs = null; ffLastPtrUs = null; ffInput.value = ""; updateFfUi();
     activateWalletView(r.data, "Tier 2B Free-Form Vault derived!");
   });
   document.getElementById("btn-finalize-tier2").addEventListener("click", () => {
