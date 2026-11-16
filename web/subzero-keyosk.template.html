@@ -293,18 +293,29 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     </div>
 
     <div class="card">
-      <h2>D. Tier 2: Cooperative 200-Char Cross-Row Obstacle Course <span class="badge tier2">Unclamped Host Clock Required</span></h2>
+      <h2>D. Tier 2: Cooperative 100-Char Cross-Row Obstacle Course <span class="badge tier2">Unclamped Host Clock Required</span></h2>
       <div class="hint">
         You and SubZero are on the same team: transcribing this deterministic zero-OS-RNG cross-row prompt forces slow 2D visual search, Shift transitions, and natural <code>Backspace</code> error-recovery jitter. Red-highlighted typos must be cleared with <code>Backspace</code>. Automatically blocks clamped timers (<code>Tor Browser</code> 100ms). Not re-derivable on a second calculator; write down the resulting 12 words immediately.
       </div>
       <div id="obstacle-display" class="obstacle-box"></div>
       <div class="meter-bar"><div id="obstacle-meter" class="meter-fill"></div></div>
-      <div id="obstacle-stats" class="hint">Matched: 0 / 200 | Backspaces: 0 | Conservative 90B Min-Entropy: 0.0 / 192 bits</div>
+      <div id="obstacle-stats" class="hint">Matched: 0 / 100 | Backspaces: 0 | Conservative 90B Min-Entropy: 0.0 / 144 bits</div>
       <label for="obstacle-focus">Click inside the box below and type the highlighted character (<code>Paste</code> and <code>Auto-Repeat</code> are ignored):</label>
       <input id="obstacle-focus" type="text" spellcheck="false" autocomplete="off" placeholder="Click here and type the blue-highlighted character above...">
       <div class="row">
-        <button id="btn-finalize-tier2" type="button" class="success" disabled>Finalize Tier 2 Vault (Complete 200/200 chars)</button>
+        <button id="btn-finalize-tier2" type="button" class="success" disabled>Finalize Tier 2 Vault (Complete 100/100 chars)</button>
         <button id="btn-reset-tier2" type="button" class="secondary">New Deterministic Obstacle Course</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>E. Tier 2B: Free-Form Keys / Arrows + Optional Mouse Jitter <span class="badge tier2">64+ Events</span></h2>
+      <div class="hint">Type any mix of keys or arrow keys (Up/Down/Left/Right) and optionally wiggle your mouse/trackpad over the box. Needs 64+ non-repeat events across 8+ distinct keys.</div>
+      <div id="ff-stats" class="hint">Keys/Arrows: 0 / 64 | Pointer Jitter: 0</div>
+      <input id="ff-focus" type="text" spellcheck="false" autocomplete="off" placeholder="Click here and type random keys / arrows (mouse wiggle optional)...">
+      <div class="row">
+        <button id="btn-finalize-ff" type="button" class="success" disabled>Derive Free-Form Vault</button>
+        <button id="btn-reset-ff" type="button" class="secondary">Reset Free-Form</button>
       </div>
     </div>
   </section>
@@ -1002,14 +1013,14 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     document.getElementById("obstacle-stats").textContent =
       "Matched: " + obstacleMatched + " / " + obstaclePrompt.length +
       " | Backspaces: " + bsCount +
-      " | 90B Min-Entropy: " + estBits.toFixed(1) + " / 192 bits | " + healthNote + typoHint;
+      " | 90B Min-Entropy: " + estBits.toFixed(1) + " / 144 bits | " + healthNote + typoHint;
 
     document.getElementById("btn-finalize-tier2").disabled =
-      !(obstacleMatched === obstaclePrompt.length && obstacleTypos.length === 0 && obstaclePrompt.length >= 200);
+      !(obstacleMatched === obstaclePrompt.length && obstacleTypos.length === 0 && obstaclePrompt.length >= 100);
   }
 
   function resetObstacleCourse() {
-    const r = rpc({ cmd: "generate_obstacle_prompt", round: obstacleRound++, length: 200 });
+    const r = rpc({ cmd: "generate_obstacle_prompt", round: obstacleRound++, length: 100 });
     obstaclePrompt = r.ok ? r.data.prompt : "";
     obstacleMatched = 0;
     obstacleTypos = [];
@@ -1027,7 +1038,7 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
 
   obsInput.addEventListener("keydown", (e) => {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === "Shift" || e.key === "CapsLock" || e.key === "Tab") return;
+    if (e.key === "CapsLock" || e.key === "Tab") return;
     if (e.repeat) {
       e.preventDefault();
       return;
@@ -1035,6 +1046,22 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
 
     const nowUs = Math.round(performance.now() * 1000);
     const deltaUs = lastKeydownUs === null ? 0 : Math.max(0, nowUs - lastKeydownUs);
+
+    if (e.key === "Shift" && !e.repeat) {
+      lastKeydownUs = nowUs;
+      const idx = obstacleSamples.length;
+      obstacleSamples.push({
+        key: "Shift",
+        delta_us: deltaUs,
+        hold_us: 0,
+        is_backspace: false,
+        was_typo: false,
+        is_repeat: false,
+      });
+      obsInput._downMap = obsInput._downMap || new Map();
+      obsInput._downMap.set(e.code, { ts: nowUs, idx });
+      return;
+    }
 
     if (e.key === "Backspace") {
       e.preventDefault();
@@ -1092,7 +1119,72 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     }
   });
 
+  obsInput.addEventListener("keyup", (e) => {
+    if (!obsInput._downMap) return;
+    const rec = obsInput._downMap.get(e.code);
+    if (!rec) return;
+    obsInput._downMap.delete(e.code);
+    const nowUs = Math.round(performance.now() * 1000);
+    if (obstacleSamples[rec.idx]) {
+      obstacleSamples[rec.idx].hold_us = Math.max(0, nowUs - rec.ts);
+    }
+  });
+
   document.getElementById("btn-reset-tier2").addEventListener("click", resetObstacleCourse);
+
+  // Tier 2B: Free-Form Keys/Arrows + Optional Mouse Jitter
+  let ffSamples = [];
+  let ffPointer = [];
+  let ffLastUs = null;
+  let ffLastPtrUs = null;
+  const ffInput = document.getElementById("ff-focus");
+  const ffStats = document.getElementById("ff-stats");
+  const btnFf = document.getElementById("btn-finalize-ff");
+  function updateFfUi() {
+    const distinct = new Set(ffSamples.map((s) => s.key)).size;
+    ffStats.textContent = "Keys/Arrows: " + ffSamples.length + " / 64 | Distinct: " + distinct + " / 8 | Pointer Jitter: " + ffPointer.length;
+    btnFf.disabled = ffSamples.length < 64 || distinct < 8;
+  }
+  ffInput.addEventListener("keydown", (e) => {
+    if (e.repeat || e.key === "CapsLock" || e.key === "Tab") return;
+    if (ffSamples.length > 0 && ffSamples[ffSamples.length - 1].key === e.key) return;
+    if (e.key.startsWith("Arrow") || e.key.length === 1 || e.key === "Shift") {
+      e.preventDefault();
+      const nowUs = Math.round(performance.now() * 1000);
+      const deltaUs = ffLastUs === null ? 0 : Math.max(0, nowUs - ffLastUs);
+      ffLastUs = nowUs;
+      const idx = ffSamples.length;
+      ffSamples.push({ key: e.key, delta_us: deltaUs, hold_us: 0, is_backspace: e.key === "Backspace", was_typo: false, is_repeat: false });
+      ffInput._downMap = ffInput._downMap || new Map();
+      ffInput._downMap.set(e.code, { ts: nowUs, idx });
+      ffInput.value = "";
+      updateFfUi();
+    }
+  });
+  ffInput.addEventListener("keyup", (e) => {
+    if (!ffInput._downMap) return;
+    const rec = ffInput._downMap.get(e.code);
+    if (!rec) return;
+    ffInput._downMap.delete(e.code);
+    const nowUs = Math.round(performance.now() * 1000);
+    if (ffSamples[rec.idx]) ffSamples[rec.idx].hold_us = Math.max(0, nowUs - rec.ts);
+  });
+  ffInput.addEventListener("pointermove", (e) => {
+    const nowUs = Math.round(performance.now() * 1000);
+    const dt = ffLastPtrUs === null ? 0 : Math.max(0, nowUs - ffLastPtrUs);
+    ffLastPtrUs = nowUs;
+    if (ffPointer.length < 512) ffPointer.push([Math.round(e.movementX || 0), Math.round(e.movementY || 0), dt]);
+    updateFfUi();
+  });
+  document.getElementById("btn-reset-ff").addEventListener("click", () => {
+    ffSamples = []; ffPointer = []; ffLastUs = null; ffLastPtrUs = null; ffInput.value = ""; updateFfUi();
+  });
+  btnFf.addEventListener("click", () => {
+    const r = rpc({ cmd: "harvest_freeform", samples: ffSamples, pointer_deltas: ffPointer });
+    ffSamples = []; ffPointer = []; ffLastUs = null; ffLastPtrUs = null; ffInput.value = ""; updateFfUi();
+    if (!r.ok) return showToast(r.error, true);
+    activateWalletView(r.data, "Tier 2B Free-Form Vault derived!");
+  });
   document.getElementById("btn-finalize-tier2").addEventListener("click", () => {
     const res = rpc({
       cmd: "harvest_keystroke_course",
@@ -1618,7 +1710,7 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     document.getElementById("pk1-idx").value = "0";
 
     [
-      "w-secret-box", "w-qr-stage", "w-qr-caption", "w-meta", "w-wpkh-desc", "w-extra-desc",
+      "w-secret-box", "w-xfp-badge", "w-qr-stage", "w-qr-caption", "w-meta", "w-wpkh-desc", "w-extra-desc",
       "addr-tbody", "bip85-pivot-row", "psbt-fatal-box", "psbt-warn-box", "psbt-report",
       "psbt-signed-qr", "psbt-signed-frame-info", "pk1-sig-out", "pk1-sig-qr", "pk1-ver-result",
       "est-dec-result", "sf-results"

@@ -538,6 +538,7 @@ fn run_self_test() -> Result<(), String> {
         .map(|i| KeystrokeSample {
             key: "a".into(),
             delta_us: ((i % 3) + 1) * 100_000, // Tor Browser 100ms clamped timer simulation
+            hold_us: 0,
             is_backspace: false,
             was_typo: false,
             is_repeat: false,
@@ -727,6 +728,7 @@ fn handle_obstacle_key(app: &mut AppState, key: KeyEvent) {
                 app.obstacle_samples.push(KeystrokeSample {
                     key: "Backspace".into(),
                     delta_us,
+                    hold_us: 0,
                     is_backspace: true,
                     was_typo: false,
                     is_repeat: false,
@@ -768,6 +770,7 @@ fn handle_obstacle_key(app: &mut AppState, key: KeyEvent) {
                 app.obstacle_samples.push(KeystrokeSample {
                     key: ch.to_string(),
                     delta_us,
+                    hold_us: 0,
                     is_backspace: false,
                     was_typo,
                     is_repeat: false,

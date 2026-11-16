@@ -24,7 +24,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use subzero_core::entropy::{
     evaluate_keystroke_health, generate_obstacle_prompt, harvest_coins, harvest_dice,
-    harvest_keystroke_course, harvest_raw_hex, KeystrokeSample,
+    harvest_freeform_entropy, harvest_keystroke_course, harvest_raw_hex, KeystrokeSample,
 };
 use subzero_core::keys::{
     derive_bip85_children, export_sparrow_watch_only_json, import_wallet_material,
@@ -186,6 +186,10 @@ enum RpcRequest {
         final_transcribed: String,
         samples: Vec<KeystrokeSample>,
     },
+    HarvestFreeform {
+        samples: Vec<KeystrokeSample>,
+        pointer_deltas: Vec<(i32, i32, u64)>,
+    },
     HarvestTier1 {
         kind: String,
         input: String,
@@ -337,6 +341,22 @@ pub fn dispatch_rpc_json(raw_json: &str) -> String {
             };
             final_transcribed.zeroize();
             samples.zeroize();
+            res
+        }
+        RpcRequest::HarvestFreeform {
+            mut samples,
+            mut pointer_deltas,
+        } => {
+            let res = match harvest_freeform_entropy(&samples, &pointer_deltas)
+                .and_then(|ent| wallet_from_conditioned_entropy(&ent))
+                .map_err(|e| e.to_string())
+                .and_then(enrich_and_install_wallet)
+            {
+                Ok(v) => ok_json(v),
+                Err(e) => err_json(e),
+            };
+            samples.zeroize();
+            pointer_deltas.zeroize();
             res
         }
         RpcRequest::HarvestTier1 { kind, mut input } => {
