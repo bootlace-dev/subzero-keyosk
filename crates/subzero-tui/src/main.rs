@@ -42,7 +42,7 @@ use storage::{
 use subzero_core::descriptor::verify_and_strip_checksum;
 use subzero_core::entropy::{
     evaluate_keystroke_health, generate_obstacle_prompt, harvest_coins, harvest_dice,
-    harvest_keystroke_course, harvest_playing_cards, harvest_raw_hex, KeystrokeHealthReport,
+    harvest_keystroke_course, harvest_raw_hex, KeystrokeHealthReport,
     KeystrokeSample, MIN_TIER2_ENTROPY_BITS, OBSTACLE_COURSE_LEN,
 };
 use subzero_core::keys::{
@@ -117,17 +117,15 @@ enum IntakeMethod {
     Presets,
     Coins,
     Dice,
-    Cards,
     ObstacleCourse,
     ImportOrScan,
 }
 
 impl IntakeMethod {
-    const ALL: [IntakeMethod; 6] = [
+    const ALL: [IntakeMethod; 5] = [
         IntakeMethod::Presets,
         IntakeMethod::Coins,
         IntakeMethod::Dice,
-        IntakeMethod::Cards,
         IntakeMethod::ObstacleCourse,
         IntakeMethod::ImportOrScan,
     ];
@@ -137,9 +135,8 @@ impl IntakeMethod {
             Self::Presets => "1:Presets(0..9)",
             Self::Coins => "2:Tier1 Coins(128+)",
             Self::Dice => "3:Tier1 Dice(50+)",
-            Self::Cards => "4:Tier1 52-Cards",
-            Self::ObstacleCourse => "5:Tier2 Keystroke Course",
-            Self::ImportOrScan => "6:Import / QR Scan",
+            Self::ObstacleCourse => "4:Tier2 Keystroke Course",
+            Self::ImportOrScan => "5:Import / QR Scan",
         }
     }
 
@@ -517,7 +514,7 @@ fn run_self_test() -> Result<(), String> {
     }
     println!("  [PASS] Presets 0..9 + BIP-380 wpkh/tr descriptor checksums verified.");
 
-    // 2. Tier 1 Physical Discrete Entropy (Coins + Dice + 52-Card Bijection)
+    // 2. Tier 1 Physical Discrete Entropy (Coins + Dice)
     let coin_128 = "1011001001101101010011100010110110100110010110101100100101110010"
         .to_string()
         + "0101100110100100110100110011010110101100010101101001101001101001";
@@ -529,17 +526,7 @@ fn run_self_test() -> Result<(), String> {
     let ce_dice = harvest_dice(dice_60).map_err(|e| format!("Dice KAT failed: {e}"))?;
     let _ = wallet_from_conditioned_entropy(&ce_dice).map_err(|e| e.to_string())?;
 
-    // Verify unshuffled factory deck is caught by Bayer-Diaconis rising-sequence detector
-    let mut unshuffled = Vec::new();
-    for s in ['c', 'd', 'h', 's'] {
-        for r in ['a', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'j', 'q', 'k'] {
-            unshuffled.push(format!("{r}{s}"));
-        }
-    }
-    if harvest_playing_cards(&unshuffled.join(" ")).is_ok() {
-        return Err("Unshuffled 52-card deck failed to trigger Bayer-Diaconis guard!".into());
-    }
-    println!("  [PASS] Tier 1 Coins, Dice, and 52-Card Bayer-Diaconis guards verified.");
+    println!("  [PASS] Tier 1 Coins and Dice guards verified.");
 
     // 3. Tier 2 Obstacle Course Prompt Determinism + Clamped-Timer Hard Block
     let prompt_a = generate_obstacle_prompt(0, OBSTACLE_COURSE_LEN);
@@ -927,7 +914,7 @@ fn handle_key_event(app: &mut AppState, key: KeyEvent) -> bool {
                     },
                     _ => {}
                 },
-                IntakeMethod::Coins | IntakeMethod::Dice | IntakeMethod::Cards => match key.code {
+                IntakeMethod::Coins | IntakeMethod::Dice => match key.code {
                     KeyCode::Backspace => {
                         app.tier1_buffer.pop();
                     }
@@ -939,7 +926,6 @@ fn handle_key_event(app: &mut AppState, key: KeyEvent) -> bool {
                         let res = match app.intake_method {
                             IntakeMethod::Coins => harvest_coins(&app.tier1_buffer),
                             IntakeMethod::Dice => harvest_dice(&app.tier1_buffer),
-                            IntakeMethod::Cards => harvest_playing_cards(&app.tier1_buffer),
                             _ => unreachable!(),
                         };
                         match res.and_then(|ent| wallet_from_conditioned_entropy(&ent)) {
@@ -1439,7 +1425,7 @@ fn handle_paste_event(app: &mut AppState, raw: String) {
 
     match app.tab {
         ActiveTab::Intake => match app.intake_method {
-            IntakeMethod::Coins | IntakeMethod::Dice | IntakeMethod::Cards => {
+            IntakeMethod::Coins | IntakeMethod::Dice => {
                 app.tier1_buffer.push_str(&single_line());
             }
             IntakeMethod::ImportOrScan => {
@@ -1640,26 +1626,6 @@ fn draw_intake(f: &mut Frame<'_>, area: Rect, app: &AppState) {
                 Line::from(chunk_grouped(&app.tier1_buffer, 5)),
                 Line::from(""),
                 Line::from("Press Enter to run pre-hash Markov + Chi-squared checks & derive wallet (Ctrl+U clears)."),
-            ]
-        }
-        IntakeMethod::Cards => {
-            let toks = app
-                .tier1_buffer
-                .chars()
-                .filter(|c| !c.is_whitespace() && *c != ',')
-                .count()
-                / 2;
-            vec![
-                Line::from(Span::styled(
-                    "Tier 1C: Full 52-Card Shuffled Playing Deck [225.6 Bits Max - 0% Host Clock Trust]",
-                    Style::default().fg(Color::LightGreen).add_modifier(Modifier::BOLD),
-                )),
-                Line::from(format!(
-                    "Wash deck 60s + 7 riffle shuffles, then enter all 52 cards (e.g. ah 4c td ks...). Cards: ~{toks}/52"
-                )),
-                Line::from("Enforces exact 52-card bijection (reports missing/duplicate typos) & Bayer-Diaconis shuffle check."),
-                Line::from(""),
-                Line::from(app.tier1_buffer.clone()),
             ]
         }
         IntakeMethod::ObstacleCourse => {

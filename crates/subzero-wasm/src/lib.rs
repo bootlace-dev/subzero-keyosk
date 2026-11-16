@@ -24,7 +24,7 @@ use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use subzero_core::entropy::{
     evaluate_keystroke_health, generate_obstacle_prompt, harvest_coins, harvest_dice,
-    harvest_keystroke_course, harvest_playing_cards, harvest_raw_hex, KeystrokeSample,
+    harvest_keystroke_course, harvest_raw_hex, KeystrokeSample,
 };
 use subzero_core::keys::{
     derive_bip85_children, export_sparrow_watch_only_json, import_wallet_material,
@@ -343,7 +343,6 @@ pub fn dispatch_rpc_json(raw_json: &str) -> String {
             let ent_res = match kind.as_str() {
                 "coins" => harvest_coins(&input),
                 "dice" => harvest_dice(&input),
-                "cards" => harvest_playing_cards(&input),
                 "hex" => harvest_raw_hex(&input),
                 other => Err(subzero_core::error::SubZeroError::Entropy(format!(
                     "Unknown Tier 1 entropy mode '{other}'."

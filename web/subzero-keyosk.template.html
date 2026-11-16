@@ -257,12 +257,11 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     <div class="grid-2">
       <div class="card">
         <h2>B. Tier 1: Physical Discrete Entropy <span class="badge tier1">0% Host Clock Trust</span></h2>
-        <div class="hint">100% verifiable on an independent second calculator. Pre-hash Markov, Pearson Chi-squared, 52-card bijection, and Bayer-Diaconis shuffle checks protect against accidental patterns or typos.</div>
+        <div class="hint">100% verifiable on an independent second calculator. Pre-hash Markov and Pearson Chi-squared checks protect against accidental patterns or typos.</div>
         <label for="tier1-kind">Physical Source:</label>
         <select id="tier1-kind">
           <option value="dice">6-Sided Casino Dice (50+ rolls min, 60 recommended)</option>
           <option value="coins">Physical Coin Flips (128+ flips of H/T or 1/0)</option>
-          <option value="cards">52-Card Shuffled Deck (Wash 30-60s + 7-8 Riffle Shuffles)</option>
           <option value="hex">External Hardware TRNG Hex (32 hex chars = 128-bit)</option>
         </select>
         <label id="tier1-label" for="tier1-input">Enter 50+ dice rolls (<code>1</code>..<code>6</code>):</label>
@@ -1125,9 +1124,6 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     } else if (kind === "coins") {
       lbl.textContent = "Enter 128+ coin flips (`H`/`T` or `1`/`0`):";
       ctr.textContent = clean.length + " / 128 minimum coin flips";
-    } else if (kind === "cards") {
-      lbl.textContent = "Enter all 52 shuffled playing cards (`ah 4c td ks ...`):";
-      ctr.textContent = Math.floor(clean.replace(/10/g, "t").length / 2) + " / 52 cards entered (bijection + Bayer-Diaconis shuffle check)";
     } else {
       lbl.textContent = "Enter 32 hexadecimal characters (128-bit external TRNG):";
       ctr.textContent = clean.replace(/^0x/i, "").length + " / 32 hex chars";
