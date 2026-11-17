@@ -134,6 +134,21 @@ sha256sum -c SHA256SUMS
 
 ---
 
+## Why COTS Hardware & Physical Entropy (`vs. Specialized Signers`)
+
+Specialized airgapped signers (`SeedSigner`, `Krux`, `Coldcard`, `Jade`) are excellent tools. SubZero complements them by optimizing for a different threat model:
+
+* **Supply-Chain Censorship Resistance (`Zero Flagged Hardware`)**: Ordering dedicated Bitcoin signers creates customs, courier, and home-address trails. SubZero turns *any* spare off-the-shelf `x86_64` laptop (`amnesic UEFI RAM-only boot`) or offline desktop browser (`file://`) into a cold vault with zero persistence across reboot (`Esc x2` / `Ctrl+W` wipes userland memory and runs `memtester-static` before poweroff).
+* **Zero Vendor or OS RNG Reliance**: Instead of trusting OS randomness (`getrandom` / `/dev/urandom`) or opaque hardware PRNGs alone, physical coin (`128+`) and dice (`50+`) ceremonies derive deterministic seeds verifiable bit-for-bit on a second calculator.
+* **Unopinionated Wallet Ingestion & Heir Simplicity**: Exports standard `BIP-84`/`BIP-86` `#checksum` descriptors, `SLIP-0132` `vpub`, Sparrow watch-only JSON, `CompactSeedQR`, 4-letter steel punch prefixes, and animated `BBQr` PSBTs compatible with Sparrow, Bitcoin Core, Electrum, and Liana. Encrypted `vault.json` recovery kits unlock cleanly in standalone `decrypt.html` (`file://`), while `Preset 0..9` funded Testnet4 wallets let new users practice real signing without risking mainnet sats.
+* **Machine-Readable Auditability**: Workspace architecture, invariants, and build steps are indexed in [`llms.txt`](llms.txt) alongside bit-for-bit reproducible Docker builds (`SHA256SUMS`, `SHA256SUMS.asc`, `SHA256SUMS.pk1`).
+
+## Roadmap (`v2.1 -> v3.0`)
+
+* **Months 1-2 (`Audit Readiness, 12/24-Word Import & TUI Automation`)**: Add `cargo-fuzz` targets (`PSBT`, `BBQr`, `rqrr`, `subzero-vault-v2`), expand `ratatui TestBackend` console layout checks (`<= 118` cols) and TUI signing tests, add `12/24`-word BIP-39 backup import for legacy hardware-wallet estate recovery, and complete `Tier 2B` parity in `subzero-tui`.
+* **Months 3-4 (`Multi-Vendor Multisig Cosigner & Usability Reviews`)**: Implement `P2WSH` and `P2TR` Miniscript multisig registration and full multi-cosigner change-script verification so SubZero acts as a `$0` COTS cosigner alongside dedicated signers in Sparrow and Liana, validated through documented recovery drills with non-developer users.
+* **Months 5-6 (`Pre-Mainnet Gate`)**: Complete an open threat-model/zeroization checklist and external peer/OSTIF audit-readiness package before unlocking Mainnet (`bc1q`/`bc1p`) derivation behind an explicit release gate.
+
 ## Explicit Scope & Limitations
 
 * **Network Scope (`Bitcoin Testnet4` Only)**: SubZero v2.0 is hard-locked to **Bitcoin Testnet4 (`BIP-94`, coin type `1'`)** (`tb1q...` and `tb1p...`). Mainnet extended keys (`xpub`, `zpub`, `xprv`) and mainnet BIP-32 derivation paths (`m/*/0'/*`) are explicitly rejected at import and PSBT signing boundaries so operators cannot accidentally risk real mainnet funds during Testnet4 rehearsal or security review.

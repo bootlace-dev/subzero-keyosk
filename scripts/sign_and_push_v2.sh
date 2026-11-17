@@ -132,20 +132,31 @@ if [[ "$ACTIVE_GH" != "bootlace-dev" ]]; then
 fi
 
 echo "[6/7] Publishing clean main history, $TAG release assets, and repository metadata..."
-git push --force origin main
+GIT_PUSH_ARGS=()
+if [[ ! -r "${HOME}/.ssh/id_ed25519_bootlace" ]]; then
+    # Fallback cleanly to active bootlace-dev gh CLI credentials when SSH identity lives under another OS account
+    GIT_PUSH_ARGS=(
+        -c "url.https://github.com/.insteadOf=git@github.com:"
+        -c "core.sshCommand=true"
+        -c "credential.helper="
+        -c "credential.helper=!gh auth git-credential"
+    )
+fi
+
+git "${GIT_PUSH_ARGS[@]}" push --force origin main
 
 # Remove pre-v2 prototype branches, releases, and tags so deprecated commits/builds are unreachable
 for old_branch in feat/appliance-milestones feat/import-offline-seed feat/rust-port master; do
-    git push origin ":refs/heads/$old_branch" 2>/dev/null || true
+    git "${GIT_PUSH_ARGS[@]}" push origin ":refs/heads/$old_branch" 2>/dev/null || true
 done
 
 for old_tag in v0.3.0 v0.4.0-testnet4; do
     gh release delete "$old_tag" --repo bootlace-dev/subzero-keyosk --yes --cleanup-tag 2>/dev/null || true
-    git push origin ":refs/tags/$old_tag" 2>/dev/null || true
+    git "${GIT_PUSH_ARGS[@]}" push origin ":refs/tags/$old_tag" 2>/dev/null || true
 done
 
 git tag -f "$TAG"
-git push --force origin "$TAG"
+git "${GIT_PUSH_ARGS[@]}" push --force origin "$TAG"
 
 if gh release view "$TAG" --repo bootlace-dev/subzero-keyosk >/dev/null 2>&1; then
     gh release delete "$TAG" --repo bootlace-dev/subzero-keyosk --yes
