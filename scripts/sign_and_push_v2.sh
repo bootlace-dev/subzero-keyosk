@@ -28,7 +28,7 @@ cd "$REPO_ROOT"
 
 PGP_KEY_ID="F18173E554644BB59018AE50F6E96FADCA2E8E0F"
 PIPEK1_NPUB="$(awk '/^Npub:/ {print $2}' bootlace-dev-pipek1.pub)"
-TAG="v2.0.0-testnet4"
+TAG="v2.0.1-testnet4"
 
 CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 if [[ "$CURRENT_BRANCH" != "main" ]]; then
@@ -170,8 +170,8 @@ gh release create "$TAG" \
     dist/SHA256SUMS.asc \
     dist/SHA256SUMS.pk1 \
     --repo bootlace-dev/subzero-keyosk \
-    --title "SubZero Keyosk v2.0.0-testnet4 (Unified Pure-Rust Core + Reproducible Builds)" \
-    --notes "Clean-slate v2.0 architecture unifying Bare-Metal Linux (\`subzero-x86_64-musl\`) and Standalone Zero-Import WASM HTML (\`subzero-keyosk.html\` & \`decrypt.html\`) onto \`crates/subzero-core\` with bit-for-bit reproducible Docker builds, Cooperative Two-Tier Entropy, 10 funded Testnet4 rehearsal presets, cryptographic PSBT self-change verification, SIV-committed \`subzero-vault-v2\` encryption, and native \`pipe-k1\` release signing."
+    --title "SubZero Keyosk $TAG (60-Second Hello World Happy Path + Unified Pure-Rust Core)" \
+    --notes "Clean-slate v2.0 architecture with the 60-second Guided Hello World Happy Path & collapsible vault intake, unifying Bare-Metal Linux (\`subzero-x86_64-musl\`) and Standalone Zero-Import WASM HTML (\`subzero-keyosk.html\` & \`decrypt.html\`) onto \`crates/subzero-core\` with bit-for-bit reproducible Docker builds, Cooperative Two-Tier Entropy, 10 funded Testnet4 rehearsal presets, cryptographic PSBT self-change verification, SIV-committed \`subzero-vault-v2\` encryption, and native \`pipe-k1\` release signing."
 
 gh repo edit bootlace-dev/subzero-keyosk \
     --description "Airgapped Zero-OS-RNG Bitcoin Testnet4 Cold Vault, Verified PSBT BBQr Signer & BIP-85 Estate Tool (Pure Rust -> Static musl + Single-File WASM HTML)"
