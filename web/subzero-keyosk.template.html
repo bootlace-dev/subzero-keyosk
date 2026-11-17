@@ -220,6 +220,68 @@ video { width: 100%; max-width: 420px; border-radius: 6px; border: 1px solid var
 .audit-fatal { background: rgba(248,81,73,0.16); border: 1px solid var(--danger); color: #ffa198; padding: 10px; border-radius: 6px; margin: 8px 0; }
 .audit-warn { background: rgba(210,153,34,0.14); border: 1px solid var(--warn); color: #f2cc60; padding: 10px; border-radius: 6px; margin: 8px 0; }
 code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px; font-size: 0.95em; }
+.hero-card { border-color: var(--accent); background: linear-gradient(180deg, rgba(46,160,67,0.08), var(--panel)); }
+.happy-steps {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 10px 0 12px;
+}
+.happy-step {
+  background: var(--panel-alt);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.happy-step strong { color: var(--accent-bright); display: block; margin-bottom: 3px; }
+details.card.accordion { padding: 0; }
+details.card.accordion > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 14px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 700;
+  color: #a5d6ff;
+  font-size: 14px;
+}
+details.card.accordion > summary::-webkit-details-marker { display: none; }
+details.card.accordion > summary::after {
+  content: "+ Expand";
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 600;
+}
+details.card.accordion[open] > summary { border-bottom: 1px solid var(--border); }
+details.card.accordion[open] > summary::after { content: "- Collapse"; }
+details.card.accordion > .acc-body { padding: 14px 16px 16px; }
+details.sub-toggle { margin-top: 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+details.sub-toggle > summary {
+  cursor: pointer;
+  color: var(--cyan);
+  font-size: 12px;
+  font-weight: 600;
+}
+details.sub-toggle .preset-grid { margin-top: 10px; }
+.next-strip {
+  background: rgba(31,111,235,0.1);
+  border: 1px solid var(--blue);
+  border-radius: 6px;
+  padding: 9px 12px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+}
+.next-strip .row { margin-top: 0; }
+.acc-subhead { margin-top: 18px; }
 </style>
 </head>
 <body>
@@ -237,7 +299,7 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
   <div id="global-toast" class="toast"></div>
 
   <div id="nav-tabs" class="tabs">
-    <button type="button" class="tab-btn active" data-tab="tab-intake">1. Entropy &amp; Intake</button>
+    <button type="button" class="tab-btn active" data-tab="tab-intake">1. Start (Hello World)</button>
     <button type="button" class="tab-btn" data-tab="tab-wallet">2. Watch-Only &amp; Addresses</button>
     <button type="button" class="tab-btn" data-tab="tab-bip85">3. BIP-85 Vaults</button>
     <button type="button" class="tab-btn" data-tab="tab-psbt">4. PSBT Audit &amp; Sign</button>
@@ -246,17 +308,29 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     <button type="button" class="tab-btn" data-tab="tab-seedfix">7. SeedFix &amp; Wordlist</button>
   </div>
 
-  <!-- TAB 1: ENTROPY & INTAKE -->
+  <!-- TAB 1: HAPPY PATH + COLLAPSIBLE VAULT INTAKE -->
   <section id="tab-intake" class="panel active">
-    <div class="card">
-      <h2>A. Live-Funded Testnet4 Rehearsal Presets (<code>Preset 0..9</code>) <span class="badge preset">0 Bits Secret Entropy</span></h2>
-      <div class="hint">Unified across Bare-Metal Linux and Single-File HTML. Click any preset to rehearse watch-only QR exports, change-address discovery, BIP-85 child vaults, and PSBT airgap signing.</div>
-      <div id="preset-grid" class="preset-grid"></div>
+    <div class="card hero-card">
+      <h2>60-Second Hello World (<code>Testnet4</code> Guided Rehearsal) <span class="badge preset">Safe Practice Mode</span></h2>
+      <div class="hint">New to SubZero? Follow this 3-step Testnet4 walkthrough without risking real funds. Expand a folded section below only when creating a fresh offline vault or importing your own backup.</div>
+      <div class="happy-steps">
+        <div class="happy-step"><strong>Step 1: Load Safe Practice Wallet</strong>Start with Preset 0 below (<code>73c5da0a</code>, zero real sats, live Testnet4 UTXOs ready to inspect).</div>
+        <div class="happy-step"><strong>Step 2: Export Watch-Only Coordinator</strong>On Tab 2, download Sparrow JSON or scan the animated <code>BBQr</code> descriptor into your hot wallet.</div>
+        <div class="happy-step"><strong>Step 3: Sign PSBT &amp; Test Inheritance</strong>On Tab 4 inspect/sign an unsigned PSBT, or encrypt and test unlocking <code>vault.json</code> on Tab 6.</div>
+      </div>
+      <div class="row">
+        <button id="btn-hello-world" type="button" class="success">Start Hello World (Preset 0 &bull; 73c5da0a)</button>
+        <button id="btn-hello-heir" type="button" class="secondary">Try BIP-85 Multi-Heir Demo (Preset 2 &bull; b8688df1)</button>
+      </div>
+      <details id="details-all-presets" class="sub-toggle">
+        <summary>Or pick from all 10 deterministic Testnet4 Rehearsal Presets (Presets 0..9)</summary>
+        <div id="preset-grid" class="preset-grid"></div>
+      </details>
     </div>
 
-    <div class="grid-2">
-      <div class="card">
-        <h2>B. Tier 1: Physical Discrete Entropy <span class="badge tier1">0% Host Clock Trust</span></h2>
+    <details id="details-tier1" class="card accordion">
+      <summary><span>Create Real Cold Vault (Recommended): Physical Coins, Dice, or TRNG</span><span class="badge tier1">0% Host Clock Trust</span></summary>
+      <div class="acc-body">
         <div class="hint">100% verifiable on an independent second calculator. Pre-hash Markov and Pearson Chi-squared checks protect against accidental patterns or typos.</div>
         <label for="tier1-kind">Physical Source:</label>
         <select id="tier1-kind">
@@ -272,9 +346,11 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
           <button id="btn-clear-tier1" type="button" class="secondary">Clear</button>
         </div>
       </div>
+    </details>
 
-      <div class="card">
-        <h2>C. Import Existing Seed / Punch / SeedQR / Watch-Only</h2>
+    <details id="details-import" class="card accordion">
+      <summary><span>Import or Recover Existing Wallet (12 Words, Steel Punch, SeedQR, Watch-Only)</span><span class="badge">Airgap Import</span></summary>
+      <div class="acc-body">
         <div class="hint">Accepts 12 BIP-39 words, 4-letter metal plate prefixes (<code>aban aban ... abou</code>), 48-digit <code>CompactSeedQR</code>, or Testnet4 Watch-Only (<code>wpkh(...)</code>, <code>tr(...)</code>, <code>tpub...</code>, <code>vpub...</code>).</div>
         <label for="import-input">Offline Wallet Material:</label>
         <textarea id="import-input" spellcheck="false" autocomplete="off" placeholder="12 words, 48-digit SeedQR, or wpkh([73c5da0a/84'/1'/0']tpub.../<0;1>/*)#checksum"></textarea>
@@ -290,10 +366,12 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
           <button id="btn-stop-import-cam" type="button" class="secondary">Stop Camera</button>
         </div>
       </div>
-    </div>
+    </details>
 
-    <div class="card">
-      <h2>D. Tier 2: Cooperative 100-Char Cross-Row Obstacle Course <span class="badge tier2">Unclamped Host Clock Required</span></h2>
+    <details id="details-tier2" class="card accordion">
+      <summary><span>Advanced Timing Entropy: 100-Char Obstacle Course &amp; Free-Form Keystrokes</span><span class="badge tier2">Unclamped Host Clock Required</span></summary>
+      <div class="acc-body">
+        <h3>Tier 2A: Cooperative 100-Char Cross-Row Obstacle Course</h3>
       <div class="hint">
         You and SubZero are on the same team: transcribing this deterministic zero-OS-RNG cross-row prompt forces slow 2D visual search, Shift transitions, and natural <code>Backspace</code> error-recovery jitter. Red-highlighted typos must be cleared with <code>Backspace</code>. Automatically blocks clamped timers (<code>Tor Browser</code> 100ms). Not re-derivable on a second calculator; write down the resulting 12 words immediately.
       </div>
@@ -306,10 +384,8 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
         <button id="btn-finalize-tier2" type="button" class="success" disabled>Finalize Tier 2 Vault (Complete 100/100 chars)</button>
         <button id="btn-reset-tier2" type="button" class="secondary">New Deterministic Obstacle Course</button>
       </div>
-    </div>
 
-    <div class="card">
-      <h2>E. Tier 2B: Free-Form Keys / Arrows + Optional Mouse Jitter <span class="badge tier2">64+ Events</span></h2>
+      <h3 class="acc-subhead">Tier 2B: Free-Form Keys / Arrows + Optional Mouse Jitter (<code>64+ Events</code>)</h3>
       <div class="hint">Type any mix of keys or arrow keys (Up/Down/Left/Right) at natural varied speeds and optionally wiggle your mouse/trackpad over the box. Needs 64+ non-repeat events across 8+ distinct keys and >= 144 timing bits.</div>
       <div id="ff-stats" class="hint">Keys/Arrows: 0 / 64 | Distinct: 0 / 8 | Timing: 0.0 / 144 bits | Pointer Jitter: 0</div>
       <input id="ff-focus" type="text" spellcheck="false" autocomplete="off" placeholder="Click here and type random keys / arrows (mouse wiggle optional)...">
@@ -317,17 +393,25 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
         <button id="btn-finalize-ff" type="button" class="success" disabled>Derive Free-Form Vault</button>
         <button id="btn-reset-ff" type="button" class="secondary">Reset Free-Form</button>
       </div>
-    </div>
+      </div>
+    </details>
   </section>
 
   <!-- TAB 2: ACTIVE WALLET & WATCH-ONLY -->
   <section id="tab-wallet" class="panel">
     <div id="wallet-empty" class="card">
       <h2>No Active Wallet</h2>
-      <div class="hint">Load a rehearsal preset, derive physical entropy, or import a descriptor on Tab 1 first.</div>
+      <div class="hint">Load the Hello World preset or derive a vault on Tab 1 first.</div>
     </div>
 
     <div id="wallet-loaded" class="hidden">
+      <div class="next-strip">
+        <span><strong>Step 2 Ready:</strong> Export your watch-only file or scan <code>BBQr</code> below, then continue the Happy Path:</span>
+        <div class="row">
+          <button id="btn-goto-psbt" type="button" class="success">Step 3: Audit &amp; Sign PSBT &rarr;</button>
+          <button id="btn-goto-estate" type="button" class="secondary">Step 3B: Create Estate Backup &rarr;</button>
+        </div>
+      </div>
       <div class="card">
         <h2>Active Cold Vault Summary</h2>
         <div class="row">
@@ -1753,6 +1837,10 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     document.getElementById("wallet-empty").classList.remove("hidden");
     document.getElementById("active-wallet-pill").textContent = "No Wallet Loaded (RAM Wiped)";
     if (wasm && wasm.sz_wipe_memory) wasm.sz_wipe_memory();
+    ["details-all-presets", "details-tier1", "details-import", "details-tier2"].forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.open = false;
+    });
     updateTier1Counter();
     resetObstacleCourse();
     refreshWordlist();
@@ -1760,7 +1848,17 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     showToast("Amnesic wipe complete: WASM linear memory & DOM scrubbed. Close browser tab to release JS GC memory.", false);
   });
 
-  // --- Boot WASM ---
+  // --- Quickstart Happy Path & Boot WASM ---
+  function loadPresetById(id) {
+    const r = rpc({ cmd: "load_preset", id });
+    if (r.ok) activateWalletView(r.data, "Loaded rehearsal Preset " + id + " [" + r.data.profile.fingerprint + "].");
+    else showToast(r.error, true);
+  }
+  document.getElementById("btn-hello-world").addEventListener("click", () => loadPresetById(0));
+  document.getElementById("btn-hello-heir").addEventListener("click", () => loadPresetById(2));
+  document.getElementById("btn-goto-psbt").addEventListener("click", () => switchTab("tab-psbt"));
+  document.getElementById("btn-goto-estate").addEventListener("click", () => switchTab("tab-estate"));
+
   WebAssembly.instantiate(b64ToBytes(WASM_B64), {}).then((inst) => {
     wasm = inst.instance.exports;
     const presetsRes = rpc({ cmd: "list_presets" });

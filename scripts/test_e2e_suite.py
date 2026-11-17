@@ -157,18 +157,19 @@ def test_html_e2e(capture_screenshots: bool = False):
             os.makedirs(SCREENSHOT_DIR, exist_ok=True)
             page.screenshot(path=os.path.join(SCREENSHOT_DIR, "v2_01_presets.png"))
 
-        # 1. Load Preset 0
-        page.click("#preset-grid button")
+        # 1. Happy Path Hello World button + Preset 0 in collapsed All-Presets drawer
+        page.click("#btn-hello-world")
         page.wait_for_function("() => document.querySelector('#w-xfp-badge').textContent.trim().length > 0", timeout=5000)
         preset_fp = page.text_content("#w-xfp-badge").strip()
         assert "73c5da0a" in preset_fp, f"Expected 73c5da0a, got {preset_fp!r}"
-        print(f"  [PASS] Preset 0 loaded (fp={preset_fp})")
+        print(f"  [PASS] Hello World Preset 0 loaded (fp={preset_fp})")
 
         if capture_screenshots:
             page.screenshot(path=os.path.join(SCREENSHOT_DIR, "v2_03_watch_only_qr.png"))
 
-        # 2. Tier 1 Coins
+        # 2. Tier 1 Coins (open folded Tier 1 accordion first)
         page.click('button[data-tab="tab-intake"]')
+        page.click("#details-tier1 > summary")
         page.select_option("#tier1-kind", "coins")
         page.fill("#tier1-input", COIN_128)
         page.click("#btn-derive-tier1")
@@ -193,8 +194,9 @@ def test_html_e2e(capture_screenshots: bool = False):
         assert len(dice_fp) >= 8
         print(f"  [PASS] Tier 1 Dice derived (fp={dice_fp})")
 
-        # 3b. Tier 2A 100-Char Obstacle Course (with intentional Backspace typo recovery!)
+        # 3b. Tier 2A 100-Char Obstacle Course (open folded Tier 2 accordion + intentional Backspace typo recovery!)
         page.click('button[data-tab="tab-intake"]')
+        page.click("#details-tier2 > summary")
         prompt_text = page.text_content("#obstacle-display")
         assert len(prompt_text) == 100, f"Expected 100-char prompt, got {len(prompt_text)}"
         page.click("#obstacle-focus")
@@ -244,12 +246,14 @@ def test_html_e2e(capture_screenshots: bool = False):
         ff_fp = page.text_content("#w-xfp-badge").strip()
         print(f"  [PASS] Tier 2B Free-Form (>= 144 timing bits + pointer jitter) derived (fp={ff_fp})")
 
-        # 4. Watch-Only Taproot `tr(...)` import sanity check (must select recv86 & not mislabel as BIP-84)
+        # 4. Watch-Only Taproot `tr(...)` import sanity check (open folded Import accordion first)
         page.click('button[data-tab="tab-intake"]')
+        page.click("#details-all-presets > summary")
         page.click("#preset-grid button")  # back to Preset 0 so we have its tr_descriptor
         page.wait_for_function("() => document.querySelector('#w-xfp-badge').textContent.includes('73c5da0a')", timeout=5000)
         tr_desc = page.text_content("#w-extra-desc").split("BIP-86 Taproot Descriptor:\n")[1].strip()
         page.click('button[data-tab="tab-intake"]')
+        page.click("#details-import > summary")
         page.fill("#import-input", tr_desc)
         page.click("#btn-import-wallet")
         page.wait_for_function(
@@ -260,7 +264,7 @@ def test_html_e2e(capture_screenshots: bool = False):
 
         # 5. Independently Built Testnet4 PSBT Audit & Signing (Preset 0)
         page.click('button[data-tab="tab-intake"]')
-        page.click("#preset-grid button")
+        page.click("#btn-hello-world")
         page.wait_for_function("() => document.querySelector('#w-xfp-badge').textContent.includes('73c5da0a')", timeout=5000)
         page.click('button[data-tab="tab-psbt"]')
         page.fill("#psbt-input", unsigned_psbt_b64)

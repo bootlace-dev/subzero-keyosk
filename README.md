@@ -15,13 +15,14 @@ In v2.0, **all execution targets** compile from one pure-Rust cryptographic core
 
 ---
 
-## Quickstart
+## Quickstart (`60-Second Hello World`)
 
 ### Option A: Offline Single-File Browser Kiosk (`0` Installation)
 
 1. Download `subzero-keyosk.html`, `decrypt.html`, `SHA256SUMS`, `SHA256SUMS.asc`, and `SHA256SUMS.pk1` from the latest GitHub Release (or build them locally from source with `./scripts/build_reproducible.sh`).
 2. Verify `SHA256SUMS` and its detached signatures (see [Reproducible Builds and Release Verification](#reproducible-builds-and-release-verification) below).
 3. Disconnect Wi-Fi, Ethernet, and Bluetooth, then open `subzero-keyosk.html` directly from disk (`file:///.../subzero-keyosk.html`) in a standard unclamped desktop browser (Chromium or standard Firefox).
+4. **Happy Path Walkthrough (`Testnet4` Hello World)**: Click **Start Hello World (`Preset 0`)** -> download the watch-only **Sparrow JSON** (`or scan BBQr`) on Tab 2 -> test inspecting/signing a Testnet4 PSBT on Tab 4 -> export and test unlocking `vault.json` inside offline `decrypt.html` (`Tab 6`). Keep the collapsed creation/import sections folded until building your own real vault with dice or coins.
 
 ### Option B: Static Linux Console Binary (`x86_64-unknown-linux-musl`)
 
