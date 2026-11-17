@@ -1,5 +1,7 @@
 /target/
 /dist/
+__pycache__/
+*.pyc
 **/*.rs.bk
 *.swp
 .DS_Store
