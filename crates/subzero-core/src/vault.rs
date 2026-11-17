@@ -31,7 +31,7 @@ use sha2::{Digest, Sha256};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::SubZeroError;
-use crate::keys::Bip85Child;
+use crate::keys::{Bip85Child, ZeroizingXpriv};
 
 type HmacSha256 = Hmac<Sha256>;
 
@@ -90,9 +90,11 @@ fn derive_public_xfp_salt(master_mnemonic: &str) -> Result<[u8; 16], SubZeroErro
         .map_err(|e| SubZeroError::Vault(format!("Invalid master_root_mnemonic in payload: {e}")))?;
     let seed = Zeroizing::new(mnemonic.to_seed(""));
     let secp = Secp256k1::new();
-    let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())
-        .map_err(|e| SubZeroError::Vault(format!("BIP-32 master error: {e}")))?;
-    let xfp = master_xprv.fingerprint(&secp).to_string();
+    let master_xprv = ZeroizingXpriv(
+        Xpriv::new_master(Network::Testnet4, seed.as_ref())
+            .map_err(|e| SubZeroError::Vault(format!("BIP-32 master error: {e}")))?,
+    );
+    let xfp = master_xprv.0.fingerprint(&secp).to_string();
 
     let mut sha = Sha256::new();
     sha.update(b"subzero:vault:v2:salt:");

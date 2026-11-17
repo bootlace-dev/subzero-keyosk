@@ -94,15 +94,26 @@ fn enrich_and_install_wallet_inner(
 
     let sparrow_watch_only_json =
         export_sparrow_watch_only_json(&profile).map_err(|e| e.to_string())?;
-    let wpkh_qr_svg = encode_qr_svg(&profile.wpkh_descriptor).map_err(|e| e.to_string())?;
-    let vpub_target = if !profile.bip84_vpub_slip132.is_empty() {
-        &profile.bip84_vpub_slip132
+    let primary_descriptor = if !profile.wpkh_descriptor.is_empty() {
+        profile.wpkh_descriptor.as_str()
     } else {
-        &profile.wpkh_descriptor
+        profile.tr_descriptor.as_deref().unwrap_or("")
     };
-    let vpub_qr_svg = encode_qr_svg(vpub_target).map_err(|e| e.to_string())?;
-    let bbqr_descriptor_parts =
-        encode_bbqr_unicode(&profile.wpkh_descriptor, 2).map_err(|e| e.to_string())?;
+    let wpkh_qr_svg = if profile.wpkh_descriptor.is_empty() {
+        String::new()
+    } else {
+        encode_qr_svg(&profile.wpkh_descriptor).map_err(|e| e.to_string())?
+    };
+    let vpub_qr_svg = if profile.bip84_vpub_slip132.is_empty() {
+        String::new()
+    } else {
+        encode_qr_svg(&profile.bip84_vpub_slip132).map_err(|e| e.to_string())?
+    };
+    let bbqr_descriptor_parts = if primary_descriptor.is_empty() {
+        Vec::new()
+    } else {
+        encode_bbqr_unicode(primary_descriptor, 2).map_err(|e| e.to_string())?
+    };
     let mut bbqr_descriptor_svgs = Vec::with_capacity(bbqr_descriptor_parts.len());
     for p in &bbqr_descriptor_parts {
         bbqr_descriptor_svgs.push(encode_qr_svg(p).map_err(|e| e.to_string())?);
@@ -797,10 +808,14 @@ pub fn dispatch_rpc_json(raw_json: &str) -> String {
     }
 }
 
-fn pack_output(bytes: Vec<u8>) -> u64 {
-    let boxed: Box<[u8]> = bytes.into_boxed_slice();
-    let len = boxed.len() as u64;
-    let ptr = Box::into_raw(boxed) as *mut u8 as usize as u64;
+fn pack_output(mut bytes: Vec<u8>) -> u64 {
+    // Allocate directly at exact output length so `into_boxed_slice` never triggers a
+    // shrinking `realloc` leaving secret tail bytes unzeroized in freed heap memory.
+    let mut exact: Box<[u8]> = vec![0u8; bytes.len()].into_boxed_slice();
+    exact.copy_from_slice(&bytes);
+    bytes.zeroize();
+    let len = exact.len() as u64;
+    let ptr = Box::into_raw(exact) as *mut u8 as usize as u64;
     (ptr << 32) | len
 }
 
@@ -861,10 +876,8 @@ pub unsafe extern "C" fn sz_invoke(ptr: *const u8, len: usize) -> u64 {
         Ok(s) => Zeroizing::new(s.to_string()),
         Err(_) => return pack_output(err_json("Invalid UTF-8 in RPC payload.").into_bytes()),
     };
-    let mut resp = dispatch_rpc_json(&req_str);
-    let out_bytes = resp.as_bytes().to_vec();
-    resp.zeroize();
-    pack_output(out_bytes)
+    let resp = dispatch_rpc_json(&req_str);
+    pack_output(resp.into_bytes())
 }
 
 /// Zero-copy greyscale frame QR decoder for live webcam scanning (`< 2ms` per frame).

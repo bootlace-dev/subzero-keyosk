@@ -2,9 +2,9 @@
 
 **SubZero Keyosk** is an airgapped, zero-OS-RNG Bitcoin Testnet4 (`BIP-94`) cold vault, PSBT airgap signer, `BIP-85` child-vault manager, and `pipe-k1` release-signing tool.
 
-In v2.0, **both** delivery targets compile from a single pure-Rust cryptographic core (`crates/subzero-core`) with zero `getrandom` syscalls, zero network sockets, and zero npm runtime packages:
+In v2.0, **all execution targets** compile from one pure-Rust cryptographic core (`crates/subzero-core`) with zero OS-RNG calls in key generation, PSBT signing, vault encryption, `--self-test`, headless CLI commands, or the standalone WebAssembly bundle:
 
-1. **Bare-Metal Linux Cold Vault (`dist/subzero-x86_64-musl`)**: Static `musl` TTY1 console binary (`ratatui`) with `mlockall` RAM pinning, V4L2 (`v4l2-ctl` + pure-Rust `rqrr`) optical `BBQr` webcam scanning, VFAT-safe atomic USB estate storage (`SUBZERO_EST`), and post-exit physical RAM scrubbing (`memtester-static` + `init_on_free=1`).
+1. **Bare-Metal Linux Cold Vault & Headless CLI (`dist/subzero-x86_64-musl`)**: Static `musl` binary combining a headless stdin/fd UNIX CLI (`derive`, `inspect-psbt`, `sign-psbt`, `vault-seal`, `vault-unseal`, `seedfix`, `descriptor-checksum`, `0` `getrandom` calls) with an interactive `ratatui` TTY1 console (`mlockall`, `v4l2-ctl` + pure-Rust `rqrr` camera scan, atomic `SUBZERO_EST` storage, and post-exit `memtester-static` + `init_on_free=1` RAM scrub). Interactive TUI mode uses Rust std `HashMap` seeding only for UI layout state, never for cryptographic keys.
 2. **Standalone Single-File HTML Kiosk (`dist/subzero-keyosk.html` & `dist/decrypt.html`)**: Self-contained offline `file://` HTML files embedding `subzero-core` compiled to zero-import WebAssembly (`wasm32-unknown-unknown`), isolating active mnemonics inside WASM linear memory, and locking the DOM with hash-pinned Content Security Policy (`CSP`) headers.
 
 ## Reader Orientation Map
@@ -34,6 +34,11 @@ In v2.0, **both** delivery targets compile from a single pure-Rust cryptographic
 
 # Launch the interactive 7-tab terminal cold vault:
 ./dist/subzero-x86_64-musl
+
+# Or run headless CLI subcommands (secrets passed via stdin or --*-fd >= 3):
+./dist/subzero-x86_64-musl derive --preset 0 --public-only
+./dist/subzero-x86_64-musl inspect-psbt --preset 0 --strict < tx.psbt
+./dist/subzero-x86_64-musl sign-psbt --preset 0 < tx.psbt > signed.psbt
 ```
 
 To build a bootable, network-stripped two-partition UEFI `x86_64` USB/SD image (`SUBZERO_ESP` + `SUBZERO_EST` booting into RAM-resident `initramfs` without `--privileged` containers):
@@ -46,12 +51,12 @@ To build a bootable, network-stripped two-partition UEFI `x86_64` USB/SD image (
 
 ## Cooperative Two-Tier Entropy Architecture
 
-A cold vault and its human operator are on the same team. SubZero never calls the operating system's random number generator (`getrandom`, `/dev/urandom`, or `crypto.getRandomValues()`). Instead, it separates human-supplied entropy into **two explicit trust tiers** so you always know whether your seed depends on the host CPU clock:
+A cold vault and its human operator are on the same team. SubZero never queries OS randomness (`getrandom`, `/dev/urandom`, or `crypto.getRandomValues()`) for key derivation, PSBT nonces, or encryption. Instead, it separates human-supplied entropy into **two explicit trust tiers** so you always know whether your seed depends on the host CPU clock:
 
 | Tier | Input Modes | Built-In Guardrails for Cooperative Operators | Trust Boundary Badge |
 | :--- | :--- | :--- | :--- |
-| **Tier 1: Physical Discrete Entropy** | **128+ Coins** (`1/0` or `H/T`), **50+ Casino Dice** (`60` recommended, `1..6`), **52-Card Shuffled Deck** (`104` chars after 60s wash + 7 riffle shuffles; `160` conservative bits credited), or **32-Char Hardware TRNG Hex** | Runs pre-hash Markov transition and Pearson Chi-squared (`p = 0.001`) bias checks on coins and dice (`< 0.2%` false reject rate on fair rolls), plus a public-preset blocklist. On playing cards, enforces an exact **52-card bijection check** (pinpointing any missing or duplicate card typo, e.g. `Duplicate 4c; missing 7d`), **Bayer-Diaconis rising-sequence checks** (`19..=34`) on both suit-order and USPCC factory-order decks, and **lag-1..4 affine step concentration checks** (`<= 9`) that block 2-pile deals and perfect in/out faro shuffles. | **2nd-Device Verifiable (`0%` Host Clock Trust)**: Identical 12-word mnemonic can be verified independently on a separate offline calculator. |
-| **Tier 2: Cooperative Keystroke Timing** | **200-Char Cross-Row Obstacle Course** (`generate_obstacle_prompt`) | Generates a deterministic, zero-OS-RNG 200-character string jumping strictly across shifted symbols, digits, uppercase, and lowercase rows on every character without lookalike glyphs (`0/O`, `1/l/I`). Typos highlight bright red and **require `Backspace` correction** before advancing, naturally pacing your hands and recording high-variance error-recovery intervals. Replays the full key+`Backspace` transcript against the target prompt, rejects OS key-repeat (`repeat`), **auto-blocks clamped clocks** (`Tor Browser` `100ms` / `resistFingerprinting` `16.67ms` / `2ms`..`10ms` coarse timers), and requires `>= 192` conservative pre-hash `NIST SP 800-90B` Non-IID min-entropy bits. | **Host-Timed (`Unclamped Clock Required`)**: Strong against external brute-force, but relies on an honest monotonic host clock (not re-derivable on a 2nd calculator from the prompt text alone). |
+| **Tier 1: Physical Discrete Entropy** | **128+ Coins** (`1/0` or `H/T`), **50+ Casino Dice** (`60` recommended, `1..6`), or **32-Char Hardware TRNG Hex** | Coins and dice run pre-hash Markov transition, Pearson Chi-squared (`p = 0.001`), periodic pattern, and public-preset blocklist checks; TRNG hex checks 32-hex format, non-constant bytes, and preset collisions. | **2nd-Device Verifiable (`0%` Host Clock Trust)**: Identical 12-word mnemonic can be verified independently on a separate offline calculator. |
+| **Tier 2: Cooperative Keystroke Timing** | **100-Char Cross-Row Obstacle Course** (`TUI + HTML`), or **Free-Form Keys/Arrows + Pointer Jitter** (`Tier 2B`, `64+` events over `8+` distinct keys in `HTML`) | Generates a deterministic zero-OS-RNG 100-character string jumping across shifted symbols, digits, uppercase, and lowercase rows without lookalike glyphs (`0/O`, `1/l/I`). Red typos lock advance until `Backspace` fixes them; replays the full transcript, rejects OS key-repeat, **auto-blocks clamped clocks** (`Tor Browser` `100ms` / `resistFingerprinting` `16.67ms` / `2ms`..`10ms` coarse timers) and metronomic cadence (`> 72%` octave transitions), and requires `>= 144` conservative `2ms`-binned MCV timing bits in both Tier 2A and Tier 2B. | **Host-Timed (`Unclamped Clock Required`)**: Strong against external brute-force, but relies on an honest monotonic host clock (not re-derivable on a 2nd calculator from the prompt text alone). |
 
 ---
 
@@ -77,10 +82,10 @@ Both the Bare-Metal TUI and the Single-File HTML Kiosk ship with the exact same 
 ## Core Capabilities (Shared 1:1 Across TUI and HTML Kiosk)
 
 * **Watch-Only Descriptors & Address Discovery**: Canonical Bitcoin Core `BIP-380` 8-character polymod checksums on both `BIP-84` Native SegWit (`wpkh([xfp/84'/1'/0']tpub.../<0;1>/*)#checksum`, `tb1q...`) and `BIP-86` Taproot (`tr([xfp/86'/1'/0']tpub.../<0;1>/*)#checksum`, `tb1p...`), `SLIP-0132` `vpub` export, Sparrow JSON export (verified zero private keys), and `CompactSeedQR` / 4-letter metal punch prefix support.
-* **Verified Airgap PSBT Inspector & `BBQr` Signer**: Parses binary, Base64, Hex, or multi-frame Coinkite `BBQr` PSBTs (with frame deduplication and mid-stream splice detection). Independently re-derives every claimed self-change output (`0/0..999` or `1/0..999`) from your own `master_xprv` before marking it as change, requires verified `non_witness_utxo` full previous transactions on `SegWit v0` (`P2WPKH`) inputs (`CVE-2020-14199` defense), rejects missing input amounts or mainnet derivation paths (`m/*/0'/*`), signs `P2WPKH` (`ECDSA`) and `P2TR` (`BIP-340` Schnorr), and displays animated `BBQr` frames for optical airgap broadcast.
+* **Verified Airgap PSBT Inspector & `BBQr` Signer**: Parses binary, Base64, Hex, or multi-frame Coinkite `BBQr` PSBTs (with frame deduplication and mid-stream splice detection). Independently re-derives every claimed self-change output (`m/84'/1'/0'/<0|1>/<idx<1000>`, plus metadata-free lookup across `0..99`) from your own `master_xprv` before marking it as change, requires verified `non_witness_utxo` full previous transactions on `SegWit v0` (`P2WPKH`) inputs (`CVE-2020-14199` defense), rejects missing input amounts or mainnet derivation paths (`m/*/0'/*`), signs `P2WPKH` (`ECDSA`) and `P2TR` (`BIP-340` Schnorr), and displays animated `BBQr` frames for optical airgap broadcast.
 * **`BIP-85` Deterministic Child Vaults**: Derives `Index 0` (`Decoupled Estate Encryption Passphrase`, explicitly guarded against on-chain funding) and `Index 1..4` (`Independent Heir / Operational Sub-Wallets`, with direct in-WASM / in-TUI child pivoting).
 * **Native `pipe-k1` (`m/83696968'/128002'`) Operational Identity & Release Signer**: Byte-exact wire compatibility with [`bootlace-dev/pipe-k1`](https://github.com/bootlace-dev/pipe-k1) (`105`-byte `PKSG\x01` + `BIP-340` Schnorr detached signatures and `-----BEGIN PIPE-K1 SIGNATURE-----` ASCII armor) with explicit pinned vs unpinned pubkey verification status.
-* **SIV-Committed `subzero-vault-v2` Estate Storage & `decrypt.html`**: Encrypts estate recovery bundles with `600,000` `PBKDF2-HMAC-SHA256` rounds (`64`-byte OKM split into independent `AES-256-GCM` and `HMAC-SHA256` SIV keys, deterministic `XFP`-bound salt, and minimum 6-word passphrase check) so updating a vault never reuses a `(Key, Nonce)` pair. Unlockable offline in either `subzero-tui` or standalone `decrypt.html` (`file://`).
+* **SIV-Committed `subzero-vault-v2` Estate Storage & `decrypt.html`**: Encrypts `vault.json` recovery bundles with `600,000` `PBKDF2-HMAC-SHA256` rounds (`64`-byte OKM split into independent `AES-256-GCM` and `HMAC-SHA256` SIV keys, deterministic `XFP`-bound salt, and minimum 6-word passphrase check) so updating a vault never reuses a `(Key, Nonce)` pair. Heirs load `vault.json` offline in `subzero-tui` or standalone `decrypt.html` (`file://`).
 * **`SeedFix` `<50us` Checksum Solver**: Computes all `128` valid 12th `BIP-39` checksum words directly via single-block `SHA-256` and ranks candidates by Levenshtein distance against damaged backup hints.
 
 ---
@@ -89,7 +94,7 @@ Both the Bare-Metal TUI and the Single-File HTML Kiosk ship with the exact same 
 
 ![SubZero v2.0 Intake & Presets](docs/screenshots/v2_01_presets.png)
 
-![SubZero v2.0 Cooperative 200-Char Obstacle Course](docs/screenshots/v2_02_obstacle_course.png)
+![SubZero v2.0 Cooperative 100-Char Obstacle Course](docs/screenshots/v2_02_obstacle_course.png)
 
 ![SubZero v2.0 Watch-Only Descriptors & BBQr](docs/screenshots/v2_03_watch_only_qr.png)
 

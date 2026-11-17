@@ -3,13 +3,14 @@
 //! WHY TWO EXPLICIT TIERS:
 //! A Cold Vault and its human operator are teammates, not adversaries. Earlier drafts blurred
 //! two fundamentally different physical trust models and accidentally undermined both:
-//!   - Tier 1 (Physical Discrete Entropy: Coins, Dice, 52-Card Playing Deck) requires 0% trust
-//!     in the host CPU clock and is 100% reproducible on an independent second calculator.
+//!   - Tier 1 (Physical Discrete Entropy: Coins, Dice, External Hardware TRNG Hex) requires 0%
+//!     trust in the host CPU clock and is 100% reproducible on an independent second calculator.
 //!   - Tier 2 (Cooperative Biomechanical Keystroke Timing) relies on an unclamped monotonic
 //!     host clock (`Instant::now()` on Linux TTY1 or unclamped `performance.now()`), forces
 //!     slow cross-row visual-motor search + `Backspace` error recovery over a deterministic
-//!     zero-OS-RNG 200-character obstacle course, blocks clamped timers (`Tor Browser` 100ms),
-//!     and meters conservative pre-hash NIST SP 800-90B Non-IID min-entropy (>= 192 bits).
+//!     zero-OS-RNG 100-character obstacle course (Tier 2A) or 64+ mixed keys/arrows + optional
+//!     pointer jitter (Tier 2B), blocks clamped timers (`Tor Browser` 100ms), and requires
+//!     `>= 144` conservative keystroke-timing bits.
 
 use std::collections::BTreeMap;
 
@@ -26,13 +27,12 @@ type HmacSha512 = Hmac<Sha512>;
 pub const MIN_COIN_FLIPS: usize = 128;
 pub const MIN_DICE_ROLLS: usize = 50;
 pub const RECOMMENDED_DICE_ROLLS: usize = 60;
-pub const DECK_CARD_COUNT: usize = 52;
 pub const OBSTACLE_COURSE_LEN: usize = 100;
 pub const MIN_TIER2_ENTROPY_BITS: f64 = 144.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EntropyTrustTier {
-    /// Physical discrete input (Coins, Dice, 52-Card Deck, Raw TRNG Hex):
+    /// Physical discrete input (Coins, Dice, External Hardware TRNG Hex):
     /// 0% host clock trust; 100% verifiable on any independent offline calculator.
     SecondDeviceReproducible,
     /// Cooperative keystroke timing course:
@@ -373,265 +373,7 @@ pub fn harvest_dice(raw_input: &str) -> Result<ConditionedEntropy, SubZeroError>
     })
 }
 
-const RANKS: [char; 13] = ['a', '2', '3', '4', '5', '6', '7', '8', '9', 't', 'j', 'q', 'k'];
-const SUITS: [char; 4] = ['c', 'd', 'h', 's'];
-
-fn rank_index(r: char) -> Option<usize> {
-    RANKS.iter().position(|&x| x == r)
-}
-
-fn suit_index(s: char) -> Option<usize> {
-    SUITS.iter().position(|&x| x == s)
-}
-
-fn card_code_from_id(id: usize) -> String {
-    let suit = SUITS[id / 13];
-    let rank = RANKS[id % 13];
-    format!("{rank}{suit}")
-}
-
-/// Count rising sequences of permutation `deck` relative to a reference 52-card factory ordering.
-/// For a genuinely shuffled 52-card deck (wash + 7-8 riffles), Eulerian distribution gives
-/// mean = 26.5, std = 2.1016; [19, 34] covers >99.93% of true uniform permutations while
-/// catching unshuffled (1), reversed (52), cut (2), or under-shuffled (1..4 riffles <= 16) decks.
-pub fn count_rising_sequences_against(deck_ids: &[usize; 52], ref_order: &[usize; 52]) -> usize {
-    // Map each canonical card id -> its rank in `ref_order` (0..51)
-    let mut ref_rank = [0usize; 52];
-    for (r_idx, &cid) in ref_order.iter().enumerate() {
-        ref_rank[cid] = r_idx;
-    }
-    // Map each ref_rank (0..51) -> its position in `deck_ids` (0..51)
-    let mut pos_in_deck = [0usize; 52];
-    for (pos, &cid) in deck_ids.iter().enumerate() {
-        pos_in_deck[ref_rank[cid]] = pos;
-    }
-    let mut rising = 1usize;
-    for v in 0..51 {
-        if pos_in_deck[v + 1] < pos_in_deck[v] {
-            rising += 1;
-        }
-    }
-    rising
-}
-
-/// Detect deterministic affine/pile-deal/perfect-faro permutations relative to a factory deck.
-///
-/// WHY RISING SEQUENCES ALONE ARE INSUFFICIENT (`[H-05]` FIX):
-/// Dealing a factory-ordered deck once into 2 piles (`even` then `odd`) or performing 5x/7x
-/// perfect faro shuffles produces ~26 rising sequences (inside `19..=34`) with 0 bits of secret
-/// entropy! Because pile-deals and in/out faro shuffles act as affine index maps modulo 51, 52,
-/// or 53, they preserve constant rank-step differences `(r[i + lag] - r[i]) mod M` across dozens
-/// of pairs. In a genuinely washed + 7x riffle-shuffled deck, the maximum collisions in any single
-/// modular step bucket across lags `1..=4` and `M in [51, 52, 53]` is ~3..5 (`<= 9` at >99.96%).
-fn max_affine_step_concentration(deck_ids: &[usize; 52], ref_order: &[usize; 52]) -> usize {
-    let mut ref_rank = [0usize; 52];
-    for (r_idx, &cid) in ref_order.iter().enumerate() {
-        ref_rank[cid] = r_idx;
-    }
-    let mapped: Vec<usize> = deck_ids.iter().map(|&cid| ref_rank[cid]).collect();
-    let mut worst = 0usize;
-    for lag in 1..=4usize {
-        for modulus in [51usize, 52usize, 53usize] {
-            let mut buckets = [0usize; 53];
-            for i in 0..(52 - lag) {
-                let a = mapped[i] % modulus;
-                let b = mapped[i + lag] % modulus;
-                let diff = (b + modulus - a) % modulus;
-                buckets[diff] += 1;
-                if buckets[diff] > worst {
-                    worst = buckets[diff];
-                }
-            }
-        }
-    }
-    worst
-}
-
-/// Tier 1C: Harvest a full physical 52-card playing deck (`log2(52!) = 225.58` bits theoretical max).
-///
-/// Cooperative guardrails:
-/// 1. Accepts spaces, commas, or continuous pairs (`ah 4c 10d...` or `ah4ctd...`), case-insensitive.
-/// 2. Full 52-card bijection check reports exact duplicate AND missing cards so the user can fix
-///    a single transcription typo without re-shuffling.
-/// 3. Bayer-Diaconis rising-sequence check (`19..=34`) + multi-lag affine step detector (`<= 9`)
-///    against both standard suit order and USPCC Bicycle factory new-deck order catches unshuffled,
-///    cut, pile-dealt, or perfect-faro decks.
-pub fn harvest_playing_cards(raw_input: &str) -> Result<ConditionedEntropy, SubZeroError> {
-    let chars_in: Vec<char> = raw_input
-        .chars()
-        .filter(|c| !c.is_whitespace() && *c != ',' && *c != '-' && *c != ';')
-        .flat_map(|c| c.to_lowercase())
-        .collect();
-
-    if chars_in.is_empty() {
-        return Err(SubZeroError::Entropy(
-            "Enter all 52 shuffled playing cards (e.g. 'ah 4c td ks ...'). Wash 30-60s + 7 riffle shuffles first."
-                .into(),
-        ));
-    }
-
-    let mut parsed_ids: Vec<usize> = Vec::with_capacity(52);
-    let mut cursor = 0usize;
-
-    while cursor < chars_in.len() {
-        let (rank_ch, suit_ch, consumed) = if cursor + 2 < chars_in.len()
-            && chars_in[cursor] == '1'
-            && chars_in[cursor + 1] == '0'
-        {
-            ('t', chars_in[cursor + 2], 3)
-        } else if cursor + 1 < chars_in.len() {
-            (chars_in[cursor], chars_in[cursor + 1], 2)
-        } else {
-            return Err(SubZeroError::Entropy(format!(
-                "Trailing incomplete card character '{}' at end of input ({} complete cards parsed so far).",
-                chars_in[cursor],
-                parsed_ids.len()
-            )));
-        };
-
-        let r_idx = rank_index(rank_ch).ok_or_else(|| {
-            SubZeroError::Entropy(format!(
-                "Invalid card rank '{}' at card #{} (valid ranks: A,2,3,4,5,6,7,8,9,T/10,J,Q,K).",
-                rank_ch,
-                parsed_ids.len() + 1
-            ))
-        })?;
-        let s_idx = suit_index(suit_ch).ok_or_else(|| {
-            SubZeroError::Entropy(format!(
-                "Invalid card suit '{}' at card #{} (valid suits: c=clubs, d=diamonds, h=hearts, s=spades).",
-                suit_ch,
-                parsed_ids.len() + 1
-            ))
-        })?;
-
-        parsed_ids.push(s_idx * 13 + r_idx);
-        cursor += consumed;
-    }
-
-    // Bijection check over all 52 canonical cards
-    let mut counts = [0usize; 52];
-    for &cid in &parsed_ids {
-        counts[cid] += 1;
-    }
-
-    let duplicates: Vec<String> = (0..52)
-        .filter(|&cid| counts[cid] > 1)
-        .map(|cid| format!("{} (x{})", card_code_from_id(cid), counts[cid]))
-        .collect();
-    let missing: Vec<String> = (0..52)
-        .filter(|&cid| counts[cid] == 0)
-        .map(card_code_from_id)
-        .collect();
-
-    if parsed_ids.len() != DECK_CARD_COUNT || !duplicates.is_empty() || !missing.is_empty() {
-        let mut parts = Vec::new();
-        parts.push(format!("Parsed {}/52 cards.", parsed_ids.len()));
-        if !duplicates.is_empty() {
-            parts.push(format!("Duplicate card(s): [{}].", duplicates.join(", ")));
-        }
-        if !missing.is_empty() {
-            let preview = if missing.len() <= 12 {
-                missing.join(", ")
-            } else {
-                format!("{} ... ({} missing total)", missing[..12].join(", "), missing.len())
-            };
-            parts.push(format!("Missing card(s): [{}].", preview));
-        }
-        parts.push("Fix the typo in your list rather than re-shuffling.".to_string());
-        return Err(SubZeroError::Entropy(parts.join(" ")));
-    }
-
-    let mut deck_arr = [0usize; 52];
-    deck_arr.copy_from_slice(&parsed_ids);
-
-    // Reference Order 1: Canonical Bridge/Suit order (Ac..Kc, Ad..Kd, Ah..Kh, As..Ks)
-    let mut std_order = [0usize; 52];
-    for (i, slot) in std_order.iter_mut().enumerate() {
-        *slot = i;
-    }
-
-    // Reference Order 2: USPCC / Bicycle factory new-deck order (Ah..Kh, Ac..Kc, Kd..Ad, Ks..As)
-    let mut uspcc_order = [0usize; 52];
-    let mut idx = 0;
-    for r in 0..13 {
-        uspcc_order[idx] = 2 * 13 + r; // Hearts A..K
-        idx += 1;
-    }
-    for r in 0..13 {
-        uspcc_order[idx] = r; // Clubs A..K
-        idx += 1;
-    }
-    for r in (0..13).rev() {
-        uspcc_order[idx] = 13 + r; // Diamonds K..A
-        idx += 1;
-    }
-    for r in (0..13).rev() {
-        uspcc_order[idx] = 3 * 13 + r; // Spades K..A
-        idx += 1;
-    }
-
-    let rising_std = count_rising_sequences_against(&deck_arr, &std_order);
-    let rising_uspcc = count_rising_sequences_against(&deck_arr, &uspcc_order);
-
-    if !(19..=34).contains(&rising_std) || !(19..=34).contains(&rising_uspcc) {
-        return Err(SubZeroError::Entropy(format!(
-            "Deck appears insufficiently shuffled (Bayer-Diaconis rising sequences: suit-order={}, bicycle-order={}; expected 19..34 for a thoroughly shuffled deck). Wash the cards face-down for 30-60 seconds and perform 7-8 riffle shuffles.",
-            rising_std, rising_uspcc
-        )));
-    }
-
-    // Guard against deterministic pile-deals and perfect in/out faro shuffles
-    let affine_std = max_affine_step_concentration(&deck_arr, &std_order);
-    let affine_uspcc = max_affine_step_concentration(&deck_arr, &uspcc_order);
-    if affine_std > 9 || affine_uspcc > 9 {
-        return Err(SubZeroError::Entropy(format!(
-            "Deck exhibits structured pile-deal or faro-shuffle periodicity (step concentration {}/{} > 9). Perform a 30-60s face-down table wash plus 7 imperfect riffle shuffles.",
-            affine_std, affine_uspcc
-        )));
-    }
-
-    // Also guard against custom sorted suit runs (adjacent cards of same suit and +/-1 rank)
-    let mut same_suit_adj = 0usize;
-    for pair in deck_arr.windows(2) {
-        let (s0, r0) = (pair[0] / 13, pair[0] % 13);
-        let (s1, r1) = (pair[1] / 13, pair[1] % 13);
-        if s0 == s1 && r0.abs_diff(r1) == 1 {
-            same_suit_adj += 1;
-        }
-    }
-    if same_suit_adj > 8 {
-        return Err(SubZeroError::Entropy(format!(
-            "Deck retains {} adjacent sequential suited card pairs (expected ~2 in a shuffled deck). Perform a 30-60s table wash + 7 riffle shuffles.",
-            same_suit_adj
-        )));
-    }
-
-    let mut canonical_104 = String::with_capacity(104);
-    for &cid in &deck_arr {
-        canonical_104.push_str(&card_code_from_id(cid));
-    }
-
-    let digest = Sha256::digest(canonical_104.as_bytes());
-    let mut bytes = [0u8; 16];
-    bytes.copy_from_slice(&digest[..16]);
-    reject_known_preset_as_live(&bytes)?;
-
-    Ok(ConditionedEntropy {
-        bytes,
-        trust_tier: EntropyTrustTier::SecondDeviceReproducible,
-        method_label: "Tier 1 Physical 52-Card Playing Deck (104-Char Canonical SHA-256)".to_string(),
-        audit_summary: format!(
-            "52-Card Bijection OK (Rising seqs: {}/{}, affine step max: {}/{} <= 9, suited neighbors: {} <= 8; wash+7x riffles required, 225.6 bits max)",
-            rising_std, rising_uspcc, affine_std, affine_uspcc, same_suit_adj
-        ),
-        estimated_min_entropy_bits: 160.0,
-        repro_formula_hint:
-            "2nd-Device Check: printf '%s' '<104-char-lowercase-rank-suit-stream>' | sha256sum | cut -c1-32 -> BIP-39"
-                .to_string(),
-    })
-}
-
-/// Tier 1D: Raw 128-bit (32 hex chars) external Hardware TRNG import.
+/// Tier 1C: Raw 128-bit (32 hex chars) external Hardware TRNG import.
 pub fn harvest_raw_hex(raw_input: &str) -> Result<ConditionedEntropy, SubZeroError> {
     let clean: String = raw_input
         .chars()
@@ -756,7 +498,7 @@ fn timing_octave_bucket(delta_us: u64) -> usize {
 }
 
 /// Inspect raw inter-keystroke deltas (microseconds) for clamped clocks or synthetic macro paste,
-/// and compute conservative pre-hash NIST SP 800-90B Non-IID min-entropy.
+/// and compute a conservative keystroke-timing entropy estimate (`2ms`-binned MCV + octave transition guard).
 pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<KeystrokeHealthReport, SubZeroError> {
     let filtered: Vec<&KeystrokeSample> = samples.iter().filter(|s| !s.is_repeat).collect();
     if filtered.len() < 16 {
@@ -783,7 +525,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
     let zero_count = deltas.iter().filter(|&&d| d == 0).count();
     if zero_count * 10 >= n {
         return Err(SubZeroError::Entropy(
-            "Host timer appears frozen (>=10% zero-duration intervals). Switch to Tier 1 Physical Entropy (Coins, Dice, or 52-Card Deck).".into(),
+            "Host timer appears frozen (>=10% zero-duration intervals). Switch to Tier 1 Physical Entropy (Coins or Dice).".into(),
         ));
     }
 
@@ -814,7 +556,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
         || mult_frame_60hz * 100 / n >= 80
     {
         return Err(SubZeroError::Entropy(
-            "Clamped or coarse host timer detected (>=2ms / 10ms / 16.67ms / 100ms quantization, e.g. Tor Browser or resistFingerprinting). Tier 2 keystroke timing is disabled to protect you; use Tier 1 Physical Entropy (Coins, Dice, or 52-Card Deck), which needs 0% clock trust.".into(),
+            "Clamped or coarse host timer detected (>=2ms / 10ms / 16.67ms / 100ms quantization, e.g. Tor Browser or resistFingerprinting). Tier 2 keystroke timing is disabled to protect you; use Tier 1 Physical Entropy (Coins or Dice), which needs 0% clock trust.".into(),
         ));
     }
 
@@ -824,7 +566,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
     let median_us = sorted[n / 2];
     if median_us < 25_000 {
         return Err(SubZeroError::Entropy(format!(
-            "Inter-keystroke median ({:.1} ms) is faster than human cross-row typing (< 25 ms), indicating pasted or scripted input. Type the obstacle string naturally key-by-key.",
+            "Inter-keystroke median ({:.1} ms) is faster than human cross-row typing (< 25 ms), indicating pasted or scripted input. Type naturally key-by-key.",
             (median_us as f64) / 1000.0
         )));
     }
@@ -846,9 +588,9 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
         )));
     }
 
-    // 3. Conservative Non-IID Timing Min-Entropy Estimation (SP 800-90B §6.3.1 MCV + Octave Markov):
-    //    (a) MCV estimator on 2ms-binned intervals (prevents high-res nanosecond uniqueness from
-    //        over-crediting constant-rhythm drumming!)
+    // 3. Conservative Keystroke Timing Estimate + Cadence Transition Guard:
+    //    (a) Most-Common-Value upper confidence bound on 2ms-binned intervals (caps single
+    //        sub-ms noise from overcrediting rhythmic tapping).
     let mut bin2ms_counts: BTreeMap<u64, usize> = BTreeMap::new();
     for &d in &deltas {
         // Cap extreme pauses > 2000ms into a single saturation bin so long coffee pauses don't look like distinct entropy symbols
@@ -861,7 +603,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
         .min(0.999_999);
     let h_mcv = -p_u_mcv.log2();
 
-    //    (b) First-Order Markov estimator over 8 octave timing buckets (catches rhythmic drumming!)
+    //    (b) First-Order Octave Markov transition guard (catches two-speed or metronomic bots!)
     let mut oct_trans = [[0usize; 8]; 8];
     let mut oct_totals = [0usize; 8];
     for w in deltas.windows(2) {
@@ -870,7 +612,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
         oct_trans[a][b] += 1;
         oct_totals[a] += 1;
     }
-    let mut max_oct_cond = 0.20f64;
+    let mut max_oct_cond = 0.0f64;
     for a in 0..8 {
         if oct_totals[a] >= 5 {
             for b in 0..8 {
@@ -881,7 +623,12 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
             }
         }
     }
-    let h_markov = (-max_oct_cond.min(0.999).log2()).max(0.0);
+    if max_oct_cond > 0.72 {
+        return Err(SubZeroError::Entropy(format!(
+            "Predictable rhythmic cadence detected (octave transition {:.0}% > 72% limit). Vary typing cadence naturally or switch to Tier 1 Coins/Dice.",
+            max_oct_cond * 100.0
+        )));
+    }
 
     //    (c) Consecutive near-collision penalty (|d[i] - d[i-1]| <= 2ms)
     let near_collisions = deltas
@@ -901,8 +648,8 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
     let credited_corrections = (backspace_events + typo_events).min(20);
     let effective_n = base_events + credited_corrections;
 
-    // Cap conservative credit at 3.5 bits/keystroke max (hold_us is still hashed into conditioning)
-    let bits_per_event = h_mcv.min(h_markov * 2.2).min(h_collision_cap).min(3.5);
+    // Conservative per-keystroke timing cap (`<= 3.0` bits/event; `hold_us` is also hashed)
+    let bits_per_event = h_mcv.min(h_collision_cap).min(3.0);
     let total_bits = (effective_n as f64) * bits_per_event;
 
     let sub_ms = deltas.iter().filter(|&&d| d % 1_000 != 0).count();
@@ -918,7 +665,7 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
         typo_events,
         timer_quantum_ok: true,
         timer_diagnostic: format!(
-            "Healthy {} (median {:.0} ms, sigma {:.0} ms, {:.2} conservative bits/key)",
+            "Healthy {} (median {:.0} ms, sigma {:.0} ms, {:.2} est. bits/key)",
             res_label,
             (median_us as f64) / 1000.0,
             stddev_us / 1000.0,
@@ -929,13 +676,13 @@ pub fn evaluate_keystroke_health(samples: &[KeystrokeSample]) -> Result<Keystrok
     })
 }
 
-/// Tier 2: Finalize the 200-char Base-94/83 obstacle course + Backspace timing stream into 128-bit entropy.
+/// Tier 2A: Finalize the 100-char cross-row obstacle course + Backspace timing stream into 128-bit entropy.
 ///
 /// Enforces:
-/// 1. `final_transcribed == expected_prompt` (`>= 200` chars) - typos MUST have been corrected via `Backspace`.
+/// 1. `final_transcribed == expected_prompt` (`>= 100` chars) - typos MUST have been corrected via `Backspace`.
 /// 2. Zero `is_repeat` OS key-repeats accepted.
 /// 3. Unclamped host timer (`evaluate_keystroke_health`).
-/// 4. Conservative pre-hash NIST SP 800-90B min-entropy `>= 192.0` bits.
+/// 4. Conservative timing entropy estimate `>= 144.0` bits (`MIN_TIER2_ENTROPY_BITS`).
 pub fn harvest_keystroke_course(
     expected_prompt: &str,
     final_transcribed: &str,
@@ -982,7 +729,7 @@ pub fn harvest_keystroke_course(
     }
     if health.estimated_min_entropy_bits < MIN_TIER2_ENTROPY_BITS {
         return Err(SubZeroError::Entropy(format!(
-            "Conservative Non-IID timing min-entropy is {:.1} bits (minimum {:.0} bits required). Type a bit longer or switch to Tier 1 Physical Entropy.",
+            "Conservative timing entropy is {:.1} bits (minimum {:.0} bits required). Type more varied keys or switch to Tier 1 Physical Entropy.",
             health.estimated_min_entropy_bits, MIN_TIER2_ENTROPY_BITS
         )));
     }
@@ -1015,7 +762,7 @@ pub fn harvest_keystroke_course(
         bytes,
         trust_tier: EntropyTrustTier::HostClockDependent,
         method_label: format!(
-            "Tier 2 Cooperative Keystroke Course ({} Keys, {} Backspaces, {:.0} Bits 90B)",
+            "Tier 2 Cooperative Keystroke Course ({} Keys, {} Backspaces, {:.0} Timing Bits)",
             health.accepted_events, health.backspace_events, health.estimated_min_entropy_bits
         ),
         audit_summary: format!(
@@ -1033,7 +780,8 @@ pub fn harvest_keystroke_course(
 struct ZeroizeOnDropContainer([u8; 64]);
 
 /// Tier 2B: Harvest free-form keystrokes / arrow keys + optional pointer jitter (`pointer_deltas`).
-/// Requires >= 64 non-repeat keystrokes across >= 8 distinct keys/arrows and unclamped clock health.
+/// Requires >= 64 non-repeat keystrokes across >= 8 distinct keys/arrows, unclamped clock health,
+/// and conservative timing entropy >= `MIN_TIER2_ENTROPY_BITS` (`144` bits).
 pub fn harvest_freeform_entropy(
     samples: &[KeystrokeSample],
     pointer_deltas: &[(i32, i32, u64)],
@@ -1064,6 +812,12 @@ pub fn harvest_freeform_entropy(
         ));
     }
     let health = evaluate_keystroke_health(samples)?;
+    if health.estimated_min_entropy_bits < MIN_TIER2_ENTROPY_BITS {
+        return Err(SubZeroError::Entropy(format!(
+            "Conservative timing entropy is {:.1} bits (minimum {:.0} bits required). Type additional varied keys/arrows or switch to Tier 1 Physical Entropy.",
+            health.estimated_min_entropy_bits, MIN_TIER2_ENTROPY_BITS
+        )));
+    }
 
     let mut mac = Hmac::<Sha512>::new_from_slice(b"subzero:entropy:tier2:freeform:v1")
         .map_err(|_| SubZeroError::Entropy("HMAC init failed".into()))?;
@@ -1112,23 +866,6 @@ pub fn harvest_freeform_entropy(
 mod tests {
     use super::*;
 
-    fn deterministic_shuffled_deck(seed_tag: &[u8]) -> String {
-        // Fisher-Yates shuffle driven by SHA-256 counter blocks for deterministic unit testing
-        let mut deck: Vec<usize> = (0..52).collect();
-        for i in (1..52).rev() {
-            let mut h = Sha256::new();
-            h.update(seed_tag);
-            h.update((i as u32).to_le_bytes());
-            let d = h.finalize();
-            let j = (u64::from_le_bytes(d[..8].try_into().unwrap()) as usize) % (i + 1);
-            deck.swap(i, j);
-        }
-        deck.into_iter()
-            .map(card_code_from_id)
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
     #[test]
     fn test_tier1_coins_exact_128_and_extended() {
         // Generate 128 pseudo-random physical coin flips via SHA-512 x 2
@@ -1176,60 +913,63 @@ mod tests {
     }
 
     #[test]
-    fn test_tier1_playing_cards_bijection_and_bayer_diaconis() {
-        // 1. Valid shuffled 52-card deck passes
-        let good_deck = deterministic_shuffled_deck(b"subzero-unit-deck-1");
-        let ok = harvest_playing_cards(&good_deck).unwrap();
-        assert_eq!(ok.trust_tier, EntropyTrustTier::SecondDeviceReproducible);
+    fn test_tier2b_freeform_entropy_guards_and_success() {
+        let keys = [
+            "a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l",
+            "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+        ];
 
-        // Also verify '10h' notation maps to identical canonical seed as 'th'
-        let with_10 = good_deck.replace("th", "10h").replace("tc", "10c");
-        let ok2 = harvest_playing_cards(&with_10).unwrap();
-        assert_eq!(ok.bytes, ok2.bytes);
-
-        // 2. Duplicate/missing typo reports BOTH duplicate AND missing card
-        let mut cards: Vec<String> = good_deck.split_whitespace().map(String::from).collect();
-        let replaced = cards[10].clone();
-        let dup = cards[0].clone();
-        cards[10] = dup.clone();
-        let err = harvest_playing_cards(&cards.join(" ")).unwrap_err().to_string();
-        assert!(err.contains(&dup), "err should name duplicate: {err}");
-        assert!(err.contains(&replaced), "err should name missing: {err}");
-
-        // 3. Unshuffled factory deck is caught by Bayer-Diaconis rising-sequence check!
-        let unshuffled: String = (0..52).map(card_code_from_id).collect::<Vec<_>>().join(" ");
-        let err_unshuf = harvest_playing_cards(&unshuffled).unwrap_err().to_string();
-        assert!(err_unshuf.contains("insufficiently shuffled"), "got: {err_unshuf}");
-
-        // 4. Deterministic 2-pile deal & 5x/7x perfect faro shuffles MUST be rejected (`[H-05]` regression)!
-        let uspcc_2pile = "2s 4s 6s 8s ts qs ad 3d 5d 7d 9d jd kd qc tc 8c 6c 4c 2c kh jh 9h 7h 5h 3h ah as 3s 5s 7s 9s js ks 2d 4d 6d 8d td qd kc jc 9c 7c 5c 3c ac qh th 8h 6h 4h 2h";
-        assert!(
-            harvest_playing_cards(uspcc_2pile).is_err(),
-            "USPCC 2-pile deal must be rejected!"
-        );
-        let suit_2pile = "qs ts 8s 6s 4s 2s kh jh 9h 7h 5h 3h ah qd td 8d 6d 4d 2d kc jc 9c 7c 5c 3c ac ks js 9s 7s 5s 3s as qh th 8h 6h 4h 2h kd jd 9d 7d 5d 3d ad qc tc 8c 6c 4c 2c";
-        assert!(
-            harvest_playing_cards(suit_2pile).is_err(),
-            "Suit-order 2-pile deal must be rejected!"
-        );
-        // Simulate 5x and 7x perfect out-faro shuffles from canonical deck
-        let mut faro: Vec<usize> = (0..52).collect();
-        for round in 1..=7 {
-            let half = 26;
-            let mut next = Vec::with_capacity(52);
-            for i in 0..half {
-                next.push(faro[i]);
-                next.push(faro[half + i]);
-            }
-            faro = next;
-            if round == 5 || round == 7 {
-                let faro_str = faro.iter().copied().map(card_code_from_id).collect::<Vec<_>>().join(" ");
-                assert!(
-                    harvest_playing_cards(&faro_str).is_err(),
-                    "{round}x perfect out-faro must be rejected!"
-                );
-            }
+        // 1. Weak low-entropy alternating intervals (~30.1ms / ~50.5ms across 8 distinct keys) MUST be rejected!
+        let mut weak_samples = Vec::new();
+        for i in 0..64 {
+            weak_samples.push(KeystrokeSample {
+                key: keys[i % 10].into(),
+                delta_us: if i % 2 == 0 { 30_123 } else { 50_456 },
+                hold_us: 12_000,
+                is_backspace: false,
+                was_typo: false,
+                is_repeat: false,
+            });
         }
+        assert!(
+            harvest_freeform_entropy(&weak_samples, &[]).is_err(),
+            "Low-variance alternating Tier 2B timing must be rejected!"
+        );
+
+        // 2. Repeating 2-key cycle ('a' / 'b') MUST be rejected!
+        let mut cycle_samples = Vec::new();
+        for i in 0..64 {
+            let h = Sha256::digest((i as u32 + 10).to_le_bytes());
+            let jitter_us = 65_000 + (u32::from_le_bytes(h[..4].try_into().unwrap()) % 450_000) as u64;
+            cycle_samples.push(KeystrokeSample {
+                key: keys[i % 2].into(),
+                delta_us: jitter_us,
+                hold_us: 0,
+                is_backspace: false,
+                was_typo: false,
+                is_repeat: false,
+            });
+        }
+        assert!(harvest_freeform_entropy(&cycle_samples, &[]).is_err());
+
+        // 3. Genuine varied 68-key + arrow + pointer deltas passes >= 144 timing bits!
+        let mut good_samples = Vec::new();
+        for i in 0..68 {
+            let h = Sha256::digest((i as u32 + 500).to_le_bytes());
+            let jitter_us = 55_000 + (u32::from_le_bytes(h[..4].try_into().unwrap()) % 550_000) as u64;
+            good_samples.push(KeystrokeSample {
+                key: keys[(h[4] as usize) % keys.len()].into(),
+                delta_us: jitter_us + (h[5] as u64) * 317,
+                hold_us: 14_000 + (h[6] as u64) * 97,
+                is_backspace: false,
+                was_typo: false,
+                is_repeat: false,
+            });
+        }
+        let ptrs = [(4, -7, 18_341), (-3, 9, 24_719), (2, 1, 31_103)];
+        let ok = harvest_freeform_entropy(&good_samples, &ptrs).unwrap();
+        assert_eq!(ok.trust_tier, EntropyTrustTier::HostClockDependent);
+        assert!(ok.estimated_min_entropy_bits >= MIN_TIER2_ENTROPY_BITS);
     }
 
     #[test]

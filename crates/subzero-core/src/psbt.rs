@@ -32,6 +32,7 @@ use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
 use crate::error::SubZeroError;
+use crate::keys::ZeroizingXpriv;
 
 pub const MAX_PSBT_RAW_BYTES: usize = 2 * 1024 * 1024;
 pub const ADDRESS_SCAN_WINDOW: u32 = 100;
@@ -541,39 +542,30 @@ pub fn inspect_psbt(
         let mut derivation_index = None;
 
         if let Some(ref orc) = oracle {
-            // (a) Check any explicit PSBT metadata claiming our master fingerprint FIRST  - 
-            //     if it claims our fingerprint, it MUST match our derived scriptPubKey or we flag a spoof attack!
+            // (a) Verify EVERY explicit PSBT metadata entry claiming our master fingerprint -
+            //     one valid entry never excuses a spoofed sibling entry in either map!
             let mut claimed_our_fp = false;
             let mut metadata_verified = false;
-
-            for (_pk, (fp, path)) in &out_psbt.bip32_derivation {
-                if *fp == orc.master_fp {
-                    claimed_our_fp = true;
-                    if let Some((exp_sp, chg, idx)) =
-                        derive_expected_script_for_path(&orc.secp, &orc.master_xprv, path)
-                    {
-                        if &exp_sp == script {
-                            metadata_verified = true;
-                            derivation_index = Some(idx);
-                            verified_path = Some(format!("m/{}", path));
-                            if chg == 1 {
-                                is_verified_change = true;
-                            } else {
-                                is_verified_self_receive = true;
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-
             let mut spoof_detected = false;
-            for (_xpk, (_leaves, (fp, path))) in &out_psbt.tap_key_origins {
-                if *fp == orc.master_fp {
+
+            let metadata_entries = out_psbt
+                .bip32_derivation
+                .values()
+                .map(|(fp, path)| (*fp, path))
+                .chain(
+                    out_psbt
+                        .tap_key_origins
+                        .values()
+                        .map(|(_leaves, (fp, path))| (*fp, path)),
+                );
+
+            for (fp, path) in metadata_entries {
+                if fp == orc.master_fp {
                     claimed_our_fp = true;
-                    let matched = derive_expected_script_for_path(&orc.secp, &orc.master_xprv, path)
-                        .filter(|(exp_sp, _, _)| exp_sp == script);
-                    if let Some((_exp_sp, chg, idx)) = matched {
+                    if let Some((_exp_sp, chg, idx)) =
+                        derive_expected_script_for_path(&orc.secp, &orc.master_xprv, path)
+                            .filter(|(exp_sp, _, _)| exp_sp == script)
+                    {
                         if !metadata_verified {
                             metadata_verified = true;
                             derivation_index = Some(idx);
@@ -819,10 +811,12 @@ pub fn sign_psbt(
             continue;
         };
 
-        let child_xprv = oracle
-            .master_xprv
-            .derive_priv(&oracle.secp, &path)
-            .map_err(|e| SubZeroError::Bip32(e.to_string()))?;
+        let child_xprv = ZeroizingXpriv(
+            oracle
+                .master_xprv
+                .derive_priv(&oracle.secp, &path)
+                .map_err(|e| SubZeroError::Bip32(e.to_string()))?,
+        );
 
         if sp.is_p2wpkh() {
             let sighash_type = EcdsaSighashType::All;
@@ -831,8 +825,8 @@ pub fn sign_psbt(
                 .p2wpkh_signature_hash(i, sp, prev_txout.value, sighash_type)
                 .map_err(|e| SubZeroError::Psbt(format!("BIP-143 sighash error: {e}")))?;
             let msg = Message::from_digest(sighash.to_byte_array());
-            let sig = oracle.secp.sign_ecdsa(&msg, &child_xprv.private_key);
-            let pubkey = child_xprv.private_key.public_key(&oracle.secp);
+            let sig = oracle.secp.sign_ecdsa(&msg, &child_xprv.0.private_key);
+            let pubkey = child_xprv.0.private_key.public_key(&oracle.secp);
             psbt_in.partial_sigs.insert(
                 pubkey.into(),
                 bitcoin::ecdsa::Signature {
@@ -851,12 +845,12 @@ pub fn sign_psbt(
                 .taproot_key_spend_signature_hash(i, &Prevouts::All(&prevouts_vec), tap_sighash_type)
                 .map_err(|e| SubZeroError::Psbt(format!("BIP-341 Taproot sighash error: {e}")))?;
             let msg = Message::from_digest(sighash.to_byte_array());
-            let keypair = Keypair::from_secret_key(&oracle.secp, &child_xprv.private_key);
-            let tweaked = keypair.tap_tweak(&oracle.secp, None);
+            let mut keypair = Keypair::from_secret_key(&oracle.secp, &child_xprv.0.private_key);
+            let mut tweaked = keypair.tap_tweak(&oracle.secp, None).to_keypair();
             // Deterministic BIP-340 Schnorr (`no_aux_rand` -> zero OS RNG!)
-            let schnorr_sig = oracle
-                .secp
-                .sign_schnorr_no_aux_rand(&msg, &tweaked.to_keypair());
+            let schnorr_sig = oracle.secp.sign_schnorr_no_aux_rand(&msg, &tweaked);
+            keypair.non_secure_erase();
+            tweaked.non_secure_erase();
             psbt_in.tap_key_sig = Some(bitcoin::taproot::Signature {
                 signature: schnorr_sig,
                 sighash_type: tap_sighash_type,
@@ -1015,17 +1009,19 @@ pub fn verify_psbt_self_test() -> Result<(), SubZeroError> {
     }
 
     // 4. Spoofed internal change metadata MUST be blocked
-    let mut spoofed_psbt = psbt;
+    let mut spoofed_psbt = psbt.clone();
     let fake_chg_path =
         DerivationPath::from_str("m/84'/1'/0'/1/0").map_err(|e| SubZeroError::Psbt(e.to_string()))?;
-    let derived = oracle
-        .master_xprv
-        .derive_priv(&oracle.secp, &fake_chg_path)
-        .map_err(|e| SubZeroError::Psbt(e.to_string()))?;
+    let derived = ZeroizingXpriv(
+        oracle
+            .master_xprv
+            .derive_priv(&oracle.secp, &fake_chg_path)
+            .map_err(|e| SubZeroError::Psbt(e.to_string()))?,
+    );
     let mut map = BTreeMap::new();
     map.insert(
-        derived.private_key.public_key(&oracle.secp),
-        (oracle.master_fp, fake_chg_path),
+        derived.0.private_key.public_key(&oracle.secp),
+        (oracle.master_fp, fake_chg_path.clone()),
     );
     spoofed_psbt.outputs[0].bip32_derivation = map;
 
@@ -1039,6 +1035,37 @@ pub fn verify_psbt_self_test() -> Result<(), SubZeroError> {
     {
         return Err(SubZeroError::Psbt(
             "KAT failure: Spoofed internal change output was not blocked.".into(),
+        ));
+    }
+
+    // 5. Mixed valid + spoofed sibling `bip32_derivation` entries on the SAME output MUST still be blocked!
+    let mut mixed_psbt = psbt;
+    let real_chg_path =
+        DerivationPath::from_str("m/84'/1'/0'/1/12").map_err(|e| SubZeroError::Psbt(e.to_string()))?;
+    let real_derived = ZeroizingXpriv(
+        oracle
+            .master_xprv
+            .derive_priv(&oracle.secp, &real_chg_path)
+            .map_err(|e| SubZeroError::Psbt(e.to_string()))?,
+    );
+    mixed_psbt.outputs[1].bip32_derivation.insert(
+        real_derived.0.private_key.public_key(&oracle.secp),
+        (oracle.master_fp, real_chg_path),
+    );
+    mixed_psbt.outputs[1].bip32_derivation.insert(
+        derived.0.private_key.public_key(&oracle.secp),
+        (oracle.master_fp, fake_chg_path),
+    );
+    let mixed_insp = inspect_psbt(&mixed_psbt, Some(mnemonic), None)?;
+    if mixed_insp.can_sign
+        || !mixed_insp
+            .fatal_blocks
+            .iter()
+            .any(|b| b.contains("CHANGE-SPOOFING BLOCKED"))
+        || sign_psbt(&mut mixed_psbt, mnemonic, None).is_ok()
+    {
+        return Err(SubZeroError::Psbt(
+            "KAT failure: Mixed valid+spoofed bip32_derivation was not blocked.".into(),
         ));
     }
 

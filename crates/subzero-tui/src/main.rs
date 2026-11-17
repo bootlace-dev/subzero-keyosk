@@ -11,6 +11,7 @@
 //!    its SHA-256-verified `/usr/bin/memtester-static` single-pass physical RAM scrub + `init_on_free=1`
 //!    page release before shutdown.
 
+mod cli;
 mod qr_tui;
 mod storage;
 
@@ -33,7 +34,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Tabs, Wrap};
 use ratatui::{Frame, Terminal};
-use zeroize::Zeroize;
+use zeroize::{Zeroize, Zeroizing};
 
 use qr_tui::{render_console_qr_lines, TuiQrMode};
 use storage::{
@@ -361,8 +362,21 @@ impl AppState {
         self.bip85_children.clear();
         self.bip85_public.clear();
 
-        self.bbqr_descriptor_parts =
-            encode_bbqr_unicode(&profile.wpkh_descriptor, 2).unwrap_or_default();
+        let desc_for_qr = if profile.wpkh_descriptor.is_empty() {
+            profile.tr_descriptor.as_deref().unwrap_or("")
+        } else {
+            &profile.wpkh_descriptor
+        };
+        self.addr_chain = if profile.wpkh_descriptor.is_empty() && !profile.tr_receive_addresses.is_empty() {
+            AddressChainView::Bip86Taproot
+        } else {
+            AddressChainView::Bip84Receive
+        };
+        self.bbqr_descriptor_parts = if desc_for_qr.is_empty() {
+            Vec::new()
+        } else {
+            encode_bbqr_unicode(desc_for_qr, 2).unwrap_or_default()
+        };
 
         if let Some(ref m) = profile.mnemonic {
             self.compact_seed_qr = mnemonic_to_compact_seed_qr(m).ok();
@@ -467,6 +481,12 @@ impl AppState {
         sweep.fill(0x55);
         sweep.fill(0xAA);
         sweep.zeroize();
+    }
+}
+
+impl Drop for AppState {
+    fn drop(&mut self) {
+        self.zeroize_sensitive();
     }
 }
 
@@ -786,7 +806,7 @@ fn handle_obstacle_key(app: &mut AppState, key: KeyEvent) {
                             );
                         } else {
                             app.set_ok(format!(
-                                "Progress {}/{} chars | Conservative 90B Entropy: {:.1} / {:.0} bits",
+                                "Progress {}/{} chars | Timing Entropy: {:.1} / {:.0} bits",
                                 app.obstacle_typed.len(),
                                 OBSTACLE_COURSE_LEN,
                                 rep.estimated_min_entropy_bits,
@@ -887,8 +907,10 @@ fn handle_key_event(app: &mut AppState, key: KeyEvent) -> bool {
                 return false;
             }
             if key.modifiers.contains(KeyModifiers::ALT) {
-                if let KeyCode::Char(c @ '1'..='6') = key.code {
-                    app.intake_method = IntakeMethod::ALL[(c as usize) - ('1' as usize)];
+                if let KeyCode::Char(c @ '1'..='5') = key.code {
+                    if let Some(&method) = IntakeMethod::ALL.get((c as usize) - ('1' as usize)) {
+                        app.intake_method = method;
+                    }
                     return false;
                 }
             }
@@ -1089,7 +1111,11 @@ fn handle_key_event(app: &mut AppState, key: KeyEvent) -> bool {
                     app.set_err("Press Enter to inspect and verify the current PSBT buffer before signing (Ctrl+G).");
                     return false;
                 }
-                let Some(mnem) = app.wallet.as_ref().and_then(|w| w.mnemonic.clone()) else {
+                let Some(mnem) = app
+                    .wallet
+                    .as_ref()
+                    .and_then(|w| w.mnemonic.as_ref().map(|m| Zeroizing::new(m.clone())))
+                else {
                     app.set_err("Cannot sign: load a private-key wallet first (current session is empty or Watch-Only).");
                     return false;
                 };
@@ -1240,7 +1266,11 @@ fn handle_key_event(app: &mut AppState, key: KeyEvent) -> bool {
                         }
                     }
                 } else {
-                    let Some(mnem) = app.wallet.as_ref().and_then(|w| w.mnemonic.clone()) else {
+                    let Some(mnem) = app
+                        .wallet
+                        .as_ref()
+                        .and_then(|w| w.mnemonic.as_ref().map(|m| Zeroizing::new(m.clone())))
+                    else {
                         app.set_err("Load a mnemonic wallet first to sign with pipe-k1.");
                         return false;
                     };
@@ -1319,9 +1349,13 @@ fn handle_key_event(app: &mut AppState, key: KeyEvent) -> bool {
                     };
                     let payload = DecryptedVaultPayload {
                         version: SUBZERO_VERSION.into(),
-                        created_utc: app.estate_stamp_buf.clone(),
+                        created_utc: cli::current_utc_iso8601(),
                         master_root_mnemonic: mnem.clone(),
-                        descriptor: w.wpkh_descriptor.clone(),
+                        descriptor: if w.wpkh_descriptor.is_empty() {
+                            w.tr_descriptor.clone().unwrap_or_default()
+                        } else {
+                            w.wpkh_descriptor.clone()
+                        },
                         heir_treasuries: if app.bip85_children.len() > 1 {
                             app.bip85_children[1..].to_vec()
                         } else {
@@ -1561,7 +1595,7 @@ fn draw_intake(f: &mut Frame<'_>, area: Rect, app: &AppState) {
         Paragraph::new(Line::from(mode_spans)).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(" Intake Mode (Ctrl+N / Ctrl+P or Alt+1..6) "),
+                .title(" Intake Mode (Ctrl+N / Ctrl+P or Alt+1..5) "),
         ),
         sub[0],
     );
@@ -1667,14 +1701,17 @@ fn draw_intake(f: &mut Frame<'_>, area: Rect, app: &AppState) {
                 .unwrap_or(0);
             vec![
                 Line::from(Span::styled(
-                    "Tier 2: Cooperative 200-Char Cross-Row Obstacle Course [Unclamped Host Clock Required]",
+                    format!(
+                        "Tier 2: Cooperative {}-Char Cross-Row Obstacle Course [Unclamped Host Clock Required]",
+                        OBSTACLE_COURSE_LEN
+                    ),
                     Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(
                     "We are on the same team: transcribe accurately! Red typos lock forward progress until fixed with Backspace,",
                 ),
                 Line::from(format!(
-                    "naturally pacing your hands and adding high-entropy recovery jitter. Typed: {}/{} | Backspaces: {} | 90B Bits: {:.1}/{:.0}",
+                    "naturally pacing your hands and adding high-entropy recovery jitter. Typed: {}/{} | Backspaces: {} | Timing Bits: {:.1}/{:.0}",
                     t_chars.len(),
                     OBSTACLE_COURSE_LEN,
                     backspaces,
@@ -1684,7 +1721,10 @@ fn draw_intake(f: &mut Frame<'_>, area: Rect, app: &AppState) {
                 Line::from(""),
                 Line::from(prompt_spans),
                 Line::from(""),
-                Line::from("When 200/200 green & >=192 bits, press Enter to derive wallet (Ctrl+R new round)."),
+                Line::from(format!(
+                    "When {}/{} green & >={:.0} timing bits, press Enter to derive wallet (Ctrl+R new round).",
+                    OBSTACLE_COURSE_LEN, OBSTACLE_COURSE_LEN, MIN_TIER2_ENTROPY_BITS
+                )),
             ]
         }
         IntakeMethod::ImportOrScan => vec![
@@ -1693,7 +1733,7 @@ fn draw_intake(f: &mut Frame<'_>, area: Rect, app: &AppState) {
                 Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
             )),
             Line::from(
-                "Paste 12/24 BIP-39 words, 4-letter punch prefixes, CompactSeedQR digits, 32-char TRNG hex, or Watch-Only wpkh/tr/vpub:",
+                "Paste 12 BIP-39 words, 4-letter punch prefixes, CompactSeedQR digits, 32-char TRNG hex, or Watch-Only wpkh/tr/vpub:",
             ),
             Line::from("(Press Ctrl+S to scan from USB webcam via V4L2 + pure-Rust rqrr, Enter to import, Ctrl+U to clear)"),
             Line::from(""),
@@ -1758,8 +1798,22 @@ fn draw_wallet(f: &mut Frame<'_>, area: Rect, app: &AppState) {
             "Master XFP: [{}]  |  Source: {}  |  {}",
             w.fingerprint, w.entropy_label, w.audit_summary
         )),
-        Line::from(format!("BIP-84 wpkh: {}", w.wpkh_descriptor)),
-        Line::from(format!("SLIP-132 vpub: {}", w.bip84_vpub_slip132)),
+        Line::from(format!(
+            "BIP-84 wpkh: {}",
+            if w.wpkh_descriptor.is_empty() {
+                "(Taproot-only watch-only profile)"
+            } else {
+                &w.wpkh_descriptor
+            }
+        )),
+        Line::from(format!(
+            "SLIP-132 vpub: {}",
+            if w.bip84_vpub_slip132.is_empty() {
+                "(N/A)"
+            } else {
+                &w.bip84_vpub_slip132
+            }
+        )),
     ];
     if let Some(ref tr) = w.tr_descriptor {
         lines.push(Line::from(format!("BIP-86 tr:   {tr}")));
@@ -2177,6 +2231,13 @@ fn main() {
     if args.iter().any(|a| a == "--self-test") {
         if let Err(e) = run_self_test() {
             eprintln!("SELF-TEST FAILED: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+    if let Some(res) = cli::run_cli_subcommand(&args) {
+        if let Err(e) = res {
+            eprintln!("CLI ERROR: {e}");
             std::process::exit(1);
         }
         return;

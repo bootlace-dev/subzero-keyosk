@@ -22,6 +22,7 @@ use sha2::{Digest, Sha256, Sha512};
 use zeroize::{Zeroize, ZeroizeOnDrop, Zeroizing};
 
 use crate::error::SubZeroError;
+use crate::keys::ZeroizingXpriv;
 
 type HmacSha512 = Hmac<Sha512>;
 
@@ -123,17 +124,22 @@ fn derive_operational_secret(
     let seed = Zeroizing::new(mnemonic.to_seed(passphrase_str.trim()));
 
     let secp = Secp256k1::new();
-    let root_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())
-        .map_err(|e| SubZeroError::PipeK1(format!("BIP-32 master error: {e}")))?;
+    let root_xprv = ZeroizingXpriv(
+        Xpriv::new_master(Network::Testnet4, seed.as_ref())
+            .map_err(|e| SubZeroError::PipeK1(format!("BIP-32 master error: {e}")))?,
+    );
 
     let path_str = format!("m/83696968'/128002'/{identity}'/{index}'");
     let path =
         DerivationPath::from_str(&path_str).map_err(|e| SubZeroError::PipeK1(e.to_string()))?;
-    let child_xprv = root_xprv
-        .derive_priv(&secp, &path)
-        .map_err(|e| SubZeroError::PipeK1(format!("BIP-85 child error: {e}")))?;
+    let child_xprv = ZeroizingXpriv(
+        root_xprv
+            .0
+            .derive_priv(&secp, &path)
+            .map_err(|e| SubZeroError::PipeK1(format!("BIP-85 child error: {e}")))?,
+    );
 
-    let mut child_priv = child_xprv.private_key.secret_bytes();
+    let mut child_priv = child_xprv.0.private_key.secret_bytes();
     let mut mac = HmacSha512::new_from_slice(b"bip-entropy-from-k")
         .map_err(|_| SubZeroError::PipeK1("HMAC init error".into()))?;
     mac.update(&child_priv);

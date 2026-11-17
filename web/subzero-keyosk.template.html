@@ -299,7 +299,7 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
       </div>
       <div id="obstacle-display" class="obstacle-box"></div>
       <div class="meter-bar"><div id="obstacle-meter" class="meter-fill"></div></div>
-      <div id="obstacle-stats" class="hint">Matched: 0 / 100 | Backspaces: 0 | Conservative 90B Min-Entropy: 0.0 / 144 bits</div>
+      <div id="obstacle-stats" class="hint">Matched: 0 / 100 | Backspaces: 0 | Conservative Timing Estimate: 0.0 / 144 bits</div>
       <label for="obstacle-focus">Click inside the box below and type the highlighted character (<code>Paste</code> and <code>Auto-Repeat</code> are ignored):</label>
       <input id="obstacle-focus" type="text" spellcheck="false" autocomplete="off" placeholder="Click here and type the blue-highlighted character above...">
       <div class="row">
@@ -310,8 +310,8 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
 
     <div class="card">
       <h2>E. Tier 2B: Free-Form Keys / Arrows + Optional Mouse Jitter <span class="badge tier2">64+ Events</span></h2>
-      <div class="hint">Type any mix of keys or arrow keys (Up/Down/Left/Right) and optionally wiggle your mouse/trackpad over the box. Needs 64+ non-repeat events across 8+ distinct keys.</div>
-      <div id="ff-stats" class="hint">Keys/Arrows: 0 / 64 | Pointer Jitter: 0</div>
+      <div class="hint">Type any mix of keys or arrow keys (Up/Down/Left/Right) at natural varied speeds and optionally wiggle your mouse/trackpad over the box. Needs 64+ non-repeat events across 8+ distinct keys and >= 144 timing bits.</div>
+      <div id="ff-stats" class="hint">Keys/Arrows: 0 / 64 | Distinct: 0 / 8 | Timing: 0.0 / 144 bits | Pointer Jitter: 0</div>
       <input id="ff-focus" type="text" spellcheck="false" autocomplete="off" placeholder="Click here and type random keys / arrows (mouse wiggle optional)...">
       <div class="row">
         <button id="btn-finalize-ff" type="button" class="success" disabled>Derive Free-Form Vault</button>
@@ -782,8 +782,13 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
       draw();
       if (svgs.length > 1) qrAnimTimer = setInterval(draw, 400);
     } else if (mode === "wpkh_static") {
-      renderSvgInto(stage, currentWallet.wpkh_qr_svg);
-      cap.textContent = "Single-frame BIP-84 Watch-Only Descriptor (Sparrow / Bitcoin Core)";
+      if (currentWallet.wpkh_qr_svg) {
+        renderSvgInto(stage, currentWallet.wpkh_qr_svg);
+        cap.textContent = "Single-frame BIP-84 Watch-Only Descriptor (Sparrow / Bitcoin Core)";
+      } else {
+        stage.textContent = "N/A";
+        cap.textContent = "BIP-84 descriptor unavailable on Taproot-only watch-only import.";
+      }
     } else if (mode === "vpub") {
       if (currentWallet.profile.bip84_vpub_slip132) {
         renderSvgInto(stage, currentWallet.vpub_qr_svg);
@@ -947,6 +952,9 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     document.getElementById("w-extra-desc").textContent =
       "SLIP-0132 vpub:\n" + (p.bip84_vpub_slip132 || "(N/A)") + "\n\nBIP-86 Taproot Descriptor:\n" + (p.tr_descriptor || "(N/A)");
 
+    document.getElementById("addr-branch-select").value =
+      (!p.wpkh_descriptor && p.tr_descriptor) ? "recv86" : "recv84";
+    document.getElementById("addr-page").value = "0";
     updateWalletQrExport();
     renderAddressTable();
     renderBip85Panel(null);
@@ -1013,7 +1021,7 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     document.getElementById("obstacle-stats").textContent =
       "Matched: " + obstacleMatched + " / " + obstaclePrompt.length +
       " | Backspaces: " + bsCount +
-      " | 90B Min-Entropy: " + estBits.toFixed(1) + " / 144 bits | " + healthNote + typoHint;
+      " | Timing Bits: " + estBits.toFixed(1) + " / 144 bits | " + healthNote + typoHint;
 
     document.getElementById("btn-finalize-tier2").disabled =
       !(obstacleMatched === obstaclePrompt.length && obstacleTypos.length === 0 && obstaclePrompt.length >= 100);
@@ -1142,8 +1150,18 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
   const btnFf = document.getElementById("btn-finalize-ff");
   function updateFfUi() {
     const distinct = new Set(ffSamples.map((s) => s.key)).size;
-    ffStats.textContent = "Keys/Arrows: " + ffSamples.length + " / 64 | Distinct: " + distinct + " / 8 | Pointer Jitter: " + ffPointer.length;
-    btnFf.disabled = ffSamples.length < 64 || distinct < 8;
+    let estBits = 0;
+    let healthMsg = "";
+    if (ffSamples.length >= 16) {
+      const h = rpc({ cmd: "evaluate_keystroke_health", samples: ffSamples });
+      if (h.ok) {
+        estBits = h.data.estimated_min_entropy_bits;
+      } else {
+        healthMsg = " | " + h.error;
+      }
+    }
+    ffStats.textContent = "Keys/Arrows: " + ffSamples.length + " / 64 | Distinct: " + distinct + " / 8 | Timing: " + estBits.toFixed(1) + " / 144 bits | Pointer Jitter: " + ffPointer.length + healthMsg;
+    btnFf.disabled = ffSamples.length < 64 || distinct < 8 || estBits < 144;
   }
   ffInput.addEventListener("keydown", (e) => {
     if (e.repeat || e.key === "CapsLock" || e.key === "Tab") return;
@@ -1600,7 +1618,7 @@ code { background: rgba(110,118,129,0.22); padding: 1px 5px; border-radius: 4px;
     const res = rpc({
       cmd: "encrypt_vault",
       created_utc: utc,
-      descriptor: currentWallet.profile.wpkh_descriptor,
+      descriptor: currentWallet.profile.wpkh_descriptor || currentWallet.profile.tr_descriptor || "",
       passphrase: pass,
     });
     if (!res.ok) {

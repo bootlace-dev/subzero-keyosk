@@ -27,6 +27,24 @@ use crate::presets::get_preset;
 
 type HmacSha512 = Hmac<Sha512>;
 
+/// Overwrite an `Xpriv` in memory with dummy material via volatile writes so
+/// both its `private_key` and `chain_code` are scrubbed cleanly on drop.
+pub(crate) fn erase_xpriv(xprv: &mut Xpriv) {
+    if let Ok(dummy) = Xpriv::new_master(Network::Testnet4, &[0u8; 16]) {
+        unsafe {
+            core::ptr::write_volatile(xprv, dummy);
+        }
+    }
+}
+
+pub(crate) struct ZeroizingXpriv(pub(crate) Xpriv);
+
+impl Drop for ZeroizingXpriv {
+    fn drop(&mut self) {
+        erase_xpriv(&mut self.0);
+    }
+}
+
 pub const DEFAULT_ADDRESS_GAP: u32 = 50;
 pub const DEFAULT_TAPROOT_GAP: u32 = 20;
 
@@ -222,7 +240,7 @@ pub fn wallet_from_mnemonic_with_meta(
     }
     let canonical_phrase = Zeroizing::new(mnemonic.to_string());
     let mut ent_arr = [0u8; 16];
-    let raw_ent = mnemonic.to_entropy();
+    let raw_ent = Zeroizing::new(mnemonic.to_entropy());
     if raw_ent.len() == 16 {
         ent_arr.copy_from_slice(&raw_ent);
     }
@@ -255,17 +273,22 @@ pub fn wallet_from_mnemonic_with_meta(
     let seed = Zeroizing::new(mnemonic.to_seed(""));
 
     let secp = Secp256k1::new();
-    let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())
-        .map_err(|e| SubZeroError::Bip32(e.to_string()))?;
-    let master_fp = master_xprv.fingerprint(&secp).to_string();
+    let master_xprv = ZeroizingXpriv(
+        Xpriv::new_master(Network::Testnet4, seed.as_ref())
+            .map_err(|e| SubZeroError::Bip32(e.to_string()))?,
+    );
+    let master_fp = master_xprv.0.fingerprint(&secp).to_string();
 
     // 1. BIP-84 Native SegWit (m/84'/1'/0')
     let path84 =
         DerivationPath::from_str("m/84'/1'/0'").map_err(|e| SubZeroError::Bip32(e.to_string()))?;
-    let acct84_xprv = master_xprv
-        .derive_priv(&secp, &path84)
-        .map_err(|e| SubZeroError::Bip32(e.to_string()))?;
-    let acct84_xpub = Xpub::from_priv(&secp, &acct84_xprv);
+    let acct84_xprv = ZeroizingXpriv(
+        master_xprv
+            .0
+            .derive_priv(&secp, &path84)
+            .map_err(|e| SubZeroError::Bip32(e.to_string()))?,
+    );
+    let acct84_xpub = Xpub::from_priv(&secp, &acct84_xprv.0);
     let bip84_tpub = acct84_xpub.to_string();
     let bip84_vpub_slip132 = encode_slip132_vpub(&acct84_xpub);
 
@@ -278,10 +301,13 @@ pub fn wallet_from_mnemonic_with_meta(
     // 2. BIP-86 Taproot (m/86'/1'/0')
     let path86 =
         DerivationPath::from_str("m/86'/1'/0'").map_err(|e| SubZeroError::Bip32(e.to_string()))?;
-    let acct86_xprv = master_xprv
-        .derive_priv(&secp, &path86)
-        .map_err(|e| SubZeroError::Bip32(e.to_string()))?;
-    let acct86_xpub = Xpub::from_priv(&secp, &acct86_xprv);
+    let acct86_xprv = ZeroizingXpriv(
+        master_xprv
+            .0
+            .derive_priv(&secp, &path86)
+            .map_err(|e| SubZeroError::Bip32(e.to_string()))?,
+    );
+    let acct86_xpub = Xpub::from_priv(&secp, &acct86_xprv.0);
     let bip86_tpub = acct86_xpub.to_string();
 
     let raw_tr = format!("tr([{master_fp}/86'/1'/0']{bip86_tpub}/<0;1>/*)");
@@ -647,9 +673,9 @@ pub fn import_watch_only_descriptor(raw_input: &str) -> Result<WalletProfile, Su
             repro_formula_hint: format!("Public BIP-86 Taproot watch-only account (m/86'/1'/{parsed_acct_idx}')"),
             bip84_tpub: String::new(),
             bip84_vpub_slip132: String::new(),
-            wpkh_descriptor: tr_desc.clone(),
-            receive_addresses: tr_recv.clone(),
-            change_addresses: tr_chg.clone(),
+            wpkh_descriptor: String::new(),
+            receive_addresses: Vec::new(),
+            change_addresses: Vec::new(),
             bip86_tpub: Some(tpub_str),
             tr_descriptor: Some(tr_desc),
             tr_receive_addresses: tr_recv,
@@ -741,21 +767,26 @@ pub fn derive_bip85_children(master_mnemonic: &str, count: u32) -> Result<Vec<Bi
         .map_err(|e| SubZeroError::Mnemonic(format!("Invalid master mnemonic: {e}")))?;
     let seed = Zeroizing::new(mnemonic.to_seed(""));
     let secp = Secp256k1::new();
-    let master_xprv = Xpriv::new_master(Network::Testnet4, seed.as_ref())
-        .map_err(|e| SubZeroError::Bip32(e.to_string()))?;
+    let master_xprv = ZeroizingXpriv(
+        Xpriv::new_master(Network::Testnet4, seed.as_ref())
+            .map_err(|e| SubZeroError::Bip32(e.to_string()))?,
+    );
 
     let mut children = Vec::with_capacity((capped + 1) as usize);
     for idx in 0..=capped {
         let path_str = format!("m/83696968'/39'/0'/12'/{idx}'");
         let path =
             DerivationPath::from_str(&path_str).map_err(|e| SubZeroError::Bip32(e.to_string()))?;
-        let derived = master_xprv
-            .derive_priv(&secp, &path)
-            .map_err(|e| SubZeroError::Bip32(e.to_string()))?;
+        let derived = ZeroizingXpriv(
+            master_xprv
+                .0
+                .derive_priv(&secp, &path)
+                .map_err(|e| SubZeroError::Bip32(e.to_string()))?,
+        );
 
         let mut mac = HmacSha512::new_from_slice(b"bip-entropy-from-k")
             .map_err(|_| SubZeroError::Bip32("HMAC error".into()))?;
-        let mut sk_bytes = derived.private_key.secret_bytes();
+        let mut sk_bytes = derived.0.private_key.secret_bytes();
         mac.update(&sk_bytes);
         sk_bytes.zeroize();
         let mut digest = mac.finalize().into_bytes();
@@ -853,13 +884,27 @@ mod tests {
         assert_eq!(from_punch.fingerprint, "73c5da0a");
         assert_eq!(from_punch.trust_tier, EntropyTrustTier::DeterministicRehearsalPreset);
 
+        // Official BIP-84 / SLIP-0132 Testnet4 Vector 0 (`abandon...about`, `73c5da0a`)
+        let p0 = load_rehearsal_preset(0).unwrap();
+        assert_eq!(
+            p0.receive_addresses[0],
+            "tb1q6rz28mcfaxtmd6v789l9rrlrusdprr9pqcpvkl"
+        );
+        assert_eq!(
+            p0.bip84_vpub_slip132,
+            "vpub5Y6cjg78GGuNLsaPhmYsiw4gYX3HoQiRBiSwDaBXKUafCt9bNwWQiitDk5VZ5BVxYnQdwoTyXSs2JHRPAgjAvtbBrf8ZhDYe2jWAqvZVnsc"
+        );
+
         let watch = import_wallet_material(&p0.wpkh_descriptor).unwrap();
         assert!(watch.is_watch_only);
         assert!(watch.mnemonic.is_none());
         assert_eq!(watch.receive_addresses[0], p0.receive_addresses[0]);
 
-        // Watch-only Taproot (`tr(...)`) export MUST NOT emit a P2WPKH `bip84` vpub (`[M-3]` regression)!
+        // Watch-only Taproot (`tr(...)`) export MUST NOT mislabel tr descriptors/addresses as BIP-84 wpkh!
         let watch_tr = import_wallet_material(p0.tr_descriptor.as_deref().unwrap()).unwrap();
+        assert!(watch_tr.wpkh_descriptor.is_empty());
+        assert!(watch_tr.receive_addresses.is_empty());
+        assert_eq!(watch_tr.tr_receive_addresses[0], p0.tr_receive_addresses[0]);
         let tr_json = export_sparrow_watch_only_json(&watch_tr).unwrap();
         assert!(!tr_json.contains("\"bip84\""), "TR-only watch wallet must not emit bip84: {tr_json}");
         assert!(tr_json.contains("\"bip86\""));
